@@ -45,8 +45,16 @@ jobs:
             echo "Missing secret APK_SIGNING_KEYSTORE_BASE64"
             exit 1
           fi
-          echo "$KEYSTORE_B64" | base64 --decode > app/smlieapp.jks
+          printf '%s' "$KEYSTORE_B64" | tr -d '\n\r ' | base64 --decode > app/smlieapp.jks
           test -s app/smlieapp.jks
+          python3 - <<'PY'
+          import sys
+          data = open("app/smlieapp.jks", "rb").read(4)
+          if data != b"\xfe\xed\xfe\xed":
+              print("Decoded keystore is not a valid JKS (magic=%r)" % data)
+              sys.exit(1)
+          print("Keystore decoded, size=%d" % __import__("os").path.getsize("app/smlieapp.jks"))
+          PY
 
       - name: Build Release APK (${{ matrix.abi }})
         env:
@@ -55,11 +63,20 @@ jobs:
           APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
           APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
         run: |
-          ./gradlew :app:assembleRelease \
-            -PorangeFfmpegAbis="${{ matrix.abi }}" \
-            -PappStorePassword="$APK_KEYSTORE_PASSWORD" \
-            -PappKeyAlias="$APK_KEY_ALIAS" \
-            -PappKeyPassword="$APK_KEY_PASSWORD"
+          GRADLE_ARGS=(
+            :app:assembleRelease
+            -PorangeFfmpegAbis="${{ matrix.abi }}"
+          )
+          if [ -n "$APK_KEYSTORE_PASSWORD" ]; then
+            GRADLE_ARGS+=(-PappStorePassword="$APK_KEYSTORE_PASSWORD")
+          fi
+          if [ -n "$APK_KEY_ALIAS" ]; then
+            GRADLE_ARGS+=(-PappKeyAlias="$APK_KEY_ALIAS")
+          fi
+          if [ -n "$APK_KEY_PASSWORD" ]; then
+            GRADLE_ARGS+=(-PappKeyPassword="$APK_KEY_PASSWORD")
+          fi
+          ./gradlew "${GRADLE_ARGS[@]}"
 
       - name: Rename APK
         run: |
