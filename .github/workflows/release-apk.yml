@@ -40,6 +40,8 @@ jobs:
       - name: Decode signing keystore
         env:
           KEYSTORE_B64: ${{ secrets.APK_SIGNING_KEYSTORE_BASE64 }}
+          APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+          APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
         run: |
           if [ -z "$KEYSTORE_B64" ]; then
             echo "Missing secret APK_SIGNING_KEYSTORE_BASE64"
@@ -48,13 +50,16 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | tr -d '\n\r ' | base64 --decode > app/smlieapp.jks
           test -s app/smlieapp.jks
           python3 - <<'PY'
-          import sys
+          import os, sys
           data = open("app/smlieapp.jks", "rb").read(4)
           if data != b"\xfe\xed\xfe\xed":
               print("Decoded keystore is not a valid JKS (magic=%r)" % data)
               sys.exit(1)
-          print("Keystore decoded, size=%d" % __import__("os").path.getsize("app/smlieapp.jks"))
+          print("Keystore decoded, size=%d" % os.path.getsize("app/smlieapp.jks"))
           PY
+          STORE_PASS="${APK_KEYSTORE_PASSWORD:-123123}"
+          KEY_ALIAS="${APK_KEY_ALIAS:-smlieapp}"
+          keytool -list -keystore app/smlieapp.jks -storepass "$STORE_PASS" -alias "$KEY_ALIAS" >/dev/null
 
       - name: Build Release APK (${{ matrix.abi }})
         env:
@@ -63,20 +68,14 @@ jobs:
           APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
           APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
         run: |
-          GRADLE_ARGS=(
-            :app:assembleRelease
-            -PorangeFfmpegAbis="${{ matrix.abi }}"
-          )
-          if [ -n "$APK_KEYSTORE_PASSWORD" ]; then
-            GRADLE_ARGS+=(-PappStorePassword="$APK_KEYSTORE_PASSWORD")
-          fi
-          if [ -n "$APK_KEY_ALIAS" ]; then
-            GRADLE_ARGS+=(-PappKeyAlias="$APK_KEY_ALIAS")
-          fi
-          if [ -n "$APK_KEY_PASSWORD" ]; then
-            GRADLE_ARGS+=(-PappKeyPassword="$APK_KEY_PASSWORD")
-          fi
-          ./gradlew "${GRADLE_ARGS[@]}"
+          STORE_PASS="${APK_KEYSTORE_PASSWORD:-123123}"
+          KEY_ALIAS="${APK_KEY_ALIAS:-smlieapp}"
+          KEY_PASS="${APK_KEY_PASSWORD:-123123}"
+          ./gradlew :app:assembleRelease \
+            -PorangeFfmpegAbis="${{ matrix.abi }}" \
+            -PappStorePassword="$STORE_PASS" \
+            -PappKeyAlias="$KEY_ALIAS" \
+            -PappKeyPassword="$KEY_PASS"
 
       - name: Rename APK
         run: |
