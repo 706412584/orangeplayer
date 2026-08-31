@@ -131,4 +131,7 @@ dependencies {
     androidTestImplementation 'androidx.test:runner:1.4.0'
 }
 
-apply from: "${rootDir}/scripts/publish-module.gradle"
+def publishModuleScript = file("${rootDir}/scripts/publish-module.gradle")
+if (publishModuleScript.exists()) {
+    apply from: publishModuleScript
+}

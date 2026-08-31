@@ -95,8 +95,15 @@ dependencies {
 }
 
 
-// 应用 Maven Central 发布配置
-apply from: "${rootProject.projectDir}/maven-publish.gradle"
+// 应用 Maven Central 发布配置（本地文件，CI 上可能不存在）
+def mavenPublishScript = file("${rootProject.projectDir}/maven-publish.gradle")
+if (mavenPublishScript.exists()) {
+    apply from: mavenPublishScript
+}
+
+if (!mavenPublishScript.exists()) {
+    return
+}
 
 afterEvaluate {
     publishing {

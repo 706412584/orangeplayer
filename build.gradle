@@ -13,7 +13,13 @@ ext {
     compileSdkVersion = 36
     buildToolsVersion = "34.0.0"
     targetSdkVersion = 36
+    // 发布脚本被 gitignore 时，模块仍需要这些默认值才能配置
+    pomGroupId = 'io.github.706412584'
+    pomVersion = '1.3.2'
 }
 
-// Maven Central 发布配置
-apply from: "${rootDir}/maven-publish.gradle"
+// Maven Central 发布配置（本地文件，CI 上可能不存在）
+def mavenPublishScript = file("${rootDir}/maven-publish.gradle")
+if (mavenPublishScript.exists()) {
+    apply from: mavenPublishScript
+}
