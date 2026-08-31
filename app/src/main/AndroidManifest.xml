@@ -17,6 +17,7 @@
 	<!-- 下载功能需要的权限 -->
 	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+	<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -55,6 +56,32 @@
 				android:screenOrientation="portrait"
 				android:supportsPictureInPicture="true"
 				android:resizeableActivity="true" />
+
+		<activity
+				android:name=".OpenWithActivity"
+				android:exported="true"
+				android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+				android:screenOrientation="portrait"
+				android:supportsPictureInPicture="true"
+				android:resizeableActivity="true">
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data android:scheme="content" />
+				<data android:scheme="file" />
+				<data android:scheme="http" />
+				<data android:scheme="https" />
+				<data android:mimeType="video/*" />
+				<data android:mimeType="application/vnd.apple.mpegurl" />
+				<data android:mimeType="application/x-mpegURL" />
+			</intent-filter>
+			<intent-filter>
+				<action android:name="android.intent.action.SEND" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<data android:mimeType="video/*" />
+			</intent-filter>
+		</activity>
 		
 		<meta-data
 				android:name="orange.downloader.ffmpeg.merge.enabled"
