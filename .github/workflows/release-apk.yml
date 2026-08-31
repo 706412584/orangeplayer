@@ -56,6 +56,7 @@ jobs:
           APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
         run: |
           ./gradlew :app:assembleRelease \
+            -PorangeFfmpegAbis="${{ matrix.abi }}" \
             -PappStorePassword="$APK_KEYSTORE_PASSWORD" \
             -PappKeyAlias="$APK_KEY_ALIAS" \
             -PappKeyPassword="$APK_KEY_PASSWORD"

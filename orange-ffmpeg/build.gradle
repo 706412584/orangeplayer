@@ -24,6 +24,16 @@ if (!invalidRequestedAbis.isEmpty()) {
     throw new GradleException("[orange-ffmpeg] invalid orangeFfmpegAbis: ${invalidRequestedAbis}, allowed: ${allowedFfmpegAbis}")
 }
 
+def requiredFfmpegArchives = ["libavcodec.a", "libavformat.a", "libavutil.a", "libswresample.a", "libswscale.a"]
+def ffmpegNativeAvailable = requestedFfmpegAbis.every { abi ->
+    def libDir = file("src/main/cpp/third_party/ffmpeg/${abi}/lib")
+    def header = file("src/main/cpp/third_party/ffmpeg/${abi}/include/libavformat/avformat.h")
+    header.exists() && requiredFfmpegArchives.every { archive -> file("${libDir}/${archive}").exists() }
+}
+if (!ffmpegNativeAvailable) {
+    logger.lifecycle("[orange-ffmpeg] third_party FFmpeg archives missing, skip native build (Java stub mode)")
+}
+
 android {
     namespace 'com.orange.ffmpeg'
     compileSdk 36
@@ -35,13 +45,15 @@ android {
         consumerProguardFiles 'consumer-rules.pro'
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
-        ndk {
-            abiFilters(*requestedFfmpegAbis)
-        }
-
-        externalNativeBuild {
-            cmake {
-                cppFlags ''
+        if (ffmpegNativeAvailable) {
+            ndk {
+                abiFilters(*requestedFfmpegAbis)
+            }
+            externalNativeBuild {
+                cmake {
+                    // NDK 27+ 最低平台是 21，不能按 minSdk 14 传 android-14
+                    arguments "-DANDROID_PLATFORM=android-21"
+                }
             }
         }
     }
@@ -69,10 +81,12 @@ android {
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path 'src/main/cpp/CMakeLists.txt'
-            version '3.22.1'
+    if (ffmpegNativeAvailable) {
+        externalNativeBuild {
+            cmake {
+                path 'src/main/cpp/CMakeLists.txt'
+                version '3.22.1'
+            }
         }
     }
 }
