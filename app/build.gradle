@@ -34,11 +34,11 @@ android {
 
     signingConfigs {
         release {
-            // 如果有签名文件，取消注释以下配置
-             storeFile file('smlieapp.jks')
-             storePassword '123123'
-             keyAlias 'smlieapp'
-             keyPassword '123123'
+            // 签名配置：优先读取 Gradle 属性（CI 用），否则使用本地默认值
+            storeFile file(System.getProperty("appKeystoreFile") ?: 'smlieapp.jks')
+            storePassword (findProperty('appStorePassword') ?: '123123')
+            keyAlias (findProperty('appKeyAlias') ?: 'smlieapp')
+            keyPassword (findProperty('appKeyPassword') ?: '123123')
         }
     }
 
