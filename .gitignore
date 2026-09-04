@@ -97,11 +97,12 @@ lint/tmp/
 /orange-decoder/
 /VideoDownloader-master/
 
-# 排除 Maven 发布相关文件
+# 排除 Maven 发布相关文件（maven-publish.gradle 本身无凭据，已入库供 CI 使用）
 /maven-central/bundle.zip
 /maven-central/deployment_response.json
 /maven-central/publish.bat
-/maven-publish.gradle
+# GPG 私钥环（凭据，不入库）
+/maven-central/secring.gpg
 
 # 排除日志文件
 logcat.txt

@@ -1,0 +1,36 @@
+# OrangePlayer Gradle 配置模板
+# 复制为 gradle.properties 并填入真实值（gradle.properties 已被 .gitignore 排除，切勿提交）
+# CI 环境无需此文件：所有凭据通过 GitHub Secrets 以 ORG_GRADLE_PROJECT_* 环境变量注入
+
+# ===== Maven Central 凭证（https://central.sonatype.com → Account → Generate User Token）=====
+# CI 对应 Secrets：OSSRH_USERNAME / OSSRH_PASSWORD
+ossrhUsername=
+ossrhPassword=
+
+# ===== GPG 签名配置（用于 Maven 发布签名）=====
+# CI 对应 Secrets：SIGNING_KEY_ID / SIGNING_PASSWORD / SIGNING_SECRET_KEY_RING_FILE(base64)
+signing.keyId=
+signing.password=
+# secring.gpg 的本地路径（该文件不入库）
+signing.secretKeyRingFile=maven-central/secring.gpg
+
+# ===== Android 配置（必须）=====
+android.useAndroidX=true
+android.enableJetifier=true
+
+# ===== Gradle 内存配置 =====
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError
+org.gradle.daemon=true
+org.gradle.parallel=true
+org.gradle.caching=true
+
+# ===== 指定 Gradle 使用的 Java 路径（本地开发可选；CI 会剥离此行）=====
+# org.gradle.java.home=C\:\\path\\to\\jdk17
+
+# ===== Android SDK 路径（可选，通常由 local.properties 提供）=====
+# sdk.dir=D\:\\android
+
+# ===== Gradle Plugin Portal 凭证（仅发布 Gradle 插件时需要，一般留空）=====
+# 从 https://plugins.gradle.org/ 获取
+gradle.publish.key=
+gradle.publish.secret=
