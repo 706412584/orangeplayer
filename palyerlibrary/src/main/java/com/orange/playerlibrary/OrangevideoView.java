@@ -70,6 +70,10 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     // M3U8去广告状态管理
     private M3U8AdRemovalState mAdState = new M3U8AdRemovalState();
 
+    // P4: 引擎自动回退状态机（每 URL 有界 K=1，自动路径不写用户偏好）
+    private final com.orange.playerlibrary.utils.EngineFallbackTracker mEngineFallbackTracker =
+            new com.orange.playerlibrary.utils.EngineFallbackTracker();
+
 
     // ExoPlayer Surface 切换相关 (Android Q+)
     private SurfaceControlHelper mSurfaceControlHelper = new SurfaceControlHelper();
@@ -485,6 +489,25 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
                 setOrangePlayState(PlayerConstants.STATE_ERROR);
 
+                // P4: 有界引擎自动回退（K=1）——去广告链路之外的重试路径。
+                // 仅当该 URL 曾成功启动过引擎（PREPARED 后失败）才尝试换核，
+                // 避免把"源本身损坏"误判为引擎问题而反复切换。
+                String failedEngine = getCurrentPlayerEngine();
+                com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo urlInfo =
+                        com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(url);
+                String nextEngine = mEngineFallbackTracker.onEngineFailure(
+                        failedEngine, urlInfo,
+                        engine -> isEngineAvailable(engine));
+                if (nextEngine != null && !nextEngine.equals(failedEngine)) {
+                    android.util.Log.w(TAG, "onPlayError: 内核 " + failedEngine
+                            + " 播放失败，自动切换到 " + nextEngine + " 重试（有界）");
+                    post(() -> {
+                        selectPlayerFactory(nextEngine, true);
+                        startPlayLogic();
+                    });
+                    return;
+                }
+
                 // 去广告链路播放失败时，清除原始URL对应缓存，避免下次命中坏缓存
                 if (adRemovalEnabled && hasOriginalM3U8 && mM3U8AdManager != null) {
                     android.util.Log.d(TAG, "Clearing cache for failed m3u8 originalUrl=" + mAdState.getOriginalUrl());
@@ -660,10 +683,12 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             com.orange.playerlibrary.player.OrangeSystemPlayerManager.setForceTextureViewMode(true);
             android.util.Log.d(TAG, "initPlayerFactory: 默认使用 TextureView 渲染模式");
 
-            // 如果用户设置的不是系统播放器，但回退到了系统播放器，更新设置
+            // P4 修正：运行时回退不再覆写用户的持久偏好（旧逻辑直接
+            // setPlayerEngine(DEFAULT)，用户重启后偏好被静默改掉）。
+            // 每次进程启动都会重新探测；用户偏好保持不变。
             if (!PlayerConstants.ENGINE_DEFAULT.equals(engine)) {
-                settingsManager.setPlayerEngine(PlayerConstants.ENGINE_DEFAULT);
-                android.util.Log.i(TAG, "initPlayerFactory: 已自动切换到系统播放器，并更新设置");
+                android.util.Log.i(TAG, "initPlayerFactory: 内核 " + engine
+                        + " 不可用，本次运行回退系统播放器（用户偏好保留）");
             }
         }
 
@@ -1323,25 +1348,28 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                     // 如果检测到 PTS 跳变，且当前使用 IJK 内核，自动切换到 ExoPlayer（带回退机制）
                     // 原因：IJK 基于 FFmpeg，不支持 HLS discontinuity，会导致 seek 跳转错误
                     // ExoPlayer 和阿里云播放器原生支持 discontinuity，不需要切换
+                    // P4: 经 EngineFallbackTracker 计入预算并尊重会话失败集
                     if (hasPtsJump) {
                         String currentEngine = getCurrentPlayerEngine();
-                        
-                        // 只有当前使用 IJK 内核时才需要切换
+
                         if (PlayerConstants.ENGINE_IJK.equals(currentEngine)) {
-                            String targetEngine = null;
-                            
-                            // 优先级：ExoPlayer > 阿里云 > 系统播放器
-                            if (isEngineAvailable(PlayerConstants.ENGINE_EXO)) {
-                                targetEngine = PlayerConstants.ENGINE_EXO;
-                                android.util.Log.w(TAG, "PTS jump detected with IJK player, switching to ExoPlayer for better compatibility");
-                            } else if (isEngineAvailable(PlayerConstants.ENGINE_ALI)) {
-                                targetEngine = PlayerConstants.ENGINE_ALI;
-                                android.util.Log.w(TAG, "PTS jump detected with IJK player, ExoPlayer not available, switching to AliPlayer");
-                            } else {
-                                targetEngine = PlayerConstants.ENGINE_DEFAULT;
-                                android.util.Log.w(TAG, "PTS jump detected with IJK player, ExoPlayer and AliPlayer not available, switching to System Player");
+                            com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo urlInfo =
+                                    com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(playUrl);
+                            String targetEngine = mEngineFallbackTracker.onPtsJumpDetected(
+                                    urlInfo, engine -> isEngineAvailable(engine));
+
+                            if (targetEngine == null) {
+                                // tracker 未给出目标（预算耗尽/失败集/协议不支持），沿用旧优先级兜底
+                                if (isEngineAvailable(PlayerConstants.ENGINE_EXO)) {
+                                    targetEngine = PlayerConstants.ENGINE_EXO;
+                                } else if (isEngineAvailable(PlayerConstants.ENGINE_ALI)) {
+                                    targetEngine = PlayerConstants.ENGINE_ALI;
+                                } else {
+                                    targetEngine = PlayerConstants.ENGINE_DEFAULT;
+                                }
                             }
-                            
+                            android.util.Log.w(TAG, "PTS jump detected with IJK player, switching to "
+                                    + targetEngine + " for better compatibility");
                             selectPlayerFactory(targetEngine, true); // 临时切换
                         } else {
                             android.util.Log.i(TAG, "PTS jump detected but current player (" + currentEngine + ") supports discontinuity, no need to switch");
@@ -1473,23 +1501,25 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             return;
         }
 
-        // 使用智能内核选择器
-        String recommendedEngine = com.orange.playerlibrary.utils.PlayerEngineSelector.selectEngine(url);
-
-        // 检查推荐的内核是否可用
-        if (!isEngineAvailable(recommendedEngine)) {
-            android.util.Log.w(TAG, "推荐的播放器内核不可用: " +
-                    com.orange.playerlibrary.utils.PlayerEngineSelector.getEngineName(recommendedEngine) +
-                    "，将使用当前内核");
+        // P4: 经 EngineFallbackTracker 决策（协议矩阵 + 可用性探测 + 会话失败集）。
+        // 回环代理流（去广告清理流/种子代理）不参与自动换核，避免自反馈。
+        com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo urlInfo =
+                com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(url);
+        if (urlInfo.isLoopbackProxy) {
+            android.util.Log.d(TAG, "autoSelectPlayerEngine: 回环代理流，跳过自动选择");
             return;
         }
 
+        String preferredEngine = PlayerSettingsManager.getInstance(getContext()).getPlayerEngine();
+        String chosenEngine = mEngineFallbackTracker.onUrlSet(url, preferredEngine, urlInfo,
+                engine -> isEngineAvailable(engine));
+
         // 只在需要时才切换内核（避免不必要的切换）
         String currentEngine = getCurrentPlayerEngine();
-        if (!currentEngine.equals(recommendedEngine)) {
-            selectPlayerFactory(recommendedEngine, true); // 临时切换
+        if (!currentEngine.equals(chosenEngine)) {
+            selectPlayerFactory(chosenEngine, true); // 临时切换（不写用户偏好）
             android.util.Log.i(TAG, "自动切换播放器内核: " +
-                    com.orange.playerlibrary.utils.PlayerEngineSelector.getEngineName(recommendedEngine) +
+                    com.orange.playerlibrary.utils.PlayerEngineSelector.getEngineName(chosenEngine) +
                     " (协议: " + com.orange.playerlibrary.utils.PlayerEngineSelector.getProtocolType(url) + ")");
         }
     }
@@ -2211,6 +2241,8 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             // 永久切换，清除临时偏好并更新用户设置
             mAdState.setUserPreferredEngine(null);
             PlayerSettingsManager.getInstance(getContext()).setPlayerEngine(engineType);
+            // P4: 用户动作清空回退状态机自动态（失败集/预算），成为新偏好
+            mEngineFallbackTracker.onUserSelect(engineType);
             android.util.Log.i(TAG, "永久切换内核: " + engineType);
         }
         
