@@ -45,7 +45,11 @@ public class VodControlViewTest {
     @Before
     public void setUp() {
         MockitoAnnotations.openMocks(this);
-        context = ApplicationProvider.getApplicationContext();
+        // 布局引用了 ?attr/selectableItemBackgroundBorderless 等 appcompat 主题属性，
+        // Robolectric 默认主题无法解析，需用 appcompat 主题包装 context
+        context = new android.view.ContextThemeWrapper(
+                ApplicationProvider.getApplicationContext(),
+                androidx.appcompat.R.style.Theme_AppCompat);
         vodControlView = new VodControlView(context);
     }
 
