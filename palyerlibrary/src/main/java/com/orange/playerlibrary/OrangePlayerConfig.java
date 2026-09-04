@@ -14,6 +14,9 @@ public class OrangePlayerConfig {
     private static Boolean sTvMode = null;
     private static boolean sDebugMode = false;
     private static boolean sAutoDetectTvMode = true;
+    // P6: OkHttp DataSource 全局开关（默认关闭；关闭时零行为变化，
+    // 走 ExoSourceManager 默认 DefaultHttpDataSource）
+    private static boolean sOkHttpDataSourceEnabled = false;
     
     /**
      * 设置 TV 模式
@@ -79,11 +82,26 @@ public class OrangePlayerConfig {
     }
     
     /**
+     * 设置 OkHttp DataSource 全局开关（P6）。
+     * 开启后 Exo 引擎的 HTTP 数据源走 OkHttp（需宿主添加
+     * androidx.media3:media3-datasource-okhttp 与 okhttp 依赖并注册
+     * ExoSourceManager 拦截器）；关闭走默认 DefaultHttpDataSource。
+     */
+    public static void setOkHttpDataSourceEnabled(boolean enabled) {
+        sOkHttpDataSourceEnabled = enabled;
+    }
+
+    public static boolean isOkHttpDataSourceEnabled() {
+        return sOkHttpDataSourceEnabled;
+    }
+
+    /**
      * 重置所有配置（用于测试）
      */
     public static void reset() {
         sTvMode = null;
         sDebugMode = false;
         sAutoDetectTvMode = true;
+        sOkHttpDataSourceEnabled = false;
     }
 }

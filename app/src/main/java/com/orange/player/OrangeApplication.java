@@ -4,6 +4,8 @@ import android.app.Application;
 import android.os.Environment;
 import android.util.Log;
 
+import androidx.annotation.Nullable;
+
 import com.orange.playerlibrary.cache.ExternalProxyCacheManager;
 import com.orange.playerlibrary.OrangePlayerConfig;
 import com.orange.playerlibrary.download.VideoDownloaderWrapper;
@@ -49,7 +51,57 @@ public class OrangeApplication extends Application {
             Log.e(TAG, "Failed to initialize VideoDownloader", e);
         }
 
-        
+        // P6: 注册 Exo OkHttp DataSource 拦截器（经 OrangePlayerConfig
+        // 全局开关控制，默认关闭；关闭时 getHttpDataSourceFactory 返回
+        // null，ExoSourceManager 回退默认 DefaultHttpDataSource）
+        com.orange.playerlibrary.OrangePlayerConfig.setOkHttpDataSourceEnabled(true);
+        try {
+            tv.danmaku.ijk.media.exo2.ExoSourceManager.setExoMediaSourceInterceptListener(
+                    new tv.danmaku.ijk.media.exo2.ExoMediaSourceInterceptListener() {
+                        private final okhttp3.OkHttpClient sharedClient =
+                                new okhttp3.OkHttpClient.Builder().build();
+
+                        @Nullable
+                        @Override
+                        public androidx.media3.exoplayer.source.MediaSource getMediaSource(
+                                String dataSource, boolean preview, boolean cacheEnable,
+                                boolean isLooping, java.io.File cacheDir) {
+                            return null; // 不替换 MediaSource
+                        }
+
+                        @Nullable
+                        @Override
+                        public androidx.media3.datasource.DataSource.Factory getHttpDataSourceFactory(
+                                String userAgent,
+                                androidx.media3.datasource.TransferListener listener,
+                                int connectTimeoutMillis, int readTimeoutMillis,
+                                java.util.Map<String, String> mapHeadData,
+                                boolean allowCrossProtocolRedirects) {
+                            if (!com.orange.playerlibrary.OrangePlayerConfig.isOkHttpDataSourceEnabled()) {
+                                return null; // → ExoSourceManager 默认 DefaultHttpDataSource
+                            }
+                            if (mapHeadData == null) {
+                                mapHeadData = new java.util.HashMap<>();
+                            }
+                            Object factory = com.orange.playerlibrary.utils.OkHttpDataSourceHelper
+                                    .createFactory(sharedClient, mapHeadData);
+                            return factory instanceof androidx.media3.datasource.DataSource.Factory
+                                    ? (androidx.media3.datasource.DataSource.Factory) factory
+                                    : null;
+                        }
+
+                        @Nullable
+                        @Override
+                        public androidx.media3.datasource.DataSink.Factory cacheWriteDataSinkFactory(
+                                String cachePath, String url) {
+                            return null;
+                        }
+                    });
+            Log.d(TAG, "Exo OkHttp DataSource interceptor registered");
+        } catch (Throwable t) {
+            Log.w(TAG, "OkHttp DataSource 拦截器注册失败（回退默认网络栈）", t);
+        }
+
         // 注意：播放器核心的初始化不在这里进行
         // 因为 GSYVideoManager 需要 Activity Context
         // 播放核心会在 OrangevideoView 第一次初始化时设置

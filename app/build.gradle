@@ -131,35 +131,38 @@ dependencies {
     implementation "org.libtorrent4j:libtorrent4j-android-x86_64:${libtorrent_version}"
 
     // VideoDownloader 依赖（M3U8 下载功能需要）
-    implementation 'com.squareup.okhttp3:okhttp:4.9.3'
+    // okhttp 统一声明（此前 4.9.3 与 4.9.0 双版本重复，P6 统一为 4.12.0）
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.squareup.okio:okio:3.6.0'
     implementation 'com.google.code.gson:gson:2.10.1'
 
     // 可选 FFmpeg merge 运行时（orange-downloader 为 compileOnly，App 侧按需显式引入）
     implementation project(':orange-ffmpeg')
 
-    
+
     // DialogX 弹窗库（下载管理界面需要）
     // 注意：DialogX 包含 DialogXInterface，需排除传递依赖避免重复类
     implementation('com.github.kongzue:DialogX:0.0.50') {
         transitive = false
     }
-    
+
     // FFmpeg 解码器（二选一）
     // 方案 1：Google 官方 Media3 FFmpeg 解码器（推荐）
     // implementation 'androidx.media3:media3-decoder-ffmpeg:1.5.0'
-    
+
     // 方案 2：Jellyfin 定制版 FFmpeg 解码器（与 SurfaceControl 兼容）
     // 版本号规则：<media3版本>+<jellyfin build>，需与运行时 media3 版本兼容性验证
     implementation 'org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1'
-    
+
     // 注意：FFmpeg 解码器只提供音视频解码能力，不提供协议支持
     // 如需播放 RTSP 直播，请使用 ExoPlayer 或 IJK 内核，而不是依赖 FFmpeg 解码器
-    
+
     // DLNA 投屏库 (UaoanDLNA)
     implementation 'com.github.uaoan:UaoanDLNA:1.0.1'
-    implementation 'com.squareup.okhttp3:okhttp:4.9.0'
-    implementation 'com.squareup.okio:okio:2.10.0'
     implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.5.30'
+
+    // 可选：Media3 OkHttp DataSource（P6；OkHttp 网络栈替代 HttpURLConnection）
+    implementation 'androidx.media3:media3-datasource-okhttp:1.11.0'
     
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.mockito:mockito-core:5.3.1'
