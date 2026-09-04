@@ -2442,11 +2442,56 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     /**
      * 获取当前播放器内核类型
-     * 
+     *
      * @return 内核类型常量（ENGINE_EXO, ENGINE_IJK, ENGINE_DEFAULT, ENGINE_ALI）
      */
     public String getCurrentEngineType() {
         return PlayerSettingsManager.getInstance(getContext()).getPlayerEngine();
+    }
+
+    // ===== 轨道枚举与选择（P2 统一轨道 API）=====
+
+    /**
+     * 获取统一轨道控制器。
+     * 按实际运行引擎分派：Exo → ExoTrackController，IJK → IjkTrackController，
+     * 系统/阿里云 → NoopTrackController（显式 UNSUPPORTED_ENGINE）。
+     */
+    public com.orange.playerlibrary.track.TrackController getTrackController() {
+        try {
+            com.shuyu.gsyvideoplayer.player.IPlayerManager manager = getGSYVideoManager().getPlayer();
+            if (manager == null) {
+                return new com.orange.playerlibrary.track.NoopTrackController();
+            }
+            tv.danmaku.ijk.media.player.IMediaPlayer mediaPlayer = manager.getMediaPlayer();
+            if (mediaPlayer instanceof tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) {
+                return new com.orange.playerlibrary.track.ExoTrackController(
+                        (tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) mediaPlayer);
+            }
+            if (manager instanceof com.shuyu.gsyvideoplayer.player.IjkPlayerManager) {
+                return new com.orange.playerlibrary.track.IjkTrackController(
+                        (com.shuyu.gsyvideoplayer.player.IjkPlayerManager) manager);
+            }
+            return new com.orange.playerlibrary.track.NoopTrackController();
+        } catch (Throwable t) {
+            // 引擎类不在 classpath（compileOnly）时兜底
+            android.util.Log.w(TAG, "getTrackController: " + t);
+            return new com.orange.playerlibrary.track.NoopTrackController();
+        }
+    }
+
+    /** 枚举当前媒体的全部轨道（引擎无关） */
+    public java.util.List<com.orange.playerlibrary.track.TrackInfo> getAvailableTracks() {
+        return getTrackController().getAvailableTracks();
+    }
+
+    /** 选择轨道（如切换音轨/字幕轨），返回操作结果 */
+    public com.orange.playerlibrary.track.TrackResult selectTrack(int trackId) {
+        return getTrackController().selectTrack(trackId);
+    }
+
+    /** 取消选择轨道（如关闭字幕轨） */
+    public com.orange.playerlibrary.track.TrackResult deselectTrack(int trackId) {
+        return getTrackController().deselectTrack(trackId);
     }
 
     /**
