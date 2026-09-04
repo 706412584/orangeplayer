@@ -19,30 +19,38 @@ import com.shuyu.gsyvideoplayer.video.base.GSYVideoPlayer;
  * TV 模式下自动隐藏不适合的 UI（投屏、小窗、弹幕区）
  */
 public class TvPlayerActivity extends AppCompatActivity {
-    
+
     private OrangevideoView videoPlayer;
     private OrangeVideoController controller;
-    
+    private com.orange.player.tv.util.TvFrameRateMatcher frameRateMatcher;
+
     private String videoUrl;
     private String videoTitle;
-    
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_tv_player);
-        
+
         // 获取视频信息
         videoUrl = getIntent().getStringExtra("video_url");
         videoTitle = getIntent().getStringExtra("video_title");
-        
+
         if (videoUrl == null || videoUrl.isEmpty()) {
             Toast.makeText(this, "视频地址为空", Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
-        
+
         initViews();
         initPlayer();
+
+        // 自动帧率匹配（API 23-29；API 30+ 由 ExoPlayer 的
+        // Surface.setFrameRate 自动处理）。默认开启，可按需加设置开关。
+        if (com.orange.player.tv.util.TvFrameRateMatcher.isApplicable()) {
+            frameRateMatcher = new com.orange.player.tv.util.TvFrameRateMatcher(this);
+            frameRateMatcher.match(videoUrl);
+        }
     }
     
     private void initViews() {
@@ -171,6 +179,9 @@ public class TvPlayerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (frameRateMatcher != null) {
+            frameRateMatcher.restore();
+        }
         if (controller != null) {
             controller.releaseDanmaku();
         }

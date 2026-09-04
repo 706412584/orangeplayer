@@ -53,6 +53,7 @@ public class MainActivity extends AppCompatActivity {
     private OrangeVideoController mController;
     private PiPHelper mPiPHelper;
     private DanmakuControllerImpl mDanmakuController;
+    private com.orange.player.session.OrangePlayerSessionHelper mSessionHelper;
 
     // Demo UI
     private EditText mEtVideoUrl;
@@ -583,6 +584,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        // MediaSession：系统控制入口（耳机/锁屏/Assistant），不做后台播放
+        if (mSessionHelper == null && mVideoView != null) {
+            mSessionHelper = new com.orange.player.session.OrangePlayerSessionHelper(this, mVideoView);
+        }
+        if (mSessionHelper != null) {
+            mSessionHelper.start(mCurrentUrl, mCurrentTitle);
+        }
+    }
+
+    @Override
     protected void onStop() {
         super.onStop();
         if (mPiPHelper != null && mPiPHelper.handleOnStop()) {
@@ -596,6 +609,10 @@ public class MainActivity extends AppCompatActivity {
                 mVideoView.onVideoPause();
                 log("📱 App 切到后台，暂停播放并保存进度");
             }
+        }
+        // Session 生命周期与 Activity 同步（PiP 模式下保持会话供系统控制）
+        if (!isInPictureInPictureMode() && mSessionHelper != null) {
+            mSessionHelper.stop();
         }
     }
 
@@ -627,6 +644,10 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (mSessionHelper != null) {
+            mSessionHelper.stop();
+            mSessionHelper = null;
+        }
         if (mController != null) {
             mController.releaseDanmaku();
         }
