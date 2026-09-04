@@ -149,7 +149,8 @@ dependencies {
     // implementation 'androidx.media3:media3-decoder-ffmpeg:1.5.0'
     
     // 方案 2：Jellyfin 定制版 FFmpeg 解码器（与 SurfaceControl 兼容）
-    implementation 'org.jellyfin.media3:media3-ffmpeg-decoder:1.8.0+1'
+    // 版本号规则：<media3版本>+<jellyfin build>，需与运行时 media3 版本兼容性验证
+    implementation 'org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1'
     
     // 注意：FFmpeg 解码器只提供音视频解码能力，不提供协议支持
     // 如需播放 RTSP 直播，请使用 ExoPlayer 或 IJK 内核，而不是依赖 FFmpeg 解码器
