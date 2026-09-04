@@ -602,8 +602,10 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        // 处理 MediaProjection 权限结果（语音识别需要）
         if (mController != null && mController.getVideoEventManager() != null) {
+            // 字幕文件选择结果（REQUEST_CODE_SUBTITLE_FILE）
+            mController.getVideoEventManager().handleActivityResult(requestCode, resultCode, data);
+            // 处理 MediaProjection 权限结果（语音识别需要）
             mController.getVideoEventManager().handleMediaProjectionResult(requestCode, resultCode, data);
         }
     }

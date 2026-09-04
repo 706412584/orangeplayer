@@ -2495,6 +2495,37 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     /**
+     * 设置外挂字幕（P3 双路径）：
+     * - Exo 引擎且字幕为 SRT/VTT/ASS/SSA：经 IjkExo2MediaPlayer.setExternalSubtitle
+     *   走 Media3 MergingMediaSource 管线，Cue 渲染保留 ASS 样式（需在 setUp 前调用，
+     *   播放开始后生效）
+     * - 其他引擎：返回 false，调用方走 SubtitleManager 纯文本降级
+     *
+     * @return true 表示已由 Exo 管线接管；false 表示引擎不支持或未就绪
+     */
+    public boolean setExternalSubtitle(String uriString, String mimeType) {
+        try {
+            if (uriString == null || mimeType == null) {
+                return false;
+            }
+            com.shuyu.gsyvideoplayer.player.IPlayerManager manager = getGSYVideoManager().getPlayer();
+            if (manager == null) {
+                return false;
+            }
+            tv.danmaku.ijk.media.player.IMediaPlayer mediaPlayer = manager.getMediaPlayer();
+            if (mediaPlayer instanceof tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) {
+                ((tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) mediaPlayer)
+                        .setExternalSubtitle(android.net.Uri.parse(uriString), mimeType);
+                return true;
+            }
+            return false;
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "setExternalSubtitle: " + t);
+            return false;
+        }
+    }
+
+    /**
      * 设置播放器音量（不影响系统音量）
      * 
      * @param volume 音量值（0.0-1.0）

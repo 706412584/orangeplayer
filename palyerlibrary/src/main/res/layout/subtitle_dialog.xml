@@ -194,6 +194,63 @@
                 android:max="100"
                 android:progress="50" />
 
+            <!-- 分隔线 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#444444"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp" />
+
+            <!-- 字幕延迟 -->
+            <TextView
+                android:id="@+id/subtitle_delay_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="字幕延迟: 0.0s"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <Button
+                    android:id="@+id/btn_subtitle_delay_minus"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="40dp"
+                    android:text="- 0.5s"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:background="@drawable/btn_subtitle_bg"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_subtitle_delay_reset"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="40dp"
+                    android:text="重置"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:background="@drawable/btn_subtitle_bg"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_subtitle_delay_plus"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="40dp"
+                    android:text="+ 0.5s"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:background="@drawable/btn_subtitle_bg" />
+            </LinearLayout>
+
         </LinearLayout>
     </ScrollView>
 </FrameLayout>

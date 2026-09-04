@@ -3095,14 +3095,14 @@ public class VideoEventManager {
             android.widget.SeekBar sizeBar = dialogView.findViewById(R.id.subtitle_size_bar);
             android.widget.TextView sizeText = dialogView.findViewById(R.id.subtitle_size_text);
             if (sizeBar != null) {
-                // 使用默认字幕大小（不保存记忆）
-                float defaultSize = 12.0f;
+                // 读取持久化的字幕大小（默认 18sp，与 PlayerSettingsManager 统一）
+                float defaultSize = mSettingsManager.getSubtitleSize();
                 int defaultProgress = (int) ((defaultSize - 12) / 24 * 100);
                 sizeBar.setProgress(Math.max(0, Math.min(100, defaultProgress)));
                 if (sizeText != null) {
                     sizeText.setText("字幕大小: " + (int) defaultSize + "sp");
                 }
-                
+
                 sizeBar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
                     @Override
                     public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
@@ -3113,19 +3113,44 @@ public class VideoEventManager {
                             }
                         }
                     }
-                    
+
                     @Override
                     public void onStartTrackingTouch(android.widget.SeekBar seekBar) {}
-                    
+
                     @Override
                     public void onStopTrackingTouch(android.widget.SeekBar seekBar) {
                         float size = 12 + (seekBar.getProgress() / 100f) * 24;
                         mController.getSubtitleManager().setTextSize(size);
-                        // 不保存字幕大小设置（取消记忆功能）
+                        // 持久化字幕大小
+                        mSettingsManager.setSubtitleSize(size);
                         showToast("字幕大小: " + (int) size + "sp");
                     }
                 });
             }
+
+            // 字幕延迟调节（步进 500ms；正值延后显示）
+            android.widget.TextView delayText = dialogView.findViewById(R.id.subtitle_delay_text);
+            View btnDelayMinus = dialogView.findViewById(R.id.btn_subtitle_delay_minus);
+            View btnDelayReset = dialogView.findViewById(R.id.btn_subtitle_delay_reset);
+            View btnDelayPlus = dialogView.findViewById(R.id.btn_subtitle_delay_plus);
+            final long[] currentDelay = {
+                    mController.getSubtitleManager() != null
+                            ? mController.getSubtitleManager().getSubtitleDelayMs() : 0L};
+            if (delayText != null) {
+                updateDelayText(delayText, currentDelay[0]);
+            }
+            View.OnClickListener delayClickListener = v -> {
+                long delta = v.getId() == R.id.btn_subtitle_delay_plus ? 500
+                        : v.getId() == R.id.btn_subtitle_delay_minus ? -500 : -currentDelay[0];
+                currentDelay[0] += delta;
+                applySubtitleDelay(currentDelay[0]);
+                if (delayText != null) {
+                    updateDelayText(delayText, currentDelay[0]);
+                }
+            };
+            if (btnDelayMinus != null) btnDelayMinus.setOnClickListener(delayClickListener);
+            if (btnDelayReset != null) btnDelayReset.setOnClickListener(delayClickListener);
+            if (btnDelayPlus != null) btnDelayPlus.setOnClickListener(delayClickListener);
             
             // 显示当前字幕状态
             android.widget.TextView statusText = dialogView.findViewById(R.id.subtitle_status);
@@ -3294,8 +3319,30 @@ public class VideoEventManager {
         }
         
         showToast("正在加载字幕...");
-        
+
         final String uriString = uri.toString();
+        final String fileName = getFileNameFromUri(uri);
+
+        // P3 双路径：ASS/SSA 且 Exo 引擎时优先走 Media3 管线（保留样式）
+        // 需在下次 setUp 前注入；当前实现经 setExternalSubtitle 标记，
+        // 由下次 prepareAsync 合并，纯文本层不再重复加载。
+        if (fileName != null) {
+            String lower = fileName.toLowerCase();
+            if (lower.endsWith(".ass") || lower.endsWith(".ssa")) {
+                if (mVideoView.setExternalSubtitle(uriString, "text/x-ssa")) {
+                    showToast("ASS 字幕将以增强样式渲染（重新播放生效）");
+                    String videoUrl = mVideoView.getUrl();
+                    if (videoUrl != null) {
+                        mSettingsManager.setSubtitleLocalForVideo(videoUrl, uriString);
+                        mSettingsManager.setSubtitleUrlForVideo(videoUrl, null);
+                    }
+                    return;
+                }
+                // Exo 不可用：走 SubtitleManager 纯文本降级（下方）
+                showToast("当前引擎不支持 ASS 样式，将以纯文本渲染");
+            }
+        }
+
         mController.getSubtitleManager().loadSubtitle(uri, new com.orange.playerlibrary.subtitle.SubtitleManager.OnSubtitleLoadListener() {
             @Override
             public void onLoadSuccess(int count) {
@@ -3388,6 +3435,49 @@ public class VideoEventManager {
     }
     
     /**
+     * 应用字幕延迟并按视频持久化
+     */
+    private void applySubtitleDelay(long delayMs) {
+        if (mController == null || mController.getSubtitleManager() == null) {
+            return;
+        }
+        mController.getSubtitleManager().setSubtitleDelayMs(delayMs);
+        String videoUrl = mVideoView.getUrl();
+        if (videoUrl != null) {
+            mSettingsManager.setSubtitleDelayForVideo(videoUrl, delayMs);
+        }
+        Log.d(TAG, "字幕延迟: " + delayMs + "ms");
+    }
+
+    /**
+     * 从 Uri 提取文件名（用于字幕格式判断）
+     */
+    private String getFileNameFromUri(Uri uri) {
+        try {
+            if ("content".equals(uri.getScheme())) {
+                try (android.database.Cursor cursor = mActivity.getContentResolver().query(
+                        uri, null, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        int nameIndex = cursor.getColumnIndex(
+                                android.provider.OpenableColumns.DISPLAY_NAME);
+                        if (nameIndex >= 0) {
+                            return cursor.getString(nameIndex);
+                        }
+                    }
+                }
+            }
+            return uri.getLastPathSegment();
+        } catch (Exception e) {
+            return uri.getLastPathSegment();
+        }
+    }
+
+    private void updateDelayText(android.widget.TextView delayText, long delayMs) {
+        delayText.setText(String.format(java.util.Locale.getDefault(),
+                "字幕延迟: %+.1fs", delayMs / 1000f));
+    }
+
+    /**
      * 尝试自动加载已记忆的字幕
      * 应在视频开始播放时调用
      */
@@ -3397,8 +3487,9 @@ public class VideoEventManager {
             return;
         }
         
-        // 使用默认字幕大小（不使用保存的设置）
-        mController.getSubtitleManager().setTextSize(12.0f);
+        // 应用持久化的字幕大小与该视频的记忆延迟
+        mController.getSubtitleManager().setTextSize(mSettingsManager.getSubtitleSize());
+        mController.getSubtitleManager().setSubtitleDelayMs(mSettingsManager.getSubtitleDelayForVideo(videoUrl));
         
         // 优先加载本地字幕
         String localUri = mSettingsManager.getSubtitleLocalForVideo(videoUrl);

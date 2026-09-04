@@ -41,6 +41,7 @@ public class PlayerSettingsManager {
     private static final String KEY_SUBTITLE_ENABLED = "subtitle_enabled";
     private static final String KEY_SUBTITLE_URL_PREFIX = "subtitle_url_";      // 按视频URL存储
     private static final String KEY_SUBTITLE_LOCAL_PREFIX = "subtitle_local_";  // 按视频URL存储本地字幕Uri
+    private static final String KEY_SUBTITLE_DELAY_PREFIX = "subtitle_delay_";  // 按视频URL存储字幕延迟（毫秒）
     
     // 自动旋转设置
     private static final String KEY_AUTO_ROTATE = "auto_rotate";
@@ -343,6 +344,22 @@ public class PlayerSettingsManager {
     }
     
     /**
+     * 保存视频对应的字幕延迟（毫秒），正值延后显示
+     */
+    public void setSubtitleDelayForVideo(String videoUrl, long delayMs) {
+        String key = KEY_SUBTITLE_DELAY_PREFIX + hashVideoUrl(videoUrl);
+        mPreferences.edit().putLong(key, delayMs).apply();
+    }
+
+    /**
+     * 获取视频对应的字幕延迟（毫秒），默认 0
+     */
+    public long getSubtitleDelayForVideo(String videoUrl) {
+        String key = KEY_SUBTITLE_DELAY_PREFIX + hashVideoUrl(videoUrl);
+        return mPreferences.getLong(key, 0L);
+    }
+
+    /**
      * 清除视频的字幕记忆
      */
     public void clearSubtitleForVideo(String videoUrl) {
@@ -350,6 +367,7 @@ public class PlayerSettingsManager {
         mPreferences.edit()
             .remove(KEY_SUBTITLE_URL_PREFIX + hash)
             .remove(KEY_SUBTITLE_LOCAL_PREFIX + hash)
+            .remove(KEY_SUBTITLE_DELAY_PREFIX + hash)
             .apply();
     }
     

@@ -55,6 +55,10 @@ public class SubtitleManager {
     private boolean mIsUpdating = false;
     private static final int UPDATE_INTERVAL = 100; // 100ms 更新一次
 
+    // 字幕延迟（毫秒）：正值延后显示，负值提前显示。
+    // 作用于渲染时间轴（position - delay），不触碰播放器 seek，跨引擎切换天然生效
+    private long mSubtitleDelayMs = 0;
+
     public interface ProgressProvider {
         long getCurrentPosition();
         boolean isPlaying();
@@ -180,7 +184,21 @@ public class SubtitleManager {
                 }
                 
                 List<SubtitleEntry> subtitles = parseSubtitle(content, url);
-                
+
+                // 0 条目视为解析失败（如 ASS 声明支持但格式不符），不再静默成功
+                if (subtitles.isEmpty()) {
+                    final String failReason = AssParser.isAssContent(content)
+                            ? "UNSUPPORTED_SUBTITLE_FORMAT: ASS 内容无法解析出字幕条目"
+                            : "字幕解析结果为空（格式不匹配或文件损坏）";
+                    Log.e(TAG, "Load subtitle failed: " + failReason);
+                    mHandler.post(() -> {
+                        if (listener != null) {
+                            listener.onLoadFailed(failReason);
+                        }
+                    });
+                    return;
+                }
+
                 mHandler.post(() -> {
                     mSubtitles.clear();
                     mSubtitles.addAll(subtitles);
@@ -232,7 +250,21 @@ public class SubtitleManager {
                 // 从 Uri 获取文件名来判断格式
                 String fileName = getFileNameFromUri(uri);
                 List<SubtitleEntry> subtitles = parseSubtitle(content, fileName != null ? fileName : ".srt");
-                
+
+                // 0 条目视为解析失败，不再静默成功
+                if (subtitles.isEmpty()) {
+                    final String failReason = AssParser.isAssContent(content)
+                            ? "UNSUPPORTED_SUBTITLE_FORMAT: ASS 内容无法解析出字幕条目"
+                            : "字幕解析结果为空（格式不匹配或文件损坏）";
+                    Log.e(TAG, "Load subtitle from Uri failed: " + failReason);
+                    mHandler.post(() -> {
+                        if (listener != null) {
+                            listener.onLoadFailed(failReason);
+                        }
+                    });
+                    return;
+                }
+
                 mHandler.post(() -> {
                     mSubtitles.clear();
                     mSubtitles.addAll(subtitles);
@@ -338,10 +370,15 @@ public class SubtitleManager {
             return parseSrt(content);
         } else if (lowerPath.endsWith(".vtt")) {
             return parseVtt(content);
+        } else if (lowerPath.endsWith(".ass") || lowerPath.endsWith(".ssa")) {
+            return AssParser.parse(content);
         } else {
             // 尝试自动检测格式
             if (content.contains("WEBVTT")) {
                 return parseVtt(content);
+            }
+            if (AssParser.isAssContent(content)) {
+                return AssParser.parse(content);
             }
             return parseSrt(content);
         }
@@ -489,10 +526,12 @@ public class SubtitleManager {
         if (!mEnabled || !mLoaded || mSubtitleView == null || mProgressProvider == null) {
             return;
         }
-        
+
         long position = mProgressProvider.getCurrentPosition();
-        SubtitleEntry current = findSubtitleAt(position);
-        
+        // 应用字幕延迟：正值延后显示（查询更早的时间轴），负值提前
+        long adjustedPosition = position - mSubtitleDelayMs;
+        SubtitleEntry current = findSubtitleAt(adjustedPosition);
+
         if (current != null) {
             mSubtitleView.setText(current.getText());
             mSubtitleView.setVisibility(View.VISIBLE);
@@ -500,6 +539,22 @@ public class SubtitleManager {
             mSubtitleView.setText("");
             mSubtitleView.setVisibility(View.GONE);
         }
+    }
+
+    /**
+     * 设置字幕延迟（毫秒）。正值延后显示，负值提前显示，0 恢复同步。
+     * 仅影响渲染时间轴，不触碰播放器。
+     */
+    public void setSubtitleDelayMs(long delayMs) {
+        mSubtitleDelayMs = delayMs;
+        Log.d(TAG, "Subtitle delay set to " + delayMs + "ms");
+    }
+
+    /**
+     * 获取当前字幕延迟（毫秒）
+     */
+    public long getSubtitleDelayMs() {
+        return mSubtitleDelayMs;
     }
     
     /**
