@@ -29,6 +29,9 @@ jobs:
       - name: Strip local Windows JDK path (if present)
         run: sed -i '/^org.gradle.java.home=/d' gradle.properties || true
 
+      - name: mpv prototype isolation check
+        run: bash scripts/check_mpv_isolation.sh
+
       - name: Run unit tests
         run: |
           # app-legacy 的 6 个测试与 app 完全重复（Robolectric 组件测试），
