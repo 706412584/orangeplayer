@@ -646,6 +646,7 @@ public class VodControlView extends FrameLayout implements IControlComponent,
      * 设置锁定状态
      */
     public void setLocked(boolean locked) {
+        android.util.Log.d(TAG, "setLocked: " + locked + " (fullscreen=" + isFullScreen() + ")");
         mIsLocked = locked;
         updateLockButtonState();
         

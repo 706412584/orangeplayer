@@ -154,7 +154,19 @@ public class M3U8AdManager {
     public boolean isEnabled() {
         return mEnabled;
     }
-    
+
+    /**
+     * 获取用于下载的去广告 m3u8 URL（广告段直接删除，无占位）。
+     * 异步执行（内部含网络请求）；未开启去广告/非 m3u8/处理失败回调原始 URL。
+     */
+    public void getDownloadUrlAsync(String videoUrl, M3U8AdRemover.DownloadUrlCallback callback) {
+        if (!mEnabled) {
+            callback.onResult(videoUrl);
+            return;
+        }
+        mRemover.getDownloadUrlAsync(videoUrl, callback);
+    }
+
     /**
      * 清除所有缓存
      */

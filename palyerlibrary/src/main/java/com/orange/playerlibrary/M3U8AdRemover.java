@@ -189,6 +189,135 @@ public class M3U8AdRemover {
         });
     }
     
+    /**
+     * 生成用于下载的去广告 m3u8 URL（广告段直接删除，无占位替换）。
+     * <p>
+     * 播放用的 cleaned m3u8 会把中间广告段替换为本地占位 TS 以保持时间轴，
+     * 但下载产物不应包含占位黑屏段——下载版直接删除全部广告段。
+     * 异步执行（含网络请求）。
+     *
+     * @param callback 结果回调（URL；未开启去广告/非 m3u8/处理失败返回原始 URL）
+     */
+    public void getDownloadUrlAsync(String m3u8Url, DownloadUrlCallback callback) {
+        if (!isHttpM3U8(m3u8Url)) {
+            callback.onResult(m3u8Url);
+            return;
+        }
+        mExecutor.execute(() -> callback.onResult(getDownloadUrlInternal(m3u8Url)));
+    }
+
+    /** 下载 URL 结果回调 */
+    public interface DownloadUrlCallback {
+        void onResult(String downloadUrl);
+    }
+
+    /** 同步实现，须在后台线程调用 */
+    private String getDownloadUrlInternal(String m3u8Url) {
+        try {
+            String content = fetchM3U8Content(m3u8Url, null);
+            if (content == null || content.isEmpty()) {
+                return m3u8Url;
+            }
+            // Master playlist 解析子列表（与 processM3U8Internal 一致）
+            String effectiveUrl = m3u8Url;
+            String subM3U8Url = extractSubM3U8Url(content, m3u8Url);
+            if (subM3U8Url != null) {
+                content = fetchM3U8Content(subM3U8Url, null);
+                if (content == null || content.isEmpty()) {
+                    return m3u8Url;
+                }
+                effectiveUrl = subM3U8Url;
+            }
+            String downloadContent = buildAdFreeContent(content, effectiveUrl);
+            if (downloadContent == null) {
+                return m3u8Url; // 无广告段，直接下原始
+            }
+            File downloadFile = new File(mCacheDir, getCacheKey(m3u8Url) + "_dl.m3u8");
+            FileOutputStream fos = new FileOutputStream(downloadFile);
+            fos.write(downloadContent.getBytes("UTF-8"));
+            fos.close();
+            String url = M3U8PlaceholderServer.getInstance(mContext)
+                    .getCleanedM3u8Url(downloadFile);
+            Log.d(TAG, "getDownloadUrl: " + m3u8Url + " -> " + url);
+            return url;
+        } catch (Exception e) {
+            Log.e(TAG, "getDownloadUrl error, fallback to original", e);
+            return m3u8Url;
+        }
+    }
+
+    /**
+     * 构建无广告版 m3u8（全部广告段直接删除，无占位）。
+     *
+     * @return 无广告内容；无广告段时返回 null（调用方直接用原始）
+     */
+    private String buildAdFreeContent(String content, String baseUrl) {
+        String baseUrlPath = extractBaseUrlPath(baseUrl);
+        String[] lines = content.split("\\r?\\n");
+        List<SegmentInfo> segments = new ArrayList<>();
+        String currentEncryptionKey = null;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.startsWith("#EXT-X-KEY:")) {
+                currentEncryptionKey = rewriteKeyUri(
+                        line.substring("#EXT-X-KEY:".length()), baseUrlPath);
+            } else if (line.equals("#EXT-X-DISCONTINUITY")) {
+                // DISCONTINUITY 标记到前一段，detectAdSegments 依赖此判定广告边界
+                if (!segments.isEmpty()) {
+                    segments.get(segments.size() - 1).isDiscontinuity = true;
+                }
+            } else if (line.startsWith("#EXTINF:")) {
+                double duration = parseExtinfDuration(line);
+                String segmentUrl = null;
+                for (int j = i + 1; j < lines.length; j++) {
+                    String nextLine = lines[j].trim();
+                    if (!nextLine.isEmpty() && !nextLine.startsWith("#")) {
+                        segmentUrl = nextLine;
+                        break;
+                    } else if (nextLine.startsWith("#EXT-X-DISCONTINUITY")) {
+                        break;
+                    }
+                }
+                if (segmentUrl != null) {
+                    SegmentInfo info = new SegmentInfo();
+                    info.index = segments.size();
+                    info.duration = duration;
+                    info.url = segmentUrl;
+                    info.encryptionKey = currentEncryptionKey;
+                    segments.add(info);
+                }
+            }
+        }
+        List<SegmentInfo> adSegments = detectAdSegments(segments, false);
+        if (adSegments == null || adSegments.isEmpty()) {
+            return null;
+        }
+        StringBuilder cleaned = new StringBuilder();
+        cleaned.append("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-PLAYLIST-TYPE:VOD\n");
+        String lastEncryptionKey = null;
+        boolean firstSegment = true;
+        for (SegmentInfo segment : segments) {
+            if (segment.isAd) {
+                continue;
+            }
+            if (!firstSegment && segment.needsDiscontinuity) {
+                cleaned.append("#EXT-X-DISCONTINUITY\n");
+                lastEncryptionKey = null;
+            }
+            firstSegment = false;
+            String absoluteUrl = toAbsoluteUrl(segment.url, baseUrlPath);
+            if (segment.encryptionKey != null
+                    && !segment.encryptionKey.equals(lastEncryptionKey)) {
+                cleaned.append("#EXT-X-KEY:").append(segment.encryptionKey).append("\n");
+                lastEncryptionKey = segment.encryptionKey;
+            }
+            cleaned.append("#EXTINF:").append(String.format("%.6f", segment.duration))
+                    .append(",\n").append(absoluteUrl).append("\n");
+        }
+        cleaned.append("#EXT-X-ENDLIST\n");
+        return cleaned.toString();
+    }
+
     private void processM3U8Internal(String m3u8Url, Callback callback) throws Exception {
         final long methodStartTime = System.currentTimeMillis();
         Log.d(TAG, "processM3U8Internal started for: " + m3u8Url);

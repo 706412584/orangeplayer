@@ -108,9 +108,12 @@ public final class EngineCapabilityMatrix {
             return result;
         }
         if ("m3u8".equals(ext) && ("http".equals(s) || "https".equals(s))) {
-            addIf(result, PlayerConstants.ENGINE_ALI, info);
+            // IJK 先于 ALI：FFmpeg 可静默跳过坏 TS 段（NXDOMAIN/4xx/损坏内容），
+            // Exo/ALI 均为严格状态机遇坏段致命错误；换核兜底应优先到达 IJK。
+            // 首推仍由用户偏好（通常 Exo/ALI）决定，此链只在自动回退时使用。
             addIf(result, PlayerConstants.ENGINE_EXO, info);
             addIf(result, PlayerConstants.ENGINE_IJK, info);
+            addIf(result, PlayerConstants.ENGINE_ALI, info);
             return result;
         }
         if ("flv".equals(ext) && ("http".equals(s) || "https".equals(s))) {

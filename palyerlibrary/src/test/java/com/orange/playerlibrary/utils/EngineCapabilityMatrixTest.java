@@ -124,8 +124,10 @@ public class EngineCapabilityMatrixTest {
     @Test
     public void hls候选链与flv() {
         List<String> hls = EngineCapabilityMatrix.candidates(info("https://x.com/a.m3u8"));
-        assertEquals(PlayerConstants.ENGINE_ALI, hls.get(0));
-        assertTrue(hls.contains(PlayerConstants.ENGINE_EXO));
+        // 问题1修正：FFmpeg 可跳过坏 TS 段，自动回退应先到 IJK 再 ALI
+        assertEquals(PlayerConstants.ENGINE_EXO, hls.get(0));
+        assertEquals(PlayerConstants.ENGINE_IJK, hls.get(1));
+        assertEquals(PlayerConstants.ENGINE_ALI, hls.get(2));
 
         List<String> flv = EngineCapabilityMatrix.candidates(info("https://x.com/live.flv"));
         assertEquals(PlayerConstants.ENGINE_ALI, flv.get(0));

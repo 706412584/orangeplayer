@@ -63,37 +63,45 @@ public class SimpleDownloadManager {
         android.util.Log.d("SimpleDownloadManager", "startDownload() called");
         android.util.Log.d("SimpleDownloadManager", "URL: " + url);
         android.util.Log.d("SimpleDownloadManager", "Title: " + title);
-        
+
         if (url == null || url.isEmpty()) {
             android.util.Log.e("SimpleDownloadManager", "URL is null or empty");
             Toast.makeText(mContext, "下载地址为空", Toast.LENGTH_SHORT).show();
             return -1;
         }
-        
-        // 使用 VideoDownloader 统一处理所有格式
-        // VideoDownloader 会自动识别视频类型（M3U8、MP4、FLV 等）
-        mVideoDownloader.downloadM3U8(url, title, 
-            new VideoDownloaderWrapper.DownloadCallback() {
-                @Override
-                public void onProgress(int progress, String message) {
-                    android.util.Log.d("SimpleDownloadManager", "Download progress: " + message);
-                    // 可以在这里更新 UI 或通知栏
-                }
-                
-                @Override
-                public void onSuccess(String filePath) {
-                    android.util.Log.d("SimpleDownloadManager", "Download success: " + filePath);
-                    // 移除原生的 Toast 提示，避免打扰用户
-                    // Toast.makeText(mContext, "视频下载完成\n保存位置: " + filePath, Toast.LENGTH_LONG).show();
-                }
-                
-                @Override
-                public void onError(String error) {
-                    android.util.Log.e("SimpleDownloadManager", "Download error: " + error);
-                    Toast.makeText(mContext, "下载失败: " + error, Toast.LENGTH_LONG).show();
-                }
-            });
-        
+
+        // 去广告开启时改用无广告版 m3u8（广告段直接删除，无占位黑屏），
+        // 否则下载产物与播放不一致（下载到带广告的原始源）。异步获取避免主线程网络请求。
+        com.orange.playerlibrary.M3U8AdManager.getInstance(mContext).getDownloadUrlAsync(url,
+                downloadUrl -> {
+                    if (!url.equals(downloadUrl)) {
+                        android.util.Log.d("SimpleDownloadManager",
+                                "Ad-removal enabled, downloading ad-free m3u8: " + downloadUrl);
+                    }
+                    // 使用 VideoDownloader 统一处理所有格式
+                    // VideoDownloader 会自动识别视频类型（M3U8、MP4、FLV 等）
+                    mVideoDownloader.downloadM3U8(downloadUrl, title,
+                            new VideoDownloaderWrapper.DownloadCallback() {
+                                @Override
+                                public void onProgress(int progress, String message) {
+                                    android.util.Log.d("SimpleDownloadManager", "Download progress: " + message);
+                                }
+
+                                @Override
+                                public void onSuccess(String filePath) {
+                                    android.util.Log.d("SimpleDownloadManager", "Download success: " + filePath);
+                                }
+
+                                @Override
+                                public void onError(String error) {
+                                    android.util.Log.e("SimpleDownloadManager", "Download error: " + error);
+                                    // 回调可能在下载线程，Toast 需主线程
+                                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                                            Toast.makeText(mContext, "下载失败: " + error, Toast.LENGTH_LONG).show());
+                                }
+                            });
+                });
+
         return -1;  // VideoDownloader 使用自己的任务 ID 系统
     }
     

@@ -75,6 +75,13 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     private final com.orange.playerlibrary.utils.EngineFallbackTracker mEngineFallbackTracker =
             new com.orange.playerlibrary.utils.EngineFallbackTracker();
 
+    // 坏段跳段自愈状态（Exo 专属；每 URL 有界）
+    private static final int MAX_SEGMENT_SKIPS = 2;
+    private int mSegmentSkipsUsed;
+    private String mSegmentSkipUrl;
+    private long mPendingSkipSeekMs = -1;
+    private java.util.concurrent.ExecutorService mSegmentSkipExecutor;
+
 
     // ExoPlayer Surface 切换相关 (Android Q+)
     private SurfaceControlHelper mSurfaceControlHelper = new SurfaceControlHelper();
@@ -374,6 +381,20 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                             }
                         }
                     }, 100);
+                } else if (mPendingSkipSeekMs >= 0) {
+                    // 坏段跳段自愈：seek 过坏段区间（优先级低于全屏恢复）
+                    final long skipTo = mPendingSkipSeekMs;
+                    mPendingSkipSeekMs = -1;
+                    postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            android.util.Log.d(TAG, "坏段自愈: onPrepared 后 seek 到 " + skipTo + "ms");
+                            seekTo(skipTo);
+                            if (!isPlaying()) {
+                                resume();
+                            }
+                        }
+                    }, 100);
                 } else {
                     boolean hasRestoredProgress = false;
                     if (mKeepVideoPlaying) {
@@ -491,6 +512,13 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                         }
                         startPlayLogic();
                     });
+                    return;
+                }
+
+                // 坏段跳段自愈：Exo + IO 类错误 + 原始 http(s) m3u8（非回环代理、非去广告链路）。
+                // Media3 无法像 FFmpeg 一样静默跳过坏段（NXDOMAIN/4xx），此处解析 m3u8
+                // 定位坏段后的第一个健康段，重新 prepare 并 seek 过去。每 URL 有界。
+                if (trySkipBadSegment(url, objects)) {
                     return;
                 }
 
@@ -1186,6 +1214,12 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         android.util.Log.d(TAG, "setUp() called with url=" + url);
         mVideoHeaders = null;
         clearM3U8AdRemovalState();
+        // 新视频：作废跳段自愈的 pending seek（release 不清，靠这里与 onPrepared 消费清）
+        mPendingSkipSeekMs = -1;
+        if (!TextUtils.equals(url, mSegmentSkipUrl)) {
+            mSegmentSkipUrl = null;
+            mSegmentSkipsUsed = 0;
+        }
 
         // 检查本地是否已下载，如果已下载则使用本地路径
 
@@ -2027,6 +2061,8 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         // 作废尚未完成的 M3U8/兼容性检查回调，防止 release 后重新启动播放。
         mAdState.cancelPendingRequests();
         mEngineFallbackTracker.onNewSession();
+        // 注意：mPendingSkipSeekMs 不在此清——跳段重试自身就是 release+prepare，
+        // seek 意图必须跨 release 存活到 onPrepared 消费；新视频 setUp 时才作废。
 
         // 停止播放历史自动保存
         stopPlayHistoryAutoSave();
@@ -4758,6 +4794,118 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     public boolean isExternalSubtitleConfiguredForCurrentUrl() {
         return PlayerConstants.ENGINE_EXO.equals(getCurrentPlayerEngine())
                 && isExternalSubtitleForUrl(getUrl());
+    }
+
+    /**
+     * 坏段跳段自愈入口（onPlayError 调用，引擎回退之前）。
+     * 条件：Exo 内核 + IO 类错误码 + 原始 http(s) m3u8 + 跳段预算未耗尽。
+     * 异步解析 m3u8 找健康段，成功则重新 prepare 并在 onPrepared 后 seek 过坏段；
+     * 不满足条件或解析失败返回 false，交由上层走 K=1 换核兜底。
+     */
+    private boolean trySkipBadSegment(String url, Object... objects) {
+        if (url == null) {
+            return false;
+        }
+        // 去广告链路有自身的原始 URL 回退逻辑，先走那条
+        boolean adRemovalActive = mM3U8AdManager != null && mM3U8AdManager.isEnabled();
+        if (adRemovalActive) {
+            return false;
+        }
+        // 仅 Exo（Media3 无法跳坏段；IJK/FFmpeg 自身可跳）
+        String targetEngine = mPlayerFactoryInitialized
+                ? mSelectedPlayerEngine
+                : getCurrentPlayerEngine();
+        if (!PlayerConstants.ENGINE_EXO.equals(targetEngine)) {
+            return false;
+        }
+        // 仅 IO 类错误（网络连接失败/坏 HTTP 状态），排除解码/渲染类错误
+        int what = objects.length > 2 && objects[2] instanceof Integer ? (Integer) objects[2] : -1;
+        boolean ioError = what == 2001 // ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+                || what == 2002 // ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+                || what == 2004 // ERROR_CODE_IO_BAD_HTTP_STATUS
+                || what == 2005; // ERROR_CODE_IO_FILE_NOT_FOUND
+        if (!ioError) {
+            return false;
+        }
+        // 仅原始 http(s) m3u8（回环代理/本地文件/master 变体没有段级跳过语义）
+        com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo info =
+                com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(url);
+        if (info.isLoopbackProxy || !info.isHlsLike
+                || !("http".equals(info.scheme) || "https".equals(info.scheme))) {
+            return false;
+        }
+        // 每 URL 有界
+        if (url.equals(mSegmentSkipUrl) && mSegmentSkipsUsed >= MAX_SEGMENT_SKIPS) {
+            return false;
+        }
+        if (!url.equals(mSegmentSkipUrl)) {
+            mSegmentSkipUrl = url;
+            mSegmentSkipsUsed = 0;
+        }
+
+        // onPlayError 时 UI 已切 ERROR 态，getCurrentPositionWhenPlaying 会返回 0；
+        // 直接读 manager 层（此时 mediaPlayer 尚未 release，位置仍有效）
+        long positionMs = 0;
+        try {
+            positionMs = GSYVideoManager.instance().getCurrentPosition();
+        } catch (Exception ignored) {
+        }
+        if (positionMs <= 0) {
+            positionMs = getCurrentPosition();
+        }
+        final long errorPositionMs = positionMs;
+        final Map<String, String> headers = mVideoHeaders;
+        if (mSegmentSkipExecutor == null) {
+            mSegmentSkipExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(
+                    r -> {
+                        Thread t = new Thread(r, "bad-segment-skipper");
+                        t.setDaemon(true);
+                        return t;
+                    });
+        }
+        final java.util.concurrent.ExecutorService executor = mSegmentSkipExecutor;
+        final String m3u8Url = url;
+        android.util.Log.w(TAG, "坏段自愈: 解析 m3u8 定位健康段 (position=" + errorPositionMs
+                + "ms, skip=" + (mSegmentSkipsUsed + 1) + "/" + MAX_SEGMENT_SKIPS + ")");
+        // 同步返回 true 阻止本次换核；异步失败时再触发一次播放错误走换核
+        post(() -> executor.execute(() -> {
+            String content = com.orange.playerlibrary.utils.BadSegmentSkipper.fetchM3U8(m3u8Url, headers);
+            if (content == null) {
+                android.util.Log.w(TAG, "坏段自愈: m3u8 下载失败，放行换核");
+                notifySegmentSkipFailed();
+                return;
+            }
+            java.util.List<com.orange.playerlibrary.utils.BadSegmentSkipper.Segment> segments =
+                    com.orange.playerlibrary.utils.BadSegmentSkipper.parseSegments(content, m3u8Url);
+            com.orange.playerlibrary.utils.BadSegmentSkipper.SkipResult result =
+                    com.orange.playerlibrary.utils.BadSegmentSkipper.findNextHealthySegment(
+                            segments, errorPositionMs, executor);
+            if (!result.success) {
+                android.util.Log.w(TAG, "坏段自愈: 未定位到健康段，放行换核");
+                notifySegmentSkipFailed();
+                return;
+            }
+            mPendingSkipSeekMs = result.seekPositionMs;
+            mSegmentSkipsUsed++;
+            android.util.Log.w(TAG, "坏段自愈: 跳过 " + result.skippedSegments
+                    + " 个坏段, seek 到 " + result.seekPositionMs + "ms, 重新 prepare");
+            post(() -> {
+                // 重新 prepare 同一 URL；onPrepared 里消费 mPendingSkipSeekMs
+                release();
+                setOrangePlayState(PlayerConstants.STATE_PREPARING);
+                setStateAndUi(CURRENT_STATE_PREPAREING);
+                if (mPrepareView != null) {
+                    mPrepareView.setVisibility(View.VISIBLE);
+                }
+                startPlayLogic();
+            });
+        }));
+        return true;
+    }
+
+    /** 跳段异步失败：清除 pending 态让下一次 onPlayError 走换核 */
+    private void notifySegmentSkipFailed() {
+        mPendingSkipSeekMs = -1;
     }
 
     private boolean isAssSubtitle(String uriString) {
