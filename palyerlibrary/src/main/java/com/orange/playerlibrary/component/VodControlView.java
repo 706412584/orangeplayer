@@ -1034,9 +1034,10 @@ public class VodControlView extends FrameLayout implements IControlComponent,
             // 非全屏时隐藏锁定按钮和横竖屏切换按钮，并重置锁定状态
             if (mLockButton != null) mLockButton.setVisibility(GONE);
             if (mRotationButton != null) mRotationButton.setVisibility(GONE);
+            // 退出全屏若仍处于锁定态，走完整解锁传播（恢复手势/自动旋转/控制器锁定态），
+            // 否则普通模式单击会被残留锁定态吞掉，需双击才响应。
             if (mIsLocked) {
-                mIsLocked = false;
-                updateLockButtonState();
+                setLocked(false);
             }
         }
     }

@@ -4689,7 +4689,13 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     private void prepareRememberedExternalSubtitle() {
         String videoUrl = getUrl();
-        if (videoUrl == null || !PlayerConstants.ENGINE_EXO.equals(getCurrentPlayerEngine())) {
+        // prepare 阶段 player 尚未实例化，getCurrentPlayerEngine() 会 fallback 到未更新的
+        // mSelectedPlayerEngine，故用已选工厂/用户偏好判断目标引擎（onPlayerInitSuccess 里
+        // 再用 player 真实类型做二次校验）。
+        String targetEngine = mPlayerFactoryInitialized
+                ? mSelectedPlayerEngine
+                : PlayerSettingsManager.getInstance(getContext()).getPlayerEngine();
+        if (videoUrl == null || !PlayerConstants.ENGINE_EXO.equals(targetEngine)) {
             mExternalSubtitleUri = null;
             mExternalSubtitleMimeType = null;
             mExternalSubtitleVideoUrl = null;
@@ -4728,7 +4734,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     private void bindExoSubtitlePlayer(tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer exoPlayer) {
-        if (exoPlayer == null || !isExternalSubtitleForUrl(exoPlayer.getDataSource())) {
+        // 不能用 exoPlayer.getDataSource() 校验：边看边存缓存开启后数据源是本地缓存路径，
+        // 与记忆字幕挂钩的原始 URL 不一致。URL 匹配由两个调用点各自保证
+        // （onPlayerInitSuccess 用 model.getUrl()；setExternalSubtitle 现设现绑），
+        // 此处仅确认字幕已配置。
+        if (exoPlayer == null || mExternalSubtitleUri == null || mExternalSubtitleMimeType == null) {
             return;
         }
         com.orange.playerlibrary.subtitle.SubtitleManager subtitleManager =

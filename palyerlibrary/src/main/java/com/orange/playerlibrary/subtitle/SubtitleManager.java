@@ -126,6 +126,11 @@ public class SubtitleManager {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT);
         playerContainer.addView(mMedia3SubtitleView, params);
+        // 置顶，避免被视频 TextureView / SurfaceView 覆盖导致字幕不可见
+        mMedia3SubtitleView.bringToFront();
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            mMedia3SubtitleView.setZ(100f);
+        }
     }
     
     /**
