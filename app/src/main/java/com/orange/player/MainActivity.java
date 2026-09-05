@@ -67,11 +67,12 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
-        // 开启 M3U8 去广告功能（必须在 setContentView 之前设置）
-        com.orange.playerlibrary.M3U8AdManager.getInstance(this).setEnabled(true);
-        // 强制清除缓存，方便排查 5:01 广告为何未被去除
-        com.orange.playerlibrary.M3U8AdManager.getInstance(this).clearCache();
+
+        // M3U8 去广告状态改为从设置恢复（onCreate 后半段按偏好同步 M3U8AdManager，
+        // 必须在 setContentView 之前先按设置初始化，避免首帧播放用错状态）
+        com.orange.playerlibrary.M3U8AdManager.getInstance(this).setEnabled(
+                com.orange.playerlibrary.PlayerSettingsManager.getInstance(this)
+                        .isAdRemovalEnabled());
         
         // 默认在 Demo 中开启记忆播放功能
         com.orange.playerlibrary.PlayerSettingsManager.getInstance(this).setMemoryPlayEnabled(true);
@@ -173,10 +174,20 @@ public class MainActivity extends AppCompatActivity {
         btnSubtitleTest.setOnClickListener(v -> testSubtitle());
         btnPipTest.setOnClickListener(v -> enterPictureInPicture());
         
+        // 按设置恢复去广告状态（不再写死开启）
+        boolean adRemovalEnabled = com.orange.playerlibrary.PlayerSettingsManager
+                .getInstance(this).isAdRemovalEnabled();
+        com.orange.playerlibrary.M3U8AdManager adManager =
+                com.orange.playerlibrary.M3U8AdManager.getInstance(this);
+        adManager.setEnabled(adRemovalEnabled);
+        btnSwitchAdRemoval.setText(adRemovalEnabled ? "去广告(开)" : "去广告(关)");
+
         btnSwitchAdRemoval.setOnClickListener(v -> {
-            com.orange.playerlibrary.M3U8AdManager adManager = com.orange.playerlibrary.M3U8AdManager.getInstance(this);
             boolean enabled = !adManager.isEnabled();
             adManager.setEnabled(enabled);
+            // 同步持久化，重启后保持用户选择
+            com.orange.playerlibrary.PlayerSettingsManager.getInstance(this)
+                    .setAdRemovalEnabled(enabled);
             btnSwitchAdRemoval.setText(enabled ? "去广告(开)" : "去广告(关)");
             log(enabled ? "✅ M3U8去广告已开启" : "❌ M3U8去广告已关闭");
             if (enabled) {

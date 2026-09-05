@@ -489,7 +489,7 @@ public class PlayerSettingsManager {
     }
 
     // ===== 下载功能设置 =====
-    
+
     /**
      * 设置是否启用下载功能
      * @param enabled true 启用，false 禁用
@@ -497,7 +497,7 @@ public class PlayerSettingsManager {
     public void setDownloadEnabled(boolean enabled) {
         mPreferences.edit().putBoolean(KEY_DOWNLOAD_ENABLED, enabled).apply();
     }
-    
+
     /**
      * 查询是否启用了下载功能
      * @return true 启用，false 禁用（默认启用）
@@ -505,7 +505,27 @@ public class PlayerSettingsManager {
     public boolean isDownloadEnabled() {
         return mPreferences.getBoolean(KEY_DOWNLOAD_ENABLED, true);
     }
-    
+
+    // ===== M3U8 去广告设置 =====
+
+    private static final String KEY_AD_REMOVAL_ENABLED = "ad_removal_enabled";
+
+    /**
+     * 设置是否启用 M3U8 去广告
+     * @param enabled true 启用，false 禁用
+     */
+    public void setAdRemovalEnabled(boolean enabled) {
+        mPreferences.edit().putBoolean(KEY_AD_REMOVAL_ENABLED, enabled).apply();
+    }
+
+    /**
+     * 查询是否启用了 M3U8 去广告
+     * @return true 启用，false 禁用（默认启用，与 demo 历史行为一致）
+     */
+    public boolean isAdRemovalEnabled() {
+        return mPreferences.getBoolean(KEY_AD_REMOVAL_ENABLED, true);
+    }
+
     // ===== 记忆播放设置 =====
     
     /**
