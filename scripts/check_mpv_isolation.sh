@@ -3,13 +3,19 @@
 # 在 CI (ci-test.yml) 中先于 Gradle 任务执行。
 set -euo pipefail
 
-cd "$(dirname "$0")/../.."
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
 
 fail=0
 
 check() {
     local file="$1"
-    if [ -f "$file" ] && grep -qi "mpv" "$file"; then
+    if [ ! -f "$file" ]; then
+        echo "VIOLATION: 未找到待检查文件 $file（当前目录：$repo_root）"
+        fail=1
+        return
+    fi
+    if grep -qi "mpv" "$file"; then
         echo "VIOLATION: $file 引用了 mpv（原型必须隔离在 experiments/orange-player-mpv）"
         grep -ni "mpv" "$file" | head -5
         fail=1

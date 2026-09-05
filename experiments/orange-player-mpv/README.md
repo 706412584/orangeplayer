@@ -23,7 +23,7 @@
 | # | Spike | 内容 | 验收（go 条件） | 状态 |
 |---|---|---|---|---|
 | S5 | 许可证 | mpv LGPL 构建路径与仓库许可边界 | 书面结论 | ✅ 见下文 |
-| S4 | 事件映射 | mpv 事件 → `IMediaPlayer` 回调 + GSY Surface 生命周期 | 映射表评审通过 + 桩验证时序 | ⬜ |
+| S4 | 事件映射 | mpv 事件 → `IMediaPlayer` 回调 + GSY Surface 生命周期 | 映射表评审通过 + 桩验证时序 | PARTIAL：Java 桩 5/5，待 native 验证 |
 | S2 | 渲染 | SurfaceView/TextureView 双路径、旋转、OCR 截帧、软解性能 | 旋转不黑屏 + 性能数字 | ⬜ |
 | S3 | 字幕 | libass 内渲染 vs 外部 SubtitleView 层 | 决策（倾向禁用 mpv 字幕沿用外部层） | ⬜ |
 | S1 | 体积/共存 | 各 ABI 增量；同进程三 FFmpeg 冲突实验 | 体积数字 + 无冲突或隔离方案 | ⬜ |

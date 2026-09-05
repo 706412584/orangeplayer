@@ -15,6 +15,8 @@ public class M3U8AdRemovalState {
     private boolean mIsPlayingAdRemoved = false;
     private boolean mHasRetriedOriginalUrl = false;
     private boolean mPendingAdRemoval = false;
+    private boolean mPendingDiscontinuityCheck = false;
+    private String mDiscontinuityCheckedUrl = null;
     private boolean mBypassOnce = false;
     private int mRequestToken = 0;
     private String mUserPreferredEngine = null;
@@ -26,6 +28,8 @@ public class M3U8AdRemovalState {
     public void clear() {
         mRequestToken++;
         mPendingAdRemoval = false;
+        mPendingDiscontinuityCheck = false;
+        mDiscontinuityCheckedUrl = null;
         mBypassOnce = false;
         mOriginalUrl = null;
         mOriginalHeaders = null;
@@ -33,6 +37,15 @@ public class M3U8AdRemovalState {
         mOriginalCacheWithPlay = true;
         mIsPlayingAdRemoved = false;
         mHasRetriedOriginalUrl = false;
+    }
+
+    /**
+     * 作废进行中的异步请求，但保留原始播放源供错误回退使用。
+     */
+    public void cancelPendingRequests() {
+        mRequestToken++;
+        mPendingAdRemoval = false;
+        mPendingDiscontinuityCheck = false;
     }
 
     /**
@@ -102,6 +115,22 @@ public class M3U8AdRemovalState {
 
     public void setPendingAdRemoval(boolean pending) {
         mPendingAdRemoval = pending;
+    }
+
+    public boolean isPendingDiscontinuityCheck() {
+        return mPendingDiscontinuityCheck;
+    }
+
+    public void setPendingDiscontinuityCheck(boolean pending) {
+        mPendingDiscontinuityCheck = pending;
+    }
+
+    public String getDiscontinuityCheckedUrl() {
+        return mDiscontinuityCheckedUrl;
+    }
+
+    public void setDiscontinuityCheckedUrl(String url) {
+        mDiscontinuityCheckedUrl = url;
     }
 
     public boolean isBypassOnce() {

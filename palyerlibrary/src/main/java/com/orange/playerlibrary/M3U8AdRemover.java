@@ -16,6 +16,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -51,6 +52,11 @@ public class M3U8AdRemover {
     public interface Callback {
         void onResult(String playUrl, boolean isLocalFile, int adSegmentsRemoved, boolean hasPtsJump);
         void onError(String originalUrl, Exception e);
+    }
+
+    public interface DiscontinuityCallback {
+        void onResult(boolean hasDiscontinuity);
+        void onError(Exception e);
     }
     
     public M3U8AdRemover(Context context) {
@@ -210,7 +216,7 @@ public class M3U8AdRemover {
         Log.d(TAG, "Cache miss, fetching m3u8 content...");
         
         // 2. 请求 m3u8 内容
-        String m3u8Content = fetchM3U8Content(m3u8Url);
+        String m3u8Content = fetchM3U8Content(m3u8Url, null);
         Log.d(TAG, "fetchM3U8Content completed in " + (System.currentTimeMillis() - methodStartTime) + "ms, content length: " + 
               (m3u8Content != null ? m3u8Content.length() : 0));
         if (m3u8Content == null || m3u8Content.isEmpty()) {
@@ -223,7 +229,7 @@ public class M3U8AdRemover {
         String subM3U8Url = extractSubM3U8Url(m3u8Content, m3u8Url);
         if (subM3U8Url != null) {
             Log.d(TAG, "Detected Master Playlist, fetching sub playlist: " + subM3U8Url);
-            m3u8Content = fetchM3U8Content(subM3U8Url);
+            m3u8Content = fetchM3U8Content(subM3U8Url, null);
             Log.d(TAG, "fetchSubM3U8Content completed in " + (System.currentTimeMillis() - methodStartTime) + "ms");
             if (m3u8Content == null || m3u8Content.isEmpty()) {
                 Log.w(TAG, "Failed to fetch sub m3u8 content, using original URL");
@@ -277,9 +283,51 @@ public class M3U8AdRemover {
     }
     
     /**
-     * 获取m3u8内容
+     * 只读检测 HLS 播放列表是否包含 discontinuity，不生成清理文件。
+     *
+     * @param headers 播放请求头（Referer/Cookie 等），null 时仅使用默认 UA
      */
-    private String fetchM3U8Content(String m3u8Url) {
+    public void checkDiscontinuity(String m3u8Url, Map<String, String> headers,
+            DiscontinuityCallback callback) {
+        mExecutor.execute(() -> {
+            try {
+                String content = fetchM3U8Content(m3u8Url, headers);
+                if (content == null || content.isEmpty()) {
+                    callback.onError(new Exception("Failed to fetch m3u8 content"));
+                    return;
+                }
+                String mediaUrl = extractSubM3U8Url(content, m3u8Url);
+                if (mediaUrl != null) {
+                    content = fetchM3U8Content(mediaUrl, headers);
+                    if (content == null || content.isEmpty()) {
+                        callback.onError(new Exception("Failed to fetch media playlist"));
+                        return;
+                    }
+                }
+                callback.onResult(containsDiscontinuity(content));
+            } catch (Exception e) {
+                callback.onError(e);
+            }
+        });
+    }
+
+    static boolean containsDiscontinuity(String content) {
+        if (content == null || content.isEmpty()) {
+            return false;
+        }
+        String[] lines = content.split("\\r?\\n");
+        for (String line : lines) {
+            if ("#EXT-X-DISCONTINUITY".equals(line.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 获取m3u8内容（带自定义请求头，过滤 GSY 控制字段）
+     */
+    private String fetchM3U8Content(String m3u8Url, Map<String, String> headers) {
         HttpURLConnection connection = null;
         try {
             URL url = new URL(m3u8Url);
@@ -287,13 +335,23 @@ public class M3U8AdRemover {
             connection.setConnectTimeout(10000);
             connection.setReadTimeout(15000);
             connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-            
+            if (headers != null) {
+                for (Map.Entry<String, String> entry : headers.entrySet()) {
+                    String key = entry.getKey();
+                    // allowCrossProtocolRedirects 是 GSY 控制字段而非 HTTP 头
+                    if (key != null && !key.isEmpty()
+                            && !"allowCrossProtocolRedirects".equals(key)) {
+                        connection.setRequestProperty(key, entry.getValue());
+                    }
+                }
+            }
+
             int responseCode = connection.getResponseCode();
             if (responseCode != HttpURLConnection.HTTP_OK) {
                 Log.w(TAG, "HTTP response code: " + responseCode);
                 return null;
             }
-            
+
             BufferedReader reader = new BufferedReader(
                 new InputStreamReader(connection.getInputStream(), "UTF-8"));
             StringBuilder sb = new StringBuilder();
@@ -302,12 +360,10 @@ public class M3U8AdRemover {
                 sb.append(line).append("\n");
             }
             reader.close();
-            
-            String rawContent = sb.toString();
-            // Log raw content for debugging
-            Log.d(TAG, "========== RAW M3U8 CONTENT START ==========\n" + rawContent + "\n========== RAW M3U8 CONTENT END ==========");
-            return rawContent;
-            
+
+            // 不记录 manifest 原文：可能包含带签名的分片地址、密钥 URI 等敏感信息
+            return sb.toString();
+
         } catch (Exception e) {
             Log.e(TAG, "fetchM3U8Content error", e);
             return null;

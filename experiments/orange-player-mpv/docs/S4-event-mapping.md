@@ -47,9 +47,22 @@ GSY 拉取式 API 与 mpv 推送式属性不冲突——把属性缓存为字段
 4. **`MPV_EVENT_SHUTDOWN`**：release 路径须先 `detachSurface` 再
    `destroy`，避免 use-after-free（`BaseMPVView` 同款次序）。
 
-## 桩验证清单（S4 收尾）
+## 桩验证记录（2026-09-05）
 
-- [ ] loadfile 延迟到 Surface attach 后仍能触发 FILE_LOADED
-- [ ] time-pos observe 在暂停时不推进、恢复后继续
-- [ ] END_FILE(error) 正确触发 ErrorView 而非 CompleteView
-- [ ] 旋转（Surface 销毁/重建）期间事件不丢失、不崩溃
+运行命令：
+
+```bash
+./gradlew -p experiments/orange-player-mpv test
+```
+
+结果：5/5 通过。
+
+- [x] loadfile 延迟到 Surface attach 后，FILE_LOADED 才触发 prepared
+- [x] time-pos observe 在暂停时不推进、恢复后继续
+- [x] END_FILE(error) 只触发 ErrorView 语义，不触发 CompleteView
+- [x] Surface 销毁/重建期间不重复 loadfile，seek 完成事件不丢失
+- [x] release 严格先 detachSurface 再 destroy，且重复 release 幂等
+
+实现位于独立纯 Java 工程的 `S4EventAdapter`，不加载 libmpv，也不接入主构建。
+该结果只验证适配层状态机；JNI 事件来源、真实旋转稳定性和 native
+release 安全性仍须在 S2 真机原型中验证。

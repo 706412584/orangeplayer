@@ -10,6 +10,8 @@ import android.view.Display;
 import android.view.WindowManager;
 
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * TV 自动帧率匹配（API 23-29）。
@@ -28,8 +30,10 @@ public class TvFrameRateMatcher {
     private static final float FPS_TOLERANCE = 0.1f;
 
     private final Activity activity;
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private int originalDisplayModeId = -1;
     private boolean applied = false;
+    private boolean released = false;
 
     public TvFrameRateMatcher(Activity activity) {
         this.activity = activity;
@@ -44,26 +48,39 @@ public class TvFrameRateMatcher {
     /**
      * 尝试把显示模式切换到与视频帧率匹配。
      *
-     * @return true 表示已切换（onDestroy 时须调用 restore()）
+     * @return true 表示已提交匹配任务（onDestroy 时须调用 restore()）
      */
     public boolean match(String videoUrl) {
-        if (!isApplicable() || videoUrl == null || applied) {
+        if (!isApplicable() || videoUrl == null || applied || released) {
             return false;
         }
-        Float videoFps = readVideoFrameRate(videoUrl);
-        if (videoFps == null || videoFps <= 0) {
-            Log.d(TAG, "无法读取视频帧率: " + videoUrl);
-            return false;
+        executor.execute(() -> {
+            Float videoFps = readVideoFrameRate(videoUrl);
+            activity.runOnUiThread(() -> applyMatch(videoUrl, videoFps));
+        });
+        return true;
+    }
+
+    private void applyMatch(String videoUrl, Float videoFps) {
+        if (released || activity.isFinishing() || videoFps == null || videoFps <= 0) {
+            if (videoFps == null || videoFps <= 0) {
+                Log.d(TAG, "无法读取视频帧率: " + videoUrl);
+            }
+            return;
         }
         Display.Mode target = findMatchingMode(videoFps);
         if (target == null) {
             Log.d(TAG, "无匹配的显示模式，视频帧率=" + videoFps);
-            return false;
+            return;
         }
-        Display.Mode current = activity.getDisplay().getMode();
+        Display display = getDisplay();
+        if (display == null) {
+            return;
+        }
+        Display.Mode current = display.getMode();
         if (current.getModeId() == target.getModeId()) {
             Log.d(TAG, "当前模式已匹配: " + videoFps + "fps");
-            return false;
+            return;
         }
         originalDisplayModeId = current.getModeId();
         WindowManager.LayoutParams attrs = activity.getWindow().getAttributes();
@@ -72,11 +89,12 @@ public class TvFrameRateMatcher {
         applied = true;
         Log.i(TAG, "帧率匹配: " + videoFps + "fps → mode " + target.getModeId()
                 + " (" + target.getRefreshRate() + "Hz)");
-        return true;
     }
 
     /** 恢复进入播放页前的显示模式（onDestroy 调用） */
     public void restore() {
+        released = true;
+        executor.shutdownNow();
         if (!applied || originalDisplayModeId < 0) {
             return;
         }
@@ -107,21 +125,26 @@ public class TvFrameRateMatcher {
             extractor.release();
         }
         // 回退：本地文件/部分 http 可用
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
-            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
             retriever.setDataSource(url);
             String fps = retriever.extractMetadata(
                     MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE);
-            retriever.release();
             return fps != null ? Float.parseFloat(fps) : null;
         } catch (Throwable t) {
             return null;
+        } finally {
+            try {
+                retriever.release();
+            } catch (IOException e) {
+                Log.w(TAG, "MediaMetadataRetriever 释放失败", e);
+            }
         }
     }
 
     /** 在支持的显示模式中找分辨率相同且刷新率匹配视频帧率的模式 */
     private Display.Mode findMatchingMode(float videoFps) {
-        Display display = activity.getDisplay();
+        Display display = getDisplay();
         if (display == null) {
             return null;
         }
@@ -141,5 +164,11 @@ public class TvFrameRateMatcher {
         }
         // 容差内才算匹配（避免把 60Hz 内容切到 50Hz）
         return (best != null && bestDiff <= FPS_TOLERANCE + 0.05f) ? best : null;
+    }
+
+    @SuppressWarnings("deprecation")
+    private Display getDisplay() {
+        WindowManager windowManager = activity.getWindowManager();
+        return windowManager != null ? windowManager.getDefaultDisplay() : null;
     }
 }

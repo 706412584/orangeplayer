@@ -32,6 +32,8 @@ public class M3U8AdRemovalStateTest {
         assertFalse(state.isPlayingAdRemoved());
         assertFalse(state.hasRetriedOriginalUrl());
         assertFalse(state.isPendingAdRemoval());
+        assertFalse(state.isPendingDiscontinuityCheck());
+        assertNull(state.getDiscontinuityCheckedUrl());
         assertFalse(state.isBypassOnce());
         assertFalse(state.isSkipEngineRestore());
         assertNull(state.getUserPreferredEngine());
@@ -56,6 +58,8 @@ public class M3U8AdRemovalStateTest {
         assertFalse(state.isPlayingAdRemoved());
         assertFalse(state.hasRetriedOriginalUrl());
         assertFalse(state.isPendingAdRemoval());
+        assertFalse(state.isPendingDiscontinuityCheck());
+        assertNull(state.getDiscontinuityCheckedUrl());
         assertFalse(state.isBypassOnce());
     }
 
@@ -64,6 +68,21 @@ public class M3U8AdRemovalStateTest {
         int tokenBefore = state.getRequestToken();
         state.clear();
         assertEquals(tokenBefore + 1, state.getRequestToken());
+    }
+
+    @Test
+    public void cancelPendingRequests_作废回调但保留原始源() {
+        state.setOriginalUrl("https://example.com/live.m3u8");
+        state.setPendingAdRemoval(true);
+        state.setPendingDiscontinuityCheck(true);
+        int tokenBefore = state.getRequestToken();
+
+        state.cancelPendingRequests();
+
+        assertEquals(tokenBefore + 1, state.getRequestToken());
+        assertFalse(state.isPendingAdRemoval());
+        assertFalse(state.isPendingDiscontinuityCheck());
+        assertEquals("https://example.com/live.m3u8", state.getOriginalUrl());
     }
 
     @Test
@@ -83,6 +102,18 @@ public class M3U8AdRemovalStateTest {
 
         assertEquals(PlayerConstants.ENGINE_IJK, state.getUserPreferredEngine());
         assertTrue(state.isSkipEngineRestore());
+    }
+
+    @Test
+    public void discontinuity检查状态可保存并清除() {
+        state.setPendingDiscontinuityCheck(true);
+        state.setDiscontinuityCheckedUrl("https://example.com/live.m3u8");
+        assertTrue(state.isPendingDiscontinuityCheck());
+        assertEquals("https://example.com/live.m3u8", state.getDiscontinuityCheckedUrl());
+
+        state.clear();
+        assertFalse(state.isPendingDiscontinuityCheck());
+        assertNull(state.getDiscontinuityCheckedUrl());
     }
 
     @Test

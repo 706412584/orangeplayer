@@ -83,11 +83,27 @@ public class OrangeApplication extends Application {
                             if (mapHeadData == null) {
                                 mapHeadData = new java.util.HashMap<>();
                             }
+                            okhttp3.OkHttpClient requestClient = sharedClient.newBuilder()
+                                    .connectTimeout(connectTimeoutMillis,
+                                            java.util.concurrent.TimeUnit.MILLISECONDS)
+                                    .readTimeout(readTimeoutMillis,
+                                            java.util.concurrent.TimeUnit.MILLISECONDS)
+                                    .followSslRedirects(allowCrossProtocolRedirects)
+                                    .build();
                             Object factory = com.orange.playerlibrary.utils.OkHttpDataSourceHelper
-                                    .createFactory(sharedClient, mapHeadData);
-                            return factory instanceof androidx.media3.datasource.DataSource.Factory
-                                    ? (androidx.media3.datasource.DataSource.Factory) factory
-                                    : null;
+                                    .createFactory(requestClient, mapHeadData);
+                            if (!(factory instanceof androidx.media3.datasource.okhttp.OkHttpDataSource.Factory)) {
+                                return null;
+                            }
+                            androidx.media3.datasource.okhttp.OkHttpDataSource.Factory okHttpFactory =
+                                    (androidx.media3.datasource.okhttp.OkHttpDataSource.Factory) factory;
+                            if (userAgent != null) {
+                                okHttpFactory.setUserAgent(userAgent);
+                            }
+                            if (listener != null) {
+                                okHttpFactory.setTransferListener(listener);
+                            }
+                            return okHttpFactory;
                         }
 
                         @Nullable

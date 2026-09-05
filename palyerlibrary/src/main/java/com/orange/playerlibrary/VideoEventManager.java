@@ -3057,6 +3057,7 @@ public class VideoEventManager {
             if (subtitleSwitch != null) {
                 subtitleSwitch.setChecked(mController.isSubtitleEnabled());
                 subtitleSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    mSettingsManager.setSubtitleEnabled(isChecked);
                     if (isChecked) {
                         mController.getSubtitleManager().show();
                         mController.startSubtitle();
@@ -3327,14 +3328,14 @@ public class VideoEventManager {
         // 需在下次 setUp 前注入；当前实现经 setExternalSubtitle 标记，
         // 由下次 prepareAsync 合并，纯文本层不再重复加载。
         if (fileName != null) {
-            String lower = fileName.toLowerCase();
-            if (lower.endsWith(".ass") || lower.endsWith(".ssa")) {
+            if (isAssSubtitlePath(fileName)) {
                 if (mVideoView.setExternalSubtitle(uriString, "text/x-ssa")) {
                     showToast("ASS 字幕将以增强样式渲染（重新播放生效）");
                     String videoUrl = mVideoView.getUrl();
                     if (videoUrl != null) {
                         mSettingsManager.setSubtitleLocalForVideo(videoUrl, uriString);
                         mSettingsManager.setSubtitleUrlForVideo(videoUrl, null);
+                        mSettingsManager.setSubtitleMimeTypeForVideo(videoUrl, "text/x-ssa");
                     }
                     return;
                 }
@@ -3355,6 +3356,7 @@ public class VideoEventManager {
                         mSettingsManager.setSubtitleLocalForVideo(videoUrl, uriString);
                         // 清除网络字幕记忆（本地优先）
                         mSettingsManager.setSubtitleUrlForVideo(videoUrl, null);
+                        mSettingsManager.setSubtitleMimeTypeForVideo(videoUrl, null);
                         Log.d(TAG, "已保存本地字幕记忆: " + uriString);
                     }
                 });
@@ -3407,6 +3409,17 @@ public class VideoEventManager {
      * 从 URL 加载字幕
      */
     private void loadSubtitleFromUrl(String url) {
+        if (isAssSubtitlePath(url) && mVideoView.setExternalSubtitle(url, "text/x-ssa")) {
+            showToast("ASS 字幕将以增强样式渲染（重新播放生效）");
+            String videoUrl = mVideoView.getUrl();
+            if (videoUrl != null) {
+                mSettingsManager.setSubtitleUrlForVideo(videoUrl, url);
+                mSettingsManager.setSubtitleLocalForVideo(videoUrl, null);
+                mSettingsManager.setSubtitleMimeTypeForVideo(videoUrl, "text/x-ssa");
+            }
+            return;
+        }
+
         showToast("正在加载字幕...");
         mController.loadSubtitle(url, new com.orange.playerlibrary.subtitle.SubtitleManager.OnSubtitleLoadListener() {
             @Override
@@ -3420,6 +3433,7 @@ public class VideoEventManager {
                         mSettingsManager.setSubtitleUrlForVideo(videoUrl, url);
                         // 清除本地字幕记忆（网络优先）
                         mSettingsManager.setSubtitleLocalForVideo(videoUrl, null);
+                        mSettingsManager.setSubtitleMimeTypeForVideo(videoUrl, null);
                         Log.d(TAG, "已保存网络字幕记忆: " + url);
                     }
                 });
@@ -3472,6 +3486,24 @@ public class VideoEventManager {
         }
     }
 
+    private boolean isAssSubtitlePath(String path) {
+        if (path == null) {
+            return false;
+        }
+        String lower = path.toLowerCase(java.util.Locale.ROOT);
+        int queryIndex = lower.indexOf('?');
+        int fragmentIndex = lower.indexOf('#');
+        int suffixEnd = lower.length();
+        if (queryIndex >= 0) {
+            suffixEnd = queryIndex;
+        }
+        if (fragmentIndex >= 0 && fragmentIndex < suffixEnd) {
+            suffixEnd = fragmentIndex;
+        }
+        String pathWithoutSuffix = lower.substring(0, suffixEnd);
+        return pathWithoutSuffix.endsWith(".ass") || pathWithoutSuffix.endsWith(".ssa");
+    }
+
     private void updateDelayText(android.widget.TextView delayText, long delayMs) {
         delayText.setText(String.format(java.util.Locale.getDefault(),
                 "字幕延迟: %+.1fs", delayMs / 1000f));
@@ -3490,7 +3522,17 @@ public class VideoEventManager {
         // 应用持久化的字幕大小与该视频的记忆延迟
         mController.getSubtitleManager().setTextSize(mSettingsManager.getSubtitleSize());
         mController.getSubtitleManager().setSubtitleDelayMs(mSettingsManager.getSubtitleDelayForVideo(videoUrl));
-        
+        if (mSettingsManager.isSubtitleEnabled()) {
+            mController.getSubtitleManager().show();
+        } else {
+            mController.getSubtitleManager().hide();
+        }
+
+        // Media3 Exo 管线已在 prepare 前接管记忆的 ASS/SSA，避免 onPrepared 后重复走纯文本解析。
+        if (mVideoView.isExternalSubtitleConfiguredForCurrentUrl()) {
+            return;
+        }
+
         // 优先加载本地字幕
         String localUri = mSettingsManager.getSubtitleLocalForVideo(videoUrl);
         if (localUri != null && !localUri.isEmpty()) {

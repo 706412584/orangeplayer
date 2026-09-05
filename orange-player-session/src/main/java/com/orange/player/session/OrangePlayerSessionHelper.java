@@ -19,7 +19,6 @@ import com.orange.playerlibrary.PlayerConstants;
 import com.orange.playerlibrary.interfaces.OnStateChangeListener;
 
 import java.util.Collections;
-import java.util.List;
 
 /**
  * MediaSession 适配器（app 层，Activity 内会话，仅系统控制入口）。
@@ -157,7 +156,7 @@ public class OrangePlayerSessionHelper {
                             .addAll(COMMAND_PLAY_PAUSE, COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                                     COMMAND_SEEK_BACK, COMMAND_SEEK_FORWARD,
                                     COMMAND_GET_CURRENT_MEDIA_ITEM, COMMAND_GET_TIMELINE,
-                                    COMMAND_GET_METADATA, COMMAND_SET_MEDIA_ITEM)
+                                    COMMAND_GET_METADATA)
                             .build())
                     .setPlayWhenReady(videoView.isPlaying(),
                             PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
@@ -182,9 +181,9 @@ public class OrangePlayerSessionHelper {
         @Override
         protected ListenableFuture<?> handleSetPlayWhenReady(boolean playWhenReady) {
             if (playWhenReady) {
-                videoView.onVideoResume();
+                videoView.resumeFromMediaSession();
             } else {
-                videoView.onVideoPause();
+                videoView.pauseFromMediaSession();
             }
             return Futures.immediateVoidFuture();
         }
@@ -192,15 +191,6 @@ public class OrangePlayerSessionHelper {
         @Override
         protected ListenableFuture<?> handleSeek(int mediaItemIndex, long positionMs, int seekCommandName) {
             videoView.seekTo(positionMs);
-            return Futures.immediateVoidFuture();
-        }
-
-        @Override
-        protected ListenableFuture<?> handleSetMediaItems(List<MediaItem> mediaItems,
-                                                          int startIndex, long startPositionMs) {
-            if (!mediaItems.isEmpty()) {
-                currentMediaItem = mediaItems.get(0);
-            }
             return Futures.immediateVoidFuture();
         }
 

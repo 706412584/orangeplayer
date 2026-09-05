@@ -71,10 +71,37 @@ public class EngineFallbackTrackerTest {
     }
 
     @Test
+    public void 显式当前内核登记不触发协议自动选择() {
+        String url = "udp://239.1.1.1:5000";
+        UrlInfo i = info(url);
+        tracker.onUrlSetWithCurrentEngine(url, PlayerConstants.ENGINE_EXO);
+
+        assertEquals(PlayerConstants.ENGINE_EXO, tracker.getCurrentEngine());
+        tracker.onPrepared();
+        assertEquals(PlayerConstants.ENGINE_IJK,
+                tracker.onEngineFailure(PlayerConstants.ENGINE_EXO, i, allAvailable));
+        tracker.onPrepared();
+        assertNull(tracker.onEngineFailure(PlayerConstants.ENGINE_IJK, i, allAvailable));
+        assertEquals(State.TERMINAL_ERROR, tracker.getState());
+    }
+
+    @Test
+    public void prepare前失败不自动换核且不污染失败集() {
+        String url = "https://x.com/broken.mp4";
+        UrlInfo i = info(url);
+        tracker.onUrlSet(url, PlayerConstants.ENGINE_EXO, i, allAvailable);
+
+        assertNull(tracker.onEngineFailure(PlayerConstants.ENGINE_EXO, i, allAvailable));
+        assertEquals(State.TERMINAL_ERROR, tracker.getState());
+        assertFalse(tracker.hasFailed(PlayerConstants.ENGINE_EXO));
+    }
+
+    @Test
     public void 播放失败自动换核一次后TERMINAL() {
         String url = "https://x.com/v.mp4";
         UrlInfo i = info(url);
         tracker.onUrlSet(url, PlayerConstants.ENGINE_EXO, i, allAvailable);
+        tracker.onPrepared();
 
         // 第一次失败：自动切到 IJK（预算 K=1）
         String next = tracker.onEngineFailure(PlayerConstants.ENGINE_EXO, i, allAvailable);
@@ -93,7 +120,9 @@ public class EngineFallbackTrackerTest {
         String url = "https://x.com/v.mp4";
         UrlInfo i = info(url);
         tracker.onUrlSet(url, PlayerConstants.ENGINE_EXO, i, allAvailable);
+        tracker.onPrepared();
         tracker.onEngineFailure(PlayerConstants.ENGINE_EXO, i, allAvailable); // → IJK
+        tracker.onPrepared();
         tracker.onEngineFailure(PlayerConstants.ENGINE_IJK, i, allAvailable); // → TERMINAL
 
         // 新 URL：EXO/IJK 已在会话失败集，ALI 成为直接选择
@@ -139,6 +168,7 @@ public class EngineFallbackTrackerTest {
         String url = "https://x.com/v.mp4";
         UrlInfo i = info(url);
         tracker.onUrlSet(url, PlayerConstants.ENGINE_EXO, i, allAvailable);
+        tracker.onPrepared();
         tracker.onEngineFailure(PlayerConstants.ENGINE_EXO, i, allAvailable);
         assertTrue(tracker.hasFailed(PlayerConstants.ENGINE_EXO));
 

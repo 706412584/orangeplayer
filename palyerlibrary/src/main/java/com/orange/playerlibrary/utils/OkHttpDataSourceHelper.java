@@ -19,6 +19,7 @@ public final class OkHttpDataSourceHelper {
     private static final String TAG = "OkHttpDataSource";
     private static final String OKHTTP_DATASOURCE_CLASS =
             "androidx.media3.datasource.okhttp.OkHttpDataSource$Factory";
+    private static final String OKHTTP_CALL_FACTORY_CLASS = "okhttp3.Call$Factory";
 
     private OkHttpDataSourceHelper() {
     }
@@ -69,16 +70,17 @@ public final class OkHttpDataSourceHelper {
         }
         try {
             Class<?> factoryClass = Class.forName(OKHTTP_DATASOURCE_CLASS);
-            Object factory = factoryClass.getConstructor(okHttpClient.getClass())
+            Class<?> callFactoryClass = Class.forName(OKHTTP_CALL_FACTORY_CLASS);
+            if (!callFactoryClass.isInstance(okHttpClient)) {
+                Log.w(TAG, "客户端未实现 okhttp3.Call.Factory，回退默认网络栈");
+                return null;
+            }
+            Object factory = factoryClass.getConstructor(callFactoryClass)
                     .newInstance(okHttpClient);
             Map<String, String> clean = sanitizeHeaders(headers);
             if (clean != null && !clean.isEmpty()) {
                 factoryClass.getMethod("setDefaultRequestProperties", Map.class)
                         .invoke(factory, clean);
-            }
-            if (shouldAllowCrossProtocolRedirects(headers)) {
-                factoryClass.getMethod("setAllowCrossProtocolRedirects", boolean.class)
-                        .invoke(factory, true);
             }
             Log.d(TAG, "OkHttp DataSource 工厂已创建");
             return factory;

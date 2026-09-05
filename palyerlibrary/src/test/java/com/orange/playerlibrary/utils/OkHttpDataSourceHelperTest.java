@@ -2,6 +2,7 @@ package com.orange.playerlibrary.utils;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -56,10 +57,23 @@ public class OkHttpDataSourceHelperTest {
     }
 
     @Test
-    public void 工厂构建_classpath缺失时安全降级() {
-        // JVM 环境无 OkHttpDataSource 类 → isAvailable=false → createFactory 返回 null 不抛异常
+    public void 工厂构建_非CallFactory客户端安全降级() {
         Object client = new Object();
         assertNull(OkHttpDataSourceHelper.createFactory(client, new HashMap<String, String>()));
+    }
+
+    @Test
+    public void 工厂构建_使用CallFactory接口构造器() {
+        okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder().build();
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Referer", "http://example.com");
+        headers.put("allowCrossProtocolRedirects", "true");
+
+        Object factory = OkHttpDataSourceHelper.createFactory(client, headers);
+
+        assertNotNull(factory);
+        assertEquals("androidx.media3.datasource.okhttp.OkHttpDataSource$Factory",
+                factory.getClass().getName());
     }
 
     @Test
@@ -68,5 +82,19 @@ public class OkHttpDataSourceHelperTest {
         assertTrue(com.orange.playerlibrary.OrangePlayerConfig.isOkHttpDataSourceEnabled());
         com.orange.playerlibrary.OrangePlayerConfig.reset();
         assertFalse("reset 后应回到默认关闭", com.orange.playerlibrary.OrangePlayerConfig.isOkHttpDataSourceEnabled());
+    }
+
+    @Test
+    public void 跨协议重定向开关作为控制key被剥离() {
+        // headers 中的 allowCrossProtocolRedirects 是网络栈控制字段，
+        // 不得以 HTTP 头形式透传给远端
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Referer", "https://example.com");
+        headers.put("allowCrossProtocolRedirects", "true");
+
+        assertTrue(OkHttpDataSourceHelper.shouldAllowCrossProtocolRedirects(headers));
+        Map<String, String> clean = OkHttpDataSourceHelper.sanitizeHeaders(headers);
+        assertFalse(clean.containsKey("allowCrossProtocolRedirects"));
+        assertEquals("https://example.com", clean.get("Referer"));
     }
 }

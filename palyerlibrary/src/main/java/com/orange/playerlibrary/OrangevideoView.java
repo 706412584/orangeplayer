@@ -18,6 +18,7 @@ import com.orange.playerlibrary.history.PlayHistoryManager;
 import com.shuyu.gsyvideoplayer.GSYVideoManager;
 import com.shuyu.gsyvideoplayer.listener.GSYSampleCallBack;
 import com.shuyu.gsyvideoplayer.listener.GSYVideoProgressListener;
+import com.shuyu.gsyvideoplayer.player.IPlayerInitSuccessListener;
 import com.shuyu.gsyvideoplayer.player.IPlayerManager;
 import com.shuyu.gsyvideoplayer.player.IjkPlayerManager;
 import com.shuyu.gsyvideoplayer.player.PlayerFactory;
@@ -105,6 +106,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     private LoadingStateHelper mLoadingStateHelper;
     // 播放器核心是否已初始化
     private boolean mPlayerFactoryInitialized = false;
+    private String mSelectedPlayerEngine = PlayerConstants.ENGINE_DEFAULT;
+    private String mExternalSubtitleUri;
+    private String mExternalSubtitleMimeType;
+    private String mExternalSubtitleVideoUrl;
+    private com.orange.playerlibrary.subtitle.SubtitleManager mExoSubtitleManagerOverride;
     private final Runnable mSpeedUpdateRunnable = new Runnable() {
         @Override
         public void run() {
@@ -342,6 +348,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             @Override
             public void onPrepared(String url, Object... objects) {
                 super.onPrepared(url, objects);
+                mEngineFallbackTracker.onPrepared();
                 setOrangePlayState(PlayerConstants.STATE_PREPARED);
                 long duration = getDuration();
                 android.util.Log.d(TAG,
@@ -487,8 +494,6 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                     return;
                 }
 
-                setOrangePlayState(PlayerConstants.STATE_ERROR);
-
                 // P4: 有界引擎自动回退（K=1）——去广告链路之外的重试路径。
                 // 仅当该 URL 曾成功启动过引擎（PREPARED 后失败）才尝试换核，
                 // 避免把"源本身损坏"误判为引擎问题而反复切换。
@@ -507,6 +512,8 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                     });
                     return;
                 }
+
+                setOrangePlayState(PlayerConstants.STATE_ERROR);
 
                 // 去广告链路播放失败时，清除原始URL对应缓存，避免下次命中坏缓存
                 if (adRemovalEnabled && hasOriginalM3U8 && mM3U8AdManager != null) {
@@ -691,6 +698,8 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                         + " 不可用，本次运行回退系统播放器（用户偏好保留）");
             }
         }
+
+        mSelectedPlayerEngine = fallbackToSystem ? PlayerConstants.ENGINE_DEFAULT : engine;
 
         // 应用解码方式设置
         applyDecodeMode(settingsManager);
@@ -1277,6 +1286,58 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         return true;
     }
 
+    private boolean shouldCheckHlsDiscontinuity(String url) {
+        if (mM3U8AdManager == null || mM3U8AdManager.isEnabled()
+                || TextUtils.equals(url, mAdState.getDiscontinuityCheckedUrl())) {
+            return false;
+        }
+        com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo info =
+                com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(url);
+        return info.isHlsLike && !info.isLoopbackProxy
+                && ("http".equals(info.scheme) || "https".equals(info.scheme))
+                && PlayerConstants.ENGINE_IJK.equals(getCurrentPlayerEngine());
+    }
+
+    private void checkHlsDiscontinuityThenPlay(String url, Map<String, String> headers) {
+        final int requestToken = mAdState.nextToken();
+        final Map<String, String> requestHeaders =
+                headers != null ? new HashMap<>(headers) : null;
+        mAdState.setPendingDiscontinuityCheck(true);
+        mM3U8AdManager.checkDiscontinuity(url, requestHeaders,
+                new M3U8AdRemover.DiscontinuityCallback() {
+            @Override
+            public void onResult(boolean hasDiscontinuity) {
+                finishHlsDiscontinuityCheck(url, requestToken, hasDiscontinuity);
+            }
+
+            @Override
+            public void onError(Exception e) {
+                android.util.Log.w(TAG, "HLS discontinuity check failed; continuing with current engine", e);
+                finishHlsDiscontinuityCheck(url, requestToken, false);
+            }
+        });
+    }
+
+    private void finishHlsDiscontinuityCheck(String url, int requestToken, boolean hasDiscontinuity) {
+        post(() -> {
+            if (requestToken != mAdState.getRequestToken() || !TextUtils.equals(url, getUrl())) {
+                return;
+            }
+            mAdState.setPendingDiscontinuityCheck(false);
+            mAdState.setDiscontinuityCheckedUrl(url);
+            if (hasDiscontinuity && PlayerConstants.ENGINE_IJK.equals(getCurrentPlayerEngine())) {
+                com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo info =
+                        com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(url);
+                String targetEngine = mEngineFallbackTracker.onPtsJumpDetected(
+                        info, engine -> isEngineAvailable(engine));
+                if (targetEngine != null) {
+                    selectPlayerFactory(targetEngine, true);
+                }
+            }
+            startPlayLogic();
+        });
+    }
+
     private void bindResolvedVideoSource(String url, boolean cacheWithPlay, String title,
             Map<String, String> headers) {
         Map<String, String> headerCopy = headers != null ? new HashMap<>(headers) : null;
@@ -1344,41 +1405,27 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
                     mAdState.setPendingAdRemoval(false);
                     mAdState.setPlayingAdRemoved(adSegmentsRemoved > 0 && isLocalFile);
-                    
-                    // 如果检测到 PTS 跳变，且当前使用 IJK 内核，自动切换到 ExoPlayer（带回退机制）
-                    // 原因：IJK 基于 FFmpeg，不支持 HLS discontinuity，会导致 seek 跳转错误
-                    // ExoPlayer 和阿里云播放器原生支持 discontinuity，不需要切换
-                    // P4: 经 EngineFallbackTracker 计入预算并尊重会话失败集
-                    if (hasPtsJump) {
-                        String currentEngine = getCurrentPlayerEngine();
 
-                        if (PlayerConstants.ENGINE_IJK.equals(currentEngine)) {
-                            com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo urlInfo =
-                                    com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(playUrl);
-                            String targetEngine = mEngineFallbackTracker.onPtsJumpDetected(
-                                    urlInfo, engine -> isEngineAvailable(engine));
+                    // 先绑定最终播放源，让 tracker 以同一 URL 周期计费。
+                    bindResolvedVideoSource(playUrl, cacheWithPlay, requestTitle, requestHeaders);
 
-                            if (targetEngine == null) {
-                                // tracker 未给出目标（预算耗尽/失败集/协议不支持），沿用旧优先级兜底
-                                if (isEngineAvailable(PlayerConstants.ENGINE_EXO)) {
-                                    targetEngine = PlayerConstants.ENGINE_EXO;
-                                } else if (isEngineAvailable(PlayerConstants.ENGINE_ALI)) {
-                                    targetEngine = PlayerConstants.ENGINE_ALI;
-                                } else {
-                                    targetEngine = PlayerConstants.ENGINE_DEFAULT;
-                                }
-                            }
+                    // IJK 遇到 PTS 跳变时只接受 tracker 的有界决策，不再走预算外兜底。
+                    if (hasPtsJump && PlayerConstants.ENGINE_IJK.equals(getCurrentPlayerEngine())) {
+                        com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo urlInfo =
+                                com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(playUrl);
+                        String targetEngine = mEngineFallbackTracker.onPtsJumpDetected(
+                                urlInfo, engine -> isEngineAvailable(engine));
+                        if (targetEngine != null) {
                             android.util.Log.w(TAG, "PTS jump detected with IJK player, switching to "
                                     + targetEngine + " for better compatibility");
-                            selectPlayerFactory(targetEngine, true); // 临时切换
+                            selectPlayerFactory(targetEngine, true);
                         } else {
-                            android.util.Log.i(TAG, "PTS jump detected but current player (" + currentEngine + ") supports discontinuity, no need to switch");
+                            android.util.Log.w(TAG, "PTS jump detected but automatic engine-switch budget is unavailable");
                         }
                     }
-                    
+
                     // 结束 M3U8 去广告状态
                     setOrangePlayState(STATE_M3U8_AD_REMOVAL_END);
-                    bindResolvedVideoSource(playUrl, cacheWithPlay, requestTitle, requestHeaders);
                     setOrangePlayState(PlayerConstants.STATE_PREPARING);
                     setStateAndUi(CURRENT_STATE_PREPAREING);
                     mAdState.setBypassOnce(true);
@@ -1492,35 +1539,33 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
      * 注意：只有启用自动选择功能时才会执行
      */
     private void autoSelectPlayerEngine(String url) {
-        // 检查是否启用自动内核选择
-        if (!PlayerSettingsManager.getInstance(getContext()).isAutoSelectEngine()) {
-            return;
-        }
-
         if (url == null || url.isEmpty()) {
             return;
         }
 
-        // P4: 经 EngineFallbackTracker 决策（协议矩阵 + 可用性探测 + 会话失败集）。
-        // 回环代理流（去广告清理流/种子代理）不参与自动换核，避免自反馈。
+        PlayerSettingsManager settings = PlayerSettingsManager.getInstance(getContext());
         com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo urlInfo =
                 com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(url);
+        String currentEngine = getCurrentPlayerEngine();
         if (urlInfo.isLoopbackProxy) {
-            android.util.Log.d(TAG, "autoSelectPlayerEngine: 回环代理流，跳过自动选择");
+            android.util.Log.d(TAG, "autoSelectPlayerEngine: 回环代理流，保留当前内核");
+            mEngineFallbackTracker.onUrlSetWithCurrentEngine(url, currentEngine);
             return;
         }
 
-        String preferredEngine = PlayerSettingsManager.getInstance(getContext()).getPlayerEngine();
-        String chosenEngine = mEngineFallbackTracker.onUrlSet(url, preferredEngine, urlInfo,
-                engine -> isEngineAvailable(engine));
+        if (!settings.isAutoSelectEngine()) {
+            mEngineFallbackTracker.onUrlSetWithCurrentEngine(url, currentEngine);
+            return;
+        }
 
-        // 只在需要时才切换内核（避免不必要的切换）
-        String currentEngine = getCurrentPlayerEngine();
+        String chosenEngine = mEngineFallbackTracker.onUrlSet(
+                url, settings.getPlayerEngine(), urlInfo, engine -> isEngineAvailable(engine));
         if (!currentEngine.equals(chosenEngine)) {
-            selectPlayerFactory(chosenEngine, true); // 临时切换（不写用户偏好）
-            android.util.Log.i(TAG, "自动切换播放器内核: " +
-                    com.orange.playerlibrary.utils.PlayerEngineSelector.getEngineName(chosenEngine) +
-                    " (协议: " + com.orange.playerlibrary.utils.PlayerEngineSelector.getProtocolType(url) + ")");
+            selectPlayerFactory(chosenEngine, true);
+            android.util.Log.i(TAG, "自动切换播放器内核: "
+                    + com.orange.playerlibrary.utils.PlayerEngineSelector.getEngineName(chosenEngine)
+                    + " (协议: "
+                    + com.orange.playerlibrary.utils.PlayerEngineSelector.getProtocolType(url) + ")");
         }
     }
 
@@ -1531,7 +1576,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         IPlayerManager currentManager = GSYVideoManager.instance().getPlayer();
 
         if (currentManager == null) {
-            return PlayerConstants.ENGINE_EXO; // 默认 ExoPlayer（现代、稳定、支持 discontinuity）
+            return mSelectedPlayerEngine;
         }
 
         String className = currentManager.getClass().getName();
@@ -1825,12 +1870,22 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     @Override
     public void onVideoPause() {
+        pausePlayback(false);
+    }
+
+    public void pauseFromMediaSession() {
+        mUserPaused = true;
+        pausePlayback(true);
+    }
+
+    private void pausePlayback(boolean allowInPictureInPicture) {
         long startTime = System.currentTimeMillis();
-        if (mEnteringPiPMode) {
+        if (!allowInPictureInPicture && mEnteringPiPMode) {
             return;
         }
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        if (!allowInPictureInPicture
+                && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             android.app.Activity activity = getActivity();
             if (activity != null && activity.isInPictureInPictureMode()) {
                 return;
@@ -1854,8 +1909,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         super.onVideoPause();
 
         if (shouldUpdateState) {
-            mCurrentPlayState = PlayerConstants.STATE_PAUSED;
-            notifyComponentsPlayStateChanged(PlayerConstants.STATE_PAUSED);
+            setOrangePlayState(PlayerConstants.STATE_PAUSED);
             if (mCurrentState != CURRENT_STATE_PAUSE) {
                 mCurrentState = CURRENT_STATE_PAUSE;
             }
@@ -1873,11 +1927,21 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     @Override
     public void onVideoResume(boolean seek) {
-        if (mUserPaused) {
+        resumePlayback(seek, false);
+    }
+
+    public void resumeFromMediaSession() {
+        mUserPaused = false;
+        resumePlayback(false, true);
+    }
+
+    private void resumePlayback(boolean seek, boolean allowInPictureInPicture) {
+        if (!allowInPictureInPicture && mUserPaused) {
             return;
         }
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        if (!allowInPictureInPicture
+                && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             android.app.Activity activity = getActivity();
             if (activity != null && activity.isInPictureInPictureMode()) {
                 return;
@@ -1929,8 +1993,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                     setStateAndUi(CURRENT_STATE_PLAYING);
 
                     // 更新 Orange 状态
-                    mCurrentPlayState = PlayerConstants.STATE_PLAYING;
-                    notifyComponentsPlayStateChanged(PlayerConstants.STATE_PLAYING);
+                    setOrangePlayState(PlayerConstants.STATE_PLAYING);
 
                     // 清零位置（与 GSY 基类行为一致）
                     mCurrentPosition = 0;
@@ -1943,8 +2006,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             boolean shouldUpdateState = (mCurrentPlayState == PlayerConstants.STATE_PAUSED);
             super.onVideoResume(seek);
             if (shouldUpdateState) {
-                mCurrentPlayState = PlayerConstants.STATE_PLAYING;
-                notifyComponentsPlayStateChanged(PlayerConstants.STATE_PLAYING);
+                setOrangePlayState(PlayerConstants.STATE_PLAYING);
                 if (mCurrentState != CURRENT_STATE_PLAYING) {
                     mCurrentState = CURRENT_STATE_PLAYING;
                 }
@@ -1962,6 +2024,10 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     @Override
     public void release() {
+        // 作废尚未完成的 M3U8/兼容性检查回调，防止 release 后重新启动播放。
+        mAdState.cancelPendingRequests();
+        mEngineFallbackTracker.onNewSession();
+
         // 停止播放历史自动保存
         stopPlayHistoryAutoSave();
 
@@ -2301,6 +2367,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                     } catch (ClassNotFoundException ex) {
                         android.util.Log.e(TAG, "selectPlayerFactory: Exo2PlayerManager 未找到，回退到系统播放器", ex);
                         PlayerFactory.setPlayManager(com.orange.playerlibrary.player.OrangeSystemPlayerManager.class);
+                        engineType = PlayerConstants.ENGINE_DEFAULT;
                     }
                 }
                 break;
@@ -2315,6 +2382,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 } catch (ClassNotFoundException e) {
                     android.util.Log.e(TAG, "selectPlayerFactory: 阿里云播放器未找到，回退到系统播放器", e);
                     PlayerFactory.setPlayManager(com.orange.playerlibrary.player.OrangeSystemPlayerManager.class);
+                    engineType = PlayerConstants.ENGINE_DEFAULT;
                 }
                 break;
             case PlayerConstants.ENGINE_DEFAULT:
@@ -2330,7 +2398,8 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 break;
         }
 
-        // 3. 重置播放器初始化标志，确保下次播放时使用新的工厂
+        // 3. 记录工厂内核；播放器实例创建前也能准确判断当前选择
+        mSelectedPlayerEngine = engineType;
         mPlayerFactoryInitialized = true;
     }
 
@@ -2546,8 +2615,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             }
             tv.danmaku.ijk.media.player.IMediaPlayer mediaPlayer = manager.getMediaPlayer();
             if (mediaPlayer instanceof tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) {
-                ((tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) mediaPlayer)
-                        .setExternalSubtitle(android.net.Uri.parse(uriString), mimeType);
+                mExternalSubtitleUri = uriString;
+                mExternalSubtitleMimeType = mimeType;
+                mExternalSubtitleVideoUrl = getUrl();
+                bindExoSubtitlePlayer(
+                        (tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) mediaPlayer);
                 return true;
             }
             return false;
@@ -3672,6 +3744,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
         if (fullPlayer instanceof OrangevideoView) {
             final OrangevideoView orangeFullPlayer = (OrangevideoView) fullPlayer;
+            orangeFullPlayer.mExoSubtitleManagerOverride = mOrangeController != null
+                    ? mOrangeController.getSubtitleManager() : null;
+            orangeFullPlayer.mExternalSubtitleUri = mExternalSubtitleUri;
+            orangeFullPlayer.mExternalSubtitleMimeType = mExternalSubtitleMimeType;
+            orangeFullPlayer.mExternalSubtitleVideoUrl = mExternalSubtitleVideoUrl;
             orangeFullPlayer.mIfCurrentIsFullscreen = true;
 
             orangeFullPlayer.postDelayed(new Runnable() {
@@ -4532,6 +4609,10 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             android.util.Log.d(TAG, "startPlayLogic: skipped due to pending m3u8 ad removal");
             return;
         }
+        if (mAdState.isPendingDiscontinuityCheck()) {
+            android.util.Log.d(TAG, "startPlayLogic: skipped due to pending HLS discontinuity check");
+            return;
+        }
 
         // 如果正在异步加载种子，跳过（等待回调触发）
         if (mTorrentDelegate.isPendingLoad()) {
@@ -4564,15 +4645,17 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             return;
         }
 
+        if (shouldCheckHlsDiscontinuity(targetUrl)) {
+            checkHlsDiscontinuityThenPlay(targetUrl, headers);
+            return;
+        }
+
         mAdState.setBypassOnce(false);
 
         // 在这里设置 STATE_PREPARING，确保 PrepareView 已附加到窗口
         setOrangePlayState(PlayerConstants.STATE_PREPARING);
 
-        // 添加日志显示当前播放核心
-        String currentEngine = PlayerSettingsManager.getInstance(getContext()).getPlayerEngine();
-        com.shuyu.gsyvideoplayer.player.IPlayerManager playerManager = getGSYVideoManager().getPlayer();
-        String playerClass = playerManager != null ? playerManager.getClass().getSimpleName() : "null";
+        String currentEngine = getCurrentPlayerEngine();
         // ExoPlayer 使用 SurfaceControl 处理全屏切换 (Android Q+)
         if (PlayerConstants.ENGINE_EXO.equals(currentEngine) &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -4588,9 +4671,101 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     @Override
     protected void prepareVideo() {
-        // 添加日志
-        String currentEngine = PlayerSettingsManager.getInstance(getContext()).getPlayerEngine();
+        prepareRememberedExternalSubtitle();
+        getGSYVideoManager().setPlayerInitSuccessListener(new IPlayerInitSuccessListener() {
+            @Override
+            public void onPlayerInitSuccess(tv.danmaku.ijk.media.player.IMediaPlayer player,
+                    com.shuyu.gsyvideoplayer.model.GSYModel model) {
+                if (!(player instanceof tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer)
+                        || !isExternalSubtitleForUrl(model.getUrl())) {
+                    return;
+                }
+                bindExoSubtitlePlayer(
+                        (tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) player);
+            }
+        });
         super.prepareVideo();
+    }
+
+    private void prepareRememberedExternalSubtitle() {
+        String videoUrl = getUrl();
+        if (videoUrl == null || !PlayerConstants.ENGINE_EXO.equals(getCurrentPlayerEngine())) {
+            mExternalSubtitleUri = null;
+            mExternalSubtitleMimeType = null;
+            mExternalSubtitleVideoUrl = null;
+            clearMedia3CuesIfNeeded();
+            return;
+        }
+        PlayerSettingsManager settingsManager = PlayerSettingsManager.getInstance(getContext());
+        String localUri = settingsManager.getSubtitleLocalForVideo(videoUrl);
+        String subtitleUrl = settingsManager.getSubtitleUrlForVideo(videoUrl);
+        String rememberedMimeType = settingsManager.getSubtitleMimeTypeForVideo(videoUrl);
+        String rememberedUri = "text/x-ssa".equals(rememberedMimeType)
+                ? localUri != null ? localUri : subtitleUrl
+                : isAssSubtitle(localUri) ? localUri
+                : isAssSubtitle(subtitleUrl) ? subtitleUrl : null;
+        if (rememberedUri == null) {
+            clearMedia3CuesIfNeeded();
+        }
+        mExternalSubtitleUri = rememberedUri;
+        mExternalSubtitleMimeType = rememberedUri != null ? "text/x-ssa" : null;
+        mExternalSubtitleVideoUrl = rememberedUri != null ? videoUrl : null;
+    }
+
+    /** 新源无 Media3 字幕时清掉上一视频可能残留的 ASS Cue */
+    private void clearMedia3CuesIfNeeded() {
+        com.orange.playerlibrary.subtitle.SubtitleManager subtitleManager =
+                mExoSubtitleManagerOverride != null ? mExoSubtitleManagerOverride
+                        : mOrangeController != null ? mOrangeController.getSubtitleManager() : null;
+        if (subtitleManager != null) {
+            subtitleManager.clearMedia3Cues();
+        }
+    }
+
+    private boolean isExternalSubtitleForUrl(String videoUrl) {
+        return videoUrl != null && videoUrl.equals(mExternalSubtitleVideoUrl)
+                && mExternalSubtitleUri != null && mExternalSubtitleMimeType != null;
+    }
+
+    private void bindExoSubtitlePlayer(tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer exoPlayer) {
+        if (exoPlayer == null || !isExternalSubtitleForUrl(exoPlayer.getDataSource())) {
+            return;
+        }
+        com.orange.playerlibrary.subtitle.SubtitleManager subtitleManager =
+                mExoSubtitleManagerOverride != null ? mExoSubtitleManagerOverride
+                        : mOrangeController != null ? mOrangeController.getSubtitleManager() : null;
+        if (subtitleManager == null) {
+            return;
+        }
+        long delayMs = PlayerSettingsManager.getInstance(getContext())
+                .getSubtitleDelayForVideo(mExternalSubtitleVideoUrl);
+        exoPlayer.setExternalSubtitle(android.net.Uri.parse(mExternalSubtitleUri),
+                mExternalSubtitleMimeType, delayMs);
+        exoPlayer.setOnCueListener(subtitleManager::setMedia3Cues);
+        subtitleManager.getMedia3SubtitleView();
+    }
+
+    public boolean isExternalSubtitleConfiguredForCurrentUrl() {
+        return PlayerConstants.ENGINE_EXO.equals(getCurrentPlayerEngine())
+                && isExternalSubtitleForUrl(getUrl());
+    }
+
+    private boolean isAssSubtitle(String uriString) {
+        if (uriString == null) {
+            return false;
+        }
+        String lower = uriString.toLowerCase(java.util.Locale.ROOT);
+        int suffixEnd = lower.length();
+        int queryIndex = lower.indexOf('?');
+        int fragmentIndex = lower.indexOf('#');
+        if (queryIndex >= 0) {
+            suffixEnd = queryIndex;
+        }
+        if (fragmentIndex >= 0 && fragmentIndex < suffixEnd) {
+            suffixEnd = fragmentIndex;
+        }
+        String path = lower.substring(0, suffixEnd);
+        return path.endsWith(".ass") || path.endsWith(".ssa");
     }
 
     @Override

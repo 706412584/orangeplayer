@@ -57,6 +57,7 @@ rootProject.name = "OrangePlayer"
 include ':app'
 include ':app-legacy'  // Android 4.4 compatible version
 include ':app-tv'      // Android TV version
+include ':orange-player-session' // Shared foreground MediaSession adapter
 include ':palyerlibrary'
 include ':orange-downloader'  // Download module
 include ':orange-ffmpeg'  // FFmpeg minimal kit module

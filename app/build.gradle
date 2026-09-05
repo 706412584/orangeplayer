@@ -87,6 +87,7 @@ dependencies {
     
     // 自定义播放器模块
     implementation project(':palyerlibrary')
+    implementation project(':orange-player-session')
     
     // 播放器内核 - 使用本地 GSYVideoPlayer 模块
     // Java 层实现（必需！包含播放器核心逻辑）

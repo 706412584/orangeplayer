@@ -10,6 +10,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
+import androidx.media3.common.text.CueGroup;
+import androidx.media3.ui.CaptionStyleCompat;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -34,6 +37,9 @@ public class SubtitleManager {
 
     private Context mContext;
     private SubtitleView mSubtitleView;
+    private androidx.media3.ui.SubtitleView mMedia3SubtitleView;
+    private ViewGroup mPlayerContainer;
+    private boolean mHasMedia3Cues;
     private List<SubtitleEntry> mSubtitles = new ArrayList<>();
     private Handler mHandler;
     private ExecutorService mExecutor;
@@ -79,6 +85,7 @@ public class SubtitleManager {
      * 绑定到播放器容器
      */
     public void attachToPlayer(ViewGroup playerContainer) {
+        mPlayerContainer = playerContainer;
         if (mSubtitleView == null) {
             mSubtitleView = new SubtitleView(mContext);
             mSubtitleView.setTextSize(mTextSize);
@@ -101,7 +108,24 @@ public class SubtitleManager {
         params.rightMargin = dpToPx(20);
         
         playerContainer.addView(mSubtitleView, params);
+        attachMedia3SubtitleView(playerContainer);
         Log.d(TAG, "SubtitleView attached to player");
+    }
+
+    /**
+     * 将 Media3 字幕视图挂到当前播放器容器。
+     */
+    public void attachMedia3SubtitleView(ViewGroup playerContainer) {
+        if (playerContainer == null || mMedia3SubtitleView == null) {
+            return;
+        }
+        if (mMedia3SubtitleView.getParent() != null) {
+            ((ViewGroup) mMedia3SubtitleView.getParent()).removeView(mMedia3SubtitleView);
+        }
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT);
+        playerContainer.addView(mMedia3SubtitleView, params);
     }
     
     /**
@@ -115,7 +139,8 @@ public class SubtitleManager {
             Log.e(TAG, "reattachToPlayer: newPlayerContainer is null!");
             return;
         }
-        
+        mPlayerContainer = newPlayerContainer;
+
         if (mSubtitleView == null) {
             Log.w(TAG, "reattachToPlayer: mSubtitleView is null, creating new one");
             mSubtitleView = new SubtitleView(mContext);
@@ -141,6 +166,7 @@ public class SubtitleManager {
         params.rightMargin = dpToPx(20);
         
         newPlayerContainer.addView(mSubtitleView, params);
+        attachMedia3SubtitleView(newPlayerContainer);
         Log.d(TAG, "reattachToPlayer: SubtitleView added to " + newPlayerContainer.getClass().getSimpleName());
         
         // 强制布局更新
@@ -155,6 +181,56 @@ public class SubtitleManager {
         }, 500);
     }
     
+    /**
+     * 获取 Media3 原生字幕视图，用于渲染 ExoPlayer Cue（包括 ASS/SSA 样式）。
+     */
+    public androidx.media3.ui.SubtitleView getMedia3SubtitleView() {
+        if (mMedia3SubtitleView == null) {
+            mMedia3SubtitleView = new androidx.media3.ui.SubtitleView(mContext);
+            mMedia3SubtitleView.setStyle(new CaptionStyleCompat(
+                    mTextColor, Color.TRANSPARENT, Color.TRANSPARENT,
+                    CaptionStyleCompat.EDGE_TYPE_OUTLINE, Color.BLACK,
+                    null));
+            mMedia3SubtitleView.setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,
+                    mTextSize);
+        }
+        if (mPlayerContainer != null && mMedia3SubtitleView.getParent() == null) {
+            attachMedia3SubtitleView(mPlayerContainer);
+        }
+        return mMedia3SubtitleView;
+    }
+
+    /**
+     * 设置当前 Media3 Cue。
+     */
+    public void setMedia3Cues(CueGroup cueGroup) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mHandler.post(() -> setMedia3Cues(cueGroup));
+            return;
+        }
+        androidx.media3.ui.SubtitleView view = getMedia3SubtitleView();
+        if (cueGroup == null) {
+            mHasMedia3Cues = false;
+            view.setCues(null);
+            view.setVisibility(View.GONE);
+            return;
+        }
+        mHasMedia3Cues = !cueGroup.cues.isEmpty();
+        view.setCues(cueGroup.cues);
+        view.setVisibility(mEnabled && mHasMedia3Cues ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * 清除当前 Media3 Cue。
+     */
+    public void clearMedia3Cues() {
+        mHasMedia3Cues = false;
+        if (mMedia3SubtitleView != null) {
+            mMedia3SubtitleView.setCues(null);
+            mMedia3SubtitleView.setVisibility(View.GONE);
+        }
+    }
+
     /**
      * 设置进度提供者
      */
@@ -576,12 +652,18 @@ public class SubtitleManager {
         if (mSubtitleView != null) {
             mSubtitleView.setVisibility(View.VISIBLE);
         }
+        if (mMedia3SubtitleView != null && mHasMedia3Cues) {
+            mMedia3SubtitleView.setVisibility(View.VISIBLE);
+        }
     }
-    
+
     public void hide() {
         mEnabled = false;
         if (mSubtitleView != null) {
             mSubtitleView.setVisibility(View.GONE);
+        }
+        if (mMedia3SubtitleView != null) {
+            mMedia3SubtitleView.setVisibility(View.GONE);
         }
     }
     
@@ -704,12 +786,21 @@ public class SubtitleManager {
         if (mSubtitleView != null) {
             mSubtitleView.setTextSize(size);
         }
+        if (mMedia3SubtitleView != null) {
+            mMedia3SubtitleView.setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, size);
+        }
     }
     
     public void setTextColor(int color) {
         mTextColor = color;
         if (mSubtitleView != null) {
             mSubtitleView.setTextColor(color);
+        }
+        if (mMedia3SubtitleView != null) {
+            mMedia3SubtitleView.setStyle(new CaptionStyleCompat(
+                    color, Color.TRANSPARENT, Color.TRANSPARENT,
+                    CaptionStyleCompat.EDGE_TYPE_OUTLINE, Color.BLACK,
+                    null));
         }
     }
     
@@ -730,14 +821,20 @@ public class SubtitleManager {
             mSubtitleView.setText("");
             mSubtitleView.setVisibility(View.GONE);
         }
+        clearMedia3Cues();
     }
-    
+
     public void release() {
         stop();
         clear();
         if (mSubtitleView != null && mSubtitleView.getParent() != null) {
             ((ViewGroup) mSubtitleView.getParent()).removeView(mSubtitleView);
         }
+        if (mMedia3SubtitleView != null && mMedia3SubtitleView.getParent() != null) {
+            ((ViewGroup) mMedia3SubtitleView.getParent()).removeView(mMedia3SubtitleView);
+        }
+        mMedia3SubtitleView = null;
+        mPlayerContainer = null;
         mSubtitleView = null;
         mExecutor.shutdown();
     }

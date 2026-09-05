@@ -6,10 +6,14 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.orange.player.session.OrangePlayerSessionHelper;
 import com.orange.player.tv.R;
+import com.orange.player.tv.util.TvFrameRateMatcher;
 import com.orange.playerlibrary.OrangeVideoController;
 import com.orange.playerlibrary.OrangevideoView;
-import com.shuyu.gsyvideoplayer.listener.GSYSampleCallBack;
+import com.orange.playerlibrary.PlayerSettingsManager;
+import com.orange.playerlibrary.PlayerConstants;
+import com.orange.playerlibrary.interfaces.OnStateChangeListener;
 import com.shuyu.gsyvideoplayer.video.base.GSYVideoPlayer;
 
 /**
@@ -22,7 +26,8 @@ public class TvPlayerActivity extends AppCompatActivity {
 
     private OrangevideoView videoPlayer;
     private OrangeVideoController controller;
-    private com.orange.player.tv.util.TvFrameRateMatcher frameRateMatcher;
+    private TvFrameRateMatcher frameRateMatcher;
+    private OrangePlayerSessionHelper sessionHelper;
 
     private String videoUrl;
     private String videoTitle;
@@ -45,10 +50,10 @@ public class TvPlayerActivity extends AppCompatActivity {
         initViews();
         initPlayer();
 
-        // 自动帧率匹配（API 23-29；API 30+ 由 ExoPlayer 的
-        // Surface.setFrameRate 自动处理）。默认开启，可按需加设置开关。
-        if (com.orange.player.tv.util.TvFrameRateMatcher.isApplicable()) {
-            frameRateMatcher = new com.orange.player.tv.util.TvFrameRateMatcher(this);
+        // API 23-29 使用 Display mode 匹配；默认关闭，由播放器设置显式启用。
+        if (PlayerSettingsManager.getInstance(this).isAutoFrameRateMatchingEnabled()
+                && TvFrameRateMatcher.isApplicable()) {
+            frameRateMatcher = new TvFrameRateMatcher(this);
             frameRateMatcher.match(videoUrl);
         }
     }
@@ -81,22 +86,17 @@ public class TvPlayerActivity extends AppCompatActivity {
             android.util.Log.e("TvPlayerActivity", "设置标准模式失败", e);
         }
         
-        // 设置播放回调
-        videoPlayer.setVideoAllCallBack(new GSYSampleCallBack() {
+        videoPlayer.addOnStateChangeListener(new OnStateChangeListener() {
             @Override
-            public void onPrepared(String url, Object... objects) {
-                super.onPrepared(url, objects);
+            public void onPlayerStateChanged(int playerState) {
             }
-            
+
             @Override
-            public void onPlayError(String url, Object... objects) {
-                super.onPlayError(url, objects);
-                Toast.makeText(TvPlayerActivity.this, "播放出错，请检查网络连接", Toast.LENGTH_LONG).show();
-            }
-            
-            @Override
-            public void onAutoComplete(String url, Object... objects) {
-                super.onAutoComplete(url, objects);
+            public void onPlayStateChanged(int playState) {
+                if (playState == PlayerConstants.STATE_ERROR) {
+                    Toast.makeText(TvPlayerActivity.this,
+                            "播放出错，请检查网络连接", Toast.LENGTH_LONG).show();
+                }
             }
         });
         
@@ -116,6 +116,8 @@ public class TvPlayerActivity extends AppCompatActivity {
         // 关键：禁用方向工具（防止自动全屏）
         videoPlayer.setNeedOrientationUtils(false);
         
+        sessionHelper = new OrangePlayerSessionHelper(this, videoPlayer);
+
         // 开始播放逻辑
         videoPlayer.startPlayLogic();
         
@@ -165,6 +167,14 @@ public class TvPlayerActivity extends AppCompatActivity {
     }
     
     @Override
+    protected void onStart() {
+        super.onStart();
+        if (sessionHelper != null) {
+            sessionHelper.start(videoUrl, videoTitle);
+        }
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         videoPlayer.onVideoPause();
@@ -175,9 +185,20 @@ public class TvPlayerActivity extends AppCompatActivity {
         super.onResume();
         videoPlayer.onVideoResume();
     }
-    
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (sessionHelper != null) {
+            sessionHelper.stop();
+        }
+    }
+
     @Override
     protected void onDestroy() {
+        if (sessionHelper != null) {
+            sessionHelper.stop();
+        }
         super.onDestroy();
         if (frameRateMatcher != null) {
             frameRateMatcher.restore();

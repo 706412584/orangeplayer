@@ -33,6 +33,7 @@ public class EngineFallbackTracker {
     private String currentEngine;
     private String currentUrl;
     private int autoSwitchesUsed;
+    private boolean prepared;
     private final Set<String> failedEngines = new HashSet<>();
 
     public State getState() {
@@ -62,6 +63,7 @@ public class EngineFallbackTracker {
         this.currentUrl = url;
         this.preferredEngine = preferredEngine;
         this.autoSwitchesUsed = 0;
+        this.prepared = false;
 
         if (preferredEngine != null
                 && EngineCapabilityMatrix.supports(preferredEngine, info)
@@ -86,11 +88,34 @@ public class EngineFallbackTracker {
     }
 
     /**
-     * 播放错误：记入失败集合；预算未耗尽且有候选时返回下一个引擎，否则进入 TERMINAL
+     * 登记上层已经选定的内核，不做协议能力筛选或自动切换。
+     */
+    public void onUrlSetWithCurrentEngine(String url, String currentEngine) {
+        this.currentUrl = url;
+        this.preferredEngine = currentEngine;
+        this.currentEngine = currentEngine;
+        this.autoSwitchesUsed = 0;
+        this.prepared = false;
+        this.state = State.ACTIVE;
+    }
+
+    /** 标记当前 URL 已至少完成一次 prepare，之后的运行期错误才允许自动换核。 */
+    public void onPrepared() {
+        if (state == State.ACTIVE || state == State.FALLBACK) {
+            prepared = true;
+        }
+    }
+
+    /**
+     * 播放错误：仅处理 prepare 后的运行期错误；预算未耗尽且有候选时返回下一个引擎。
      *
      * @return 下一个自动引擎；null 表示不再自动重试
      */
     public String onEngineFailure(String failedEngine, UrlInfo info, AvailabilityProbe probe) {
+        if (!prepared) {
+            this.state = State.TERMINAL_ERROR;
+            return null;
+        }
         if (failedEngine != null) {
             failedEngines.add(failedEngine);
         }
@@ -105,6 +130,7 @@ public class EngineFallbackTracker {
         }
         this.currentEngine = next;
         this.autoSwitchesUsed++;
+        this.prepared = false;
         this.state = State.FALLBACK;
         return next;
     }
@@ -114,6 +140,9 @@ public class EngineFallbackTracker {
      * 一次性临时切 EXO（计入预算）
      */
     public String onPtsJumpDetected(UrlInfo info, AvailabilityProbe probe) {
+        if (state != State.ACTIVE && state != State.FALLBACK) {
+            return null;
+        }
         if (PlayerConstants.ENGINE_EXO.equals(currentEngine)) {
             return null; // 已在 EXO
         }
@@ -127,6 +156,7 @@ public class EngineFallbackTracker {
         }
         this.currentEngine = PlayerConstants.ENGINE_EXO;
         this.autoSwitchesUsed++;
+        this.prepared = false;
         this.state = State.FALLBACK;
         return PlayerConstants.ENGINE_EXO;
     }
@@ -138,6 +168,7 @@ public class EngineFallbackTracker {
         this.preferredEngine = engine;
         this.currentEngine = engine;
         this.autoSwitchesUsed = 0;
+        this.prepared = false;
         this.state = State.ACTIVE;
         this.failedEngines.clear();
     }
@@ -151,6 +182,7 @@ public class EngineFallbackTracker {
         this.currentEngine = null;
         this.currentUrl = null;
         this.autoSwitchesUsed = 0;
+        this.prepared = false;
         this.failedEngines.clear();
     }
 

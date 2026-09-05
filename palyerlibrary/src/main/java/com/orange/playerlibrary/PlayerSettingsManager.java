@@ -41,11 +41,15 @@ public class PlayerSettingsManager {
     private static final String KEY_SUBTITLE_ENABLED = "subtitle_enabled";
     private static final String KEY_SUBTITLE_URL_PREFIX = "subtitle_url_";      // 按视频URL存储
     private static final String KEY_SUBTITLE_LOCAL_PREFIX = "subtitle_local_";  // 按视频URL存储本地字幕Uri
+    private static final String KEY_SUBTITLE_MIME_PREFIX = "subtitle_mime_";    // 按视频URL存储字幕 MIME
     private static final String KEY_SUBTITLE_DELAY_PREFIX = "subtitle_delay_";  // 按视频URL存储字幕延迟（毫秒）
     
     // 自动旋转设置
     private static final String KEY_AUTO_ROTATE = "auto_rotate";
-    
+
+    // TV 自动帧率匹配设置
+    private static final String KEY_AUTO_FRAME_RATE_MATCHING = "auto_frame_rate_matching";
+
     private static final String KEY_DOWNLOAD_ENABLED = "download_enabled";
     
     // 记忆播放设置
@@ -342,7 +346,17 @@ public class PlayerSettingsManager {
         String key = KEY_SUBTITLE_LOCAL_PREFIX + hashVideoUrl(videoUrl);
         return mPreferences.getString(key, null);
     }
-    
+
+    public void setSubtitleMimeTypeForVideo(String videoUrl, String mimeType) {
+        String key = KEY_SUBTITLE_MIME_PREFIX + hashVideoUrl(videoUrl);
+        mPreferences.edit().putString(key, mimeType).apply();
+    }
+
+    public String getSubtitleMimeTypeForVideo(String videoUrl) {
+        String key = KEY_SUBTITLE_MIME_PREFIX + hashVideoUrl(videoUrl);
+        return mPreferences.getString(key, null);
+    }
+
     /**
      * 保存视频对应的字幕延迟（毫秒），正值延后显示
      */
@@ -367,6 +381,7 @@ public class PlayerSettingsManager {
         mPreferences.edit()
             .remove(KEY_SUBTITLE_URL_PREFIX + hash)
             .remove(KEY_SUBTITLE_LOCAL_PREFIX + hash)
+            .remove(KEY_SUBTITLE_MIME_PREFIX + hash)
             .remove(KEY_SUBTITLE_DELAY_PREFIX + hash)
             .apply();
     }
@@ -380,7 +395,17 @@ public class PlayerSettingsManager {
     public boolean isAutoRotateEnabled() {
         return mPreferences.getBoolean(KEY_AUTO_ROTATE, true); // 默认启用
     }
-    
+
+    // ===== TV 自动帧率匹配设置 =====
+
+    public void setAutoFrameRateMatchingEnabled(boolean enabled) {
+        mPreferences.edit().putBoolean(KEY_AUTO_FRAME_RATE_MATCHING, enabled).apply();
+    }
+
+    public boolean isAutoFrameRateMatchingEnabled() {
+        return mPreferences.getBoolean(KEY_AUTO_FRAME_RATE_MATCHING, false);
+    }
+
     // ===== 自动选择播放器内核设置 =====
     
     /**

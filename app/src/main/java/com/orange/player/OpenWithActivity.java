@@ -21,6 +21,7 @@ import com.orange.playerlibrary.PlayerConstants;
 import com.orange.playerlibrary.PlayerSettingsManager;
 import com.orange.playerlibrary.interfaces.OnStateChangeListener;
 import com.orange.playerlibrary.utils.PlayerEngineSelector;
+import com.orange.player.session.OrangePlayerSessionHelper;
 import com.shuyu.gsyvideoplayer.GSYVideoManager;
 
 import java.io.File;
@@ -41,6 +42,7 @@ public class OpenWithActivity extends AppCompatActivity {
     private OrangevideoView mVideoView;
     private OrangeVideoController mController;
     private PiPHelper mPiPHelper;
+    private OrangePlayerSessionHelper mSessionHelper;
     private TextView mTvIntentSummary;
     private TextView mTvDebugLog;
     private ScrollView mScrollLog;
@@ -92,6 +94,7 @@ public class OpenWithActivity extends AppCompatActivity {
         mVideoView.setVideoController(mController);
         mController.setLoading(OrangeVideoController.IndicatorType.LINE_SCALE_PULSE_OUT);
         mController.addDefaultControlComponent("外部打开", false);
+        mSessionHelper = new OrangePlayerSessionHelper(this, mVideoView);
 
         mVideoView.setKeepVideoPlaying(false);
         mVideoView.setLooping(false);
@@ -269,6 +272,9 @@ public class OpenWithActivity extends AppCompatActivity {
         GSYVideoManager.releaseAllVideos();
         mVideoView.selectPlayerFactory(engine);
         mVideoView.setUp(url, cacheWithPlay, title);
+        if (mSessionHelper != null) {
+            mSessionHelper.start(url, title);
+        }
         mVideoView.post(() -> {
             log("调用 startPlayLogic()");
             mVideoView.startPlayLogic();
@@ -377,10 +383,21 @@ public class OpenWithActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        if (mSessionHelper != null && !TextUtils.isEmpty(mCurrentUrl)) {
+            mSessionHelper.start(mCurrentUrl, mCurrentTitle);
+        }
+    }
+
+    @Override
     protected void onStop() {
         super.onStop();
         if (mPiPHelper != null && mPiPHelper.handleOnStop()) {
             return;
+        }
+        if (mSessionHelper != null) {
+            mSessionHelper.stop();
         }
         if (mVideoView != null && mVideoView.isPlaying()) {
             mVideoView.onVideoPause();
@@ -398,6 +415,9 @@ public class OpenWithActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (mSessionHelper != null) {
+            mSessionHelper.stop();
+        }
         super.onDestroy();
         if (mVideoView != null) {
             mVideoView.release();

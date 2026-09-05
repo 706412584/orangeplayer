@@ -1011,7 +1011,10 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
      * 显示/隐藏字幕
      */
     public void toggleSubtitle() {
-        getSubtitleManager().toggle();
+        com.orange.playerlibrary.subtitle.SubtitleManager subtitleManager = getSubtitleManager();
+        subtitleManager.toggle();
+        PlayerSettingsManager.getInstance(getContext())
+                .setSubtitleEnabled(subtitleManager.isEnabled());
     }
     
     /**

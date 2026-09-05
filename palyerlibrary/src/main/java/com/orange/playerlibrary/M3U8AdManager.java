@@ -83,6 +83,11 @@ public class M3U8AdManager {
         });
     }
     
+    public void checkDiscontinuity(String videoUrl, java.util.Map<String, String> headers,
+            M3U8AdRemover.DiscontinuityCallback callback) {
+        mRemover.checkDiscontinuity(videoUrl, headers, callback);
+    }
+
     /**
      * 同步处理视频URL（阻塞调用，用于简单场景）
      * 

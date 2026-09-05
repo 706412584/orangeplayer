@@ -424,16 +424,24 @@ public class MainActivity extends AppCompatActivity {
         // 检查是否从 PiP 恢复
         long restorePosition = mPiPHelper.checkPiPRestore(mCurrentUrl);
         if (restorePosition > 0) {
-            mVideoView.setVideoAllCallBack(new com.shuyu.gsyvideoplayer.listener.GSYSampleCallBack() {
+            OnStateChangeListener restoreListener = new OnStateChangeListener() {
                 @Override
-                public void onPrepared(String url, Object... objects) {
-                    super.onPrepared(url, objects);
+                public void onPlayerStateChanged(int playerState) {
+                }
+
+                @Override
+                public void onPlayStateChanged(int playState) {
+                    if (playState != com.orange.playerlibrary.PlayerConstants.STATE_PREPARED) {
+                        return;
+                    }
+                    mVideoView.removeOnStateChangeListener(this);
                     mVideoView.postDelayed(() -> {
                         mVideoView.seekTo(restorePosition);
                         mPiPHelper.clearPendingSeekPosition();
                     }, 200);
                 }
-            });
+            };
+            mVideoView.addOnStateChangeListener(restoreListener);
         }
         log("✓ 画中画功能已启用");
     }
