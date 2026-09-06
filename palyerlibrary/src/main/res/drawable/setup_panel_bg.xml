@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#CC202020" />
-    <corners android:topLeftRadius="16dp" android:bottomLeftRadius="16dp" />
+    <solid android:color="@color/op_surface_1" />
+    <corners android:topLeftRadius="@dimen/op_radius_l" android:bottomLeftRadius="@dimen/op_radius_l" />
 </shape>

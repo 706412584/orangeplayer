@@ -2,18 +2,18 @@
 	<!-- Base application theme. -->
 	<style name="Base.Theme.橘子播放器" parent="Theme.Material3.DayNight.NoActionBar">
 		<!-- 主题色改为橙色 -->
-		<item name="colorPrimary">#FF6B35</item>
-		<item name="colorPrimaryContainer">#FF6B35</item>
-		<item name="colorOnPrimaryContainer">#FFFFFF</item>
-		<item name="colorSecondary">#FF6B35</item>
-		<item name="colorAccent">#FF6B35</item>
+		<item name="colorPrimary">@color/op_brand</item>
+		<item name="colorPrimaryContainer">@color/op_brand</item>
+		<item name="colorOnPrimaryContainer">@color/op_text_primary</item>
+		<item name="colorSecondary">@color/op_brand</item>
+		<item name="colorAccent">@color/op_brand</item>
 		<!-- 按钮颜色 -->
 		<item name="materialButtonStyle">@style/OrangeButton</item>
 	</style>
-	
+
 	<!-- 橙色按钮样式 -->
 	<style name="OrangeButton" parent="Widget.Material3.Button">
-		<item name="backgroundTint">#444444</item>
-		<item name="android:textColor">#FFFFFF</item>
+		<item name="backgroundTint">@color/op_surface_3</item>
+		<item name="android:textColor">@color/op_text_primary</item>
 	</style>
 </resources>

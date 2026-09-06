@@ -26,8 +26,8 @@ import java.util.HashMap;
 public class VideoEventManager {
     
     private static final String TAG = "VideoEventManager";
-    private static final int COLOR_HIGHLIGHT = Color.parseColor("#FFDDC333");
-    private static final int COLOR_NORMAL = Color.parseColor("#FFACABAA");
+    private static final int COLOR_HIGHLIGHT = Color.parseColor("#FF6B35");
+    private static final int COLOR_NORMAL = Color.parseColor("#B3B3B3");
     
     // 字幕文件选择请求码
     public static final int REQUEST_CODE_SUBTITLE_FILE = 10086;
@@ -1120,7 +1120,7 @@ public class VideoEventManager {
                 
                 OrangeRecyclerView orangeRecyclerView = new OrangeRecyclerView();
                 orangeRecyclerView.setLinearLayoutManager(recyclerView, mActivity);
-                orangeRecyclerView.setAdapter(recyclerView, R.layout.speed_dialog_item, arrayList,
+                orangeRecyclerView.setAdapter(recyclerView, R.layout.timer_dialog_item, arrayList,
                     (holder, data, position) -> {
                         android.widget.TextView title = holder.itemView.findViewById(R.id.title);
                         String optionText = data.get(position).get("name").toString();
@@ -2387,7 +2387,7 @@ public class VideoEventManager {
         if (recyclerView == null) return;
         
         OrangeRecyclerView orangeRecyclerView = new OrangeRecyclerView();
-        orangeRecyclerView.setLinearLayoutManager(recyclerView, mActivity);
+        orangeRecyclerView.setGridLayoutManager(recyclerView, mActivity, 4);
         orangeRecyclerView.setAdapter(recyclerView, R.layout.playliset_item, dataList,
             (holder, data, position) -> bindPlaylistItemView(holder, data, position, dialog));
     }
@@ -2404,17 +2404,13 @@ public class VideoEventManager {
         // 绑定标题
         String title = itemData.get("name") != null ? itemData.get("name").toString() : "第" + (position + 1) + "集";
         titleTv.setText(title);
-        
-        // 高亮当前播放集数
+
+        // 高亮当前播放集数：用描边+浅填充卡片区分，字号保持稳定
         String currentUrl = mVideoView.getUrl();
         String itemUrl = itemData.get("url") != null ? itemData.get("url").toString() : "";
-        if (currentUrl != null && currentUrl.equals(itemUrl)) {
-            titleTv.setTextColor(COLOR_HIGHLIGHT);
-            titleTv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18);
-        } else {
-            titleTv.setTextColor(COLOR_NORMAL);
-            titleTv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
-        }
+        boolean isCurrent = currentUrl != null && currentUrl.equals(itemUrl);
+        titleTv.setSelected(isCurrent);
+        titleTv.setTextColor(isCurrent ? COLOR_HIGHLIGHT : COLOR_NORMAL);
         
         // 点击事件
         titleTv.setOnClickListener(v -> {

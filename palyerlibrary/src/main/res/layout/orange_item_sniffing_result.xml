@@ -19,7 +19,7 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textColor="@android:color/white"
+            android:textColor="@color/op_text_primary"
             android:textSize="15sp"
             android:textStyle="bold"
             tools:text="视频标题" />
@@ -31,7 +31,7 @@
             android:layout_marginTop="4dp"
             android:ellipsize="end"
             android:maxLines="2"
-            android:textColor="#99FFFFFF"
+            android:textColor="@color/op_text_secondary"
             android:textSize="12sp"
             tools:text="https://example.com/video.mp4" />
 

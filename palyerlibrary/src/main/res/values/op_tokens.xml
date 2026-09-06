@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OrangePlayer Design Token（语义色板）
+  统一品牌橙强调 + 中性灰阶。所有界面通过 @color/op_* 引用，禁止再写死色值。
+  夜间差异见 values-night/op_tokens.xml。
+-->
+<resources>
+    <!-- 品牌强调色 -->
+    <color name="op_brand">#FF6B35</color>
+    <color name="op_brand_pressed">#E85A2A</color>
+    <color name="op_brand_disabled">#66FF6B35</color>
+    <color name="op_brand_translucent">#1AFF6B35</color>
+
+    <!-- 表面（面板/卡片/悬浮，从底到浮由深到浅） -->
+    <color name="op_surface_1">#F21C1C1E</color>
+    <color name="op_surface_2">#E62A2A2E</color>
+    <color name="op_surface_3">#FF3A3A40</color>
+
+    <!-- 文字三级 -->
+    <color name="op_text_primary">#FFFFFFFF</color>
+    <color name="op_text_secondary">#B3FFFFFF</color>
+    <color name="op_text_tertiary">#66FFFFFF</color>
+
+    <!-- 分隔线 / 弹窗遮罩 -->
+    <color name="op_divider">#1AFFFFFF</color>
+    <color name="op_scrim">#99000000</color>
+
+    <!-- 进度条 -->
+    <color name="op_track">#33FFFFFF</color>
+    <color name="op_buffer">#66FFFFFF</color>
+    <color name="op_progress">@color/op_brand</color>
+
+    <!-- 选中态 -->
+    <color name="op_selected_bg">@color/op_brand_translucent</color>
+    <color name="op_selected_stroke">@color/op_brand</color>
+
+    <!-- 功能状态色（语义保留：成功=绿，危险/删除=红） -->
+    <color name="op_success">#4CAF50</color>
+    <color name="op_danger">#F44336</color>
+
+    <!-- 弱提示文字（比 tertiary 略实，用于空状态副标题等） -->
+    <color name="op_text_hint">#80FFFFFF</color>
+</resources>

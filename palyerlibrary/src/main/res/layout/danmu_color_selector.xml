@@ -28,9 +28,9 @@
             android:maxLines="1"
             android:maxLength="32"
             android:background="@null"
-            android:textColor="#FFFFFF"
-            android:textColorHint="#FF888888"/>
-            
+            android:textColor="@color/op_text_primary"
+            android:textColorHint="@color/op_text_tertiary"/>
+
         <!-- 发送按钮 -->
         <Button
             android:id="@+id/btn_send"
@@ -39,7 +39,7 @@
             android:minWidth="60dp"
             android:text="发送"
             android:textSize="14sp"
-            android:textColor="#FF94D3FF"
+            android:textColor="@color/op_brand"
             android:background="#00000000"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
@@ -60,7 +60,7 @@
             android:layout_height="wrap_content"
             android:text="0/32"
             android:textSize="12sp"
-            android:textColor="#FF888888"
+            android:textColor="@color/op_text_tertiary"
             android:layout_gravity="end"
             android:paddingEnd="4dp"/>
     </LinearLayout>
@@ -80,7 +80,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="弹幕色："
-            android:textColor="#FF888888"
+            android:textColor="@color/op_text_secondary"
             android:textSize="14sp"
             android:layout_marginEnd="8dp"/>
             

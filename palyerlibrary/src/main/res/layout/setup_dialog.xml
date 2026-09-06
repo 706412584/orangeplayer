@@ -8,7 +8,7 @@
     <!-- 内容面板 - 右侧滑入 -->
     <LinearLayout
         android:id="@+id/content_layout"
-        android:layout_width="300dp"
+        android:layout_width="@dimen/op_panel_width"
         android:layout_height="match_parent"
         android:layout_gravity="end"
         android:background="@drawable/setup_panel_bg"
@@ -37,7 +37,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="快捷功能"
-                    android:textColor="#B3FFFFFF"
+                    android:textColor="@color/op_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginBottom="8dp" />
 
@@ -77,7 +77,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="画面比例"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/op_text_primary"
                             android:textSize="11sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
@@ -112,7 +112,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="长按倍速"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/op_text_primary"
                             android:textSize="11sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
@@ -147,7 +147,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="定时关闭"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/op_text_primary"
                             android:textSize="11sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
@@ -192,7 +192,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="跳过片头"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/op_text_primary"
                             android:textSize="11sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
@@ -227,7 +227,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="跳过片尾"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/op_text_primary"
                             android:textSize="11sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
@@ -262,7 +262,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="小窗播放"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/op_text_primary"
                             android:textSize="11sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
@@ -309,7 +309,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="下载视频"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/op_text_primary"
                             android:textSize="11sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
@@ -346,7 +346,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="进度条"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/op_text_primary"
                             android:textSize="11sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
@@ -383,7 +383,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="截图"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/op_text_primary"
                             android:textSize="11sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
@@ -397,7 +397,7 @@
                     android:layout_height="1dp"
                     android:layout_marginTop="16dp"
                     android:layout_marginBottom="16dp"
-                    android:background="#1AFFFFFF" />
+                    android:background="@color/op_divider" />
 
                 <!-- ========== 播放核心 ========== -->
                 <LinearLayout
@@ -424,7 +424,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="播放核心"
-                                android:textColor="#FFFFFF"
+                                android:textColor="@color/op_text_primary"
                                 android:textSize="13sp"
                                 android:textStyle="bold" />
 
@@ -444,7 +444,7 @@
                                     android:layout_marginEnd="4dp"
                                     android:text="Ali"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -459,7 +459,7 @@
                                     android:layout_marginEnd="4dp"
                                     android:text="Exo"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -474,7 +474,7 @@
                                     android:layout_marginEnd="4dp"
                                     android:text="Ijk"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -488,7 +488,7 @@
                                     android:layout_marginStart="4dp"
                                     android:text="系统"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -511,7 +511,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="解码方式"
-                                android:textColor="#FFFFFF"
+                                android:textColor="@color/op_text_primary"
                                 android:textSize="13sp"
                                 android:textStyle="bold" />
 
@@ -530,7 +530,7 @@
                                     android:layout_marginEnd="4dp"
                                     android:text="硬件解码"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -544,7 +544,7 @@
                                     android:layout_marginStart="4dp"
                                     android:text="软件解码"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -568,7 +568,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="播放方式"
-                                android:textColor="#FFFFFF"
+                                android:textColor="@color/op_text_primary"
                                 android:textSize="13sp"
                                 android:textStyle="bold" />
 
@@ -588,7 +588,7 @@
                                     android:layout_marginEnd="4dp"
                                     android:text="顺序播放"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -603,7 +603,7 @@
                                     android:layout_marginEnd="4dp"
                                     android:text="单集循环"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -617,7 +617,7 @@
                                     android:layout_marginStart="4dp"
                                     android:text="播完暂停"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -640,7 +640,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="全屏自动旋转"
-                                android:textColor="#FFFFFF"
+                                android:textColor="@color/op_text_primary"
                                 android:textSize="13sp"
                                 android:textStyle="bold" />
 
@@ -659,7 +659,7 @@
                                     android:layout_marginEnd="4dp"
                                     android:text="开启"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -673,7 +673,7 @@
                                     android:layout_marginStart="4dp"
                                     android:text="关闭"
                                     android:textSize="11sp"
-                                    android:textColor="#E6FFFFFF"
+                                    android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
@@ -689,7 +689,7 @@
                     android:layout_height="1dp"
                     android:layout_marginTop="16dp"
                     android:layout_marginBottom="16dp"
-                    android:background="#1AFFFFFF" />
+                    android:background="@color/op_divider" />
 
                 <!-- ========== 音量控制 ========== -->
                 <LinearLayout
@@ -712,7 +712,7 @@
                             android:text="音量"
                             android:textSize="13sp"
                             android:textStyle="bold"
-                            android:textColor="#FFFFFF" />
+                            android:textColor="@color/op_text_primary" />
 
                         <TextView
                             android:id="@+id/volumeText"
@@ -720,7 +720,7 @@
                             android:layout_height="wrap_content"
                             android:text="100%"
                             android:textSize="12sp"
-                            android:textColor="#B3FFFFFF" />
+                            android:textColor="@color/op_text_secondary" />
                     </LinearLayout>
 
                     <SeekBar

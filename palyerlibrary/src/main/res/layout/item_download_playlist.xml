@@ -12,7 +12,7 @@
         android:id="@+id/cb_select"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:buttonTint="#FF9800" />
+        android:buttonTint="@color/op_brand" />
 
     <TextView
         android:id="@+id/tv_title"
@@ -21,7 +21,7 @@
         android:layout_weight="1"
         android:layout_marginStart="8dp"
         android:text="第N集"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/op_text_primary"
         android:textSize="14sp" />
 
     <TextView
@@ -29,7 +29,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="已下载"
-        android:textColor="#4CAF50"
+        android:textColor="@color/op_success"
         android:textSize="12sp"
         android:visibility="gone" />
 

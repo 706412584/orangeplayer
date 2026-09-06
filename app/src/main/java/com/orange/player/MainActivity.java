@@ -93,7 +93,15 @@ public class MainActivity extends AppCompatActivity {
         mVideoView = findViewById(R.id.video_view);
         mEtVideoUrl = findViewById(R.id.et_video_url);
         mTvDebugLog = findViewById(R.id.tv_debug_log);
-        mScrollLog = (ScrollView) mTvDebugLog.getParent();
+        mScrollLog = findViewById(R.id.log_scroll);
+
+        // 调试日志折叠开关
+        TextView btnToggleLog = findViewById(R.id.btn_toggle_log);
+        btnToggleLog.setOnClickListener(v -> {
+            boolean show = mScrollLog.getVisibility() != View.VISIBLE;
+            mScrollLog.setVisibility(show ? View.VISIBLE : View.GONE);
+            btnToggleLog.setText(show ? "调试日志 ▾" : "调试日志 ▸");
+        });
 
         // 设置默认URL
         mEtVideoUrl.setText(DEFAULT_VIDEO_URL);

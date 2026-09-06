@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 底部细进度条样式：白色 -->
+<!-- 底部细进度条样式：已播段品牌橙 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 背景轨道 -->
     <item android:id="@android:id/background">
         <shape android:shape="rectangle">
-            <solid android:color="#40FFFFFF"/>
+            <solid android:color="@color/op_track"/>
         </shape>
     </item>
 
@@ -12,16 +12,16 @@
     <item android:id="@android:id/secondaryProgress">
         <clip>
             <shape android:shape="rectangle">
-                <solid android:color="#80FFFFFF"/>
+                <solid android:color="@color/op_buffer"/>
             </shape>
         </clip>
     </item>
 
-    <!-- 播放进度 -->
+    <!-- 播放进度 - 品牌橙 -->
     <item android:id="@android:id/progress">
         <clip>
             <shape android:shape="rectangle">
-                <solid android:color="#FFFFFF"/>
+                <solid android:color="@color/op_progress"/>
             </shape>
         </clip>
     </item>

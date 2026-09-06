@@ -4,15 +4,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- 内容面板 - 右侧居中 -->
+    <!-- 内容面板 - 右侧贴边全高玻璃面板 -->
     <LinearLayout
         android:id="@+id/content_layout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end|center_vertical"
-        android:layout_marginEnd="32dp"
-        android:background="@drawable/setup_card_bg"
-        android:minWidth="200dp"
+        android:layout_width="@dimen/op_panel_width"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="@drawable/setup_panel_bg"
         android:orientation="vertical"
         android:padding="16dp">
 
@@ -23,7 +21,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
             android:text="定时关闭"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/op_text_primary"
             android:textSize="14sp"
             android:textStyle="bold" />
 
@@ -42,7 +40,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginVertical="16dp"
                 android:text="00:00:00"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="32sp"
                 android:textStyle="bold" />
 
@@ -54,7 +52,7 @@
                 android:background="@drawable/setup_option_bg"
                 android:gravity="center"
                 android:text="取消定时"
-                android:textColor="#FF6B6B"
+                android:textColor="@color/op_danger"
                 android:textSize="14sp" />
         </LinearLayout>
 

@@ -14,7 +14,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="正在下载翻译模型"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/op_text_primary"
         android:textSize="16sp"
         android:textStyle="bold"
         android:layout_marginBottom="20dp" />
@@ -54,7 +54,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:text="0%"
-            android:textColor="#4CAF50"
+            android:textColor="@color/op_success"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -66,7 +66,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="首次使用需要下载"
-        android:textColor="#888888"
+        android:textColor="@color/op_text_secondary"
         android:textSize="12sp" />
 
 </LinearLayout>

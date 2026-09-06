@@ -7,7 +7,7 @@
     <!-- 内容面板 - 右侧 -->
     <LinearLayout
         android:id="@+id/content_layout"
-        android:layout_width="240dp"
+        android:layout_width="@dimen/op_panel_width"
         android:layout_height="match_parent"
         android:layout_gravity="end"
         android:background="@drawable/setup_panel_bg"
@@ -31,7 +31,7 @@
                 android:layout_height="wrap_content"
                 android:layout_centerVertical="true"
                 android:text="选集"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
@@ -46,7 +46,7 @@
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
                 android:text="正序"
-                android:textColor="#B3FFFFFF"
+                android:textColor="@color/op_text_secondary"
                 android:textSize="12sp" />
 
             <TextView
@@ -59,7 +59,7 @@
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
                 android:text="默认"
-                android:textColor="#B3FFFFFF"
+                android:textColor="@color/op_text_secondary"
                 android:textSize="12sp" />
         </RelativeLayout>
 
@@ -70,7 +70,7 @@
             android:layout_height="1dp"
             android:layout_marginStart="16dp"
             android:layout_marginEnd="16dp"
-            android:background="#1AFFFFFF" />
+            android:background="@color/op_divider" />
 
         <!-- 选集列表 -->
         <androidx.recyclerview.widget.RecyclerView

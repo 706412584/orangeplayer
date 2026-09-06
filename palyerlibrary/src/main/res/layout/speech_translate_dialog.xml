@@ -8,10 +8,10 @@
 
     <ScrollView
         android:id="@+id/scroll_content"
-        android:layout_width="280dp"
+        android:layout_width="@dimen/op_panel_width"
         android:layout_height="match_parent"
         android:layout_gravity="end"
-        android:background="#E6222222"
+        android:background="@drawable/setup_panel_bg"
         android:clickable="true"
         android:focusable="true"
         android:focusableInTouchMode="true">
@@ -29,7 +29,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="语音识别与翻译"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold"
                 android:layout_marginBottom="16dp" />
@@ -39,7 +39,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="识别视频中的语音并显示为字幕，需要录音权限"
-                android:textColor="#AAAAAA"
+                android:textColor="@color/op_text_secondary"
                 android:textSize="12sp"
                 android:layout_marginBottom="16dp" />
 
@@ -61,7 +61,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="管理语言包"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="14sp" />
 
                 <TextView
@@ -69,7 +69,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="已安装 0 个"
-                    android:textColor="#888888"
+                    android:textColor="@color/op_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginEnd="4dp" />
 
@@ -77,7 +77,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text=">"
-                    android:textColor="#888888"
+                    android:textColor="@color/op_text_secondary"
                     android:textSize="14sp" />
             </LinearLayout>
 
@@ -86,7 +86,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="识别语言"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="14sp"
                 android:layout_marginBottom="8dp" />
 
@@ -103,7 +103,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="请先下载至少一个语言包"
-                android:textColor="#FF9800"
+                android:textColor="@color/op_brand"
                 android:textSize="12sp"
                 android:visibility="gone"
                 android:layout_marginBottom="8dp" />
@@ -112,7 +112,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:background="#444444"
+                android:background="@color/op_divider"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="16dp" />
 
@@ -129,7 +129,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="启用翻译"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="14sp" />
 
                 <Switch
@@ -144,7 +144,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="关闭后只显示识别的原文，不进行翻译"
-                android:textColor="#888888"
+                android:textColor="@color/op_text_secondary"
                 android:textSize="11sp"
                 android:layout_marginBottom="16dp" />
 
@@ -154,7 +154,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="翻译为"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="14sp"
                 android:layout_marginBottom="8dp" />
 
@@ -177,7 +177,7 @@
                     android:layout_height="44dp"
                     android:layout_weight="1"
                     android:text="取消"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="14sp"
                     android:background="@drawable/btn_cancel_bg"
                     android:layout_marginEnd="8dp" />
@@ -188,7 +188,7 @@
                     android:layout_height="44dp"
                     android:layout_weight="1"
                     android:text="开始识别"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="14sp"
                     android:background="@drawable/btn_primary_bg"
                     android:layout_marginStart="8dp" />

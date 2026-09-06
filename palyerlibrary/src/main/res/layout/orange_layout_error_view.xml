@@ -47,7 +47,7 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="@string/orange_error_message"
-            android:textColor="#ffe6e6e6" />
+            android:textColor="@color/op_text_primary" />
 
     </LinearLayout>
 </FrameLayout>

@@ -29,18 +29,18 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_download"
-                android:tint="#FF9800" />
-            
+                android:tint="@color/op_brand" />
+
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="下载管理"
-                android:textColor="@android:color/white"
+                android:textColor="@color/op_text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold"
                 android:layout_marginStart="8dp" />
-            
+
             <ImageView
                 android:id="@+id/btn_close"
                 android:layout_width="32dp"
@@ -49,7 +49,7 @@
                 android:src="@drawable/ic_close"
                 android:contentDescription="关闭"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:tint="#AAAAAA" />
+                android:tint="@color/op_text_secondary" />
         </LinearLayout>
         
         <!-- 操作按钮栏 -->
@@ -66,60 +66,60 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="共 0 个任务"
-                android:textColor="#99FFFFFF"
+                android:textColor="@color/op_text_secondary"
                 android:textSize="12sp" />
-            
+
             <TextView
                 android:id="@+id/btn_start_all"
                 android:layout_width="wrap_content"
                 android:layout_height="28dp"
                 android:text="全部开始"
-                android:textColor="#4CAF50"
+                android:textColor="@color/op_success"
                 android:textSize="12sp"
                 android:paddingHorizontal="10dp"
                 android:gravity="center"
                 android:background="?attr/selectableItemBackgroundBorderless" />
-            
+
             <View
                 android:layout_width="1dp"
                 android:layout_height="16dp"
-                android:background="#33FFFFFF"
+                android:background="@color/op_track"
                 android:layout_marginHorizontal="6dp" />
-            
+
             <TextView
                 android:id="@+id/btn_pause_all"
                 android:layout_width="wrap_content"
                 android:layout_height="28dp"
                 android:text="全部暂停"
-                android:textColor="#FF9800"
+                android:textColor="@color/op_brand"
                 android:textSize="12sp"
                 android:paddingHorizontal="10dp"
                 android:gravity="center"
                 android:background="?attr/selectableItemBackgroundBorderless" />
-            
+
             <View
                 android:layout_width="1dp"
                 android:layout_height="16dp"
-                android:background="#33FFFFFF"
+                android:background="@color/op_track"
                 android:layout_marginHorizontal="6dp" />
-            
+
             <TextView
                 android:id="@+id/btn_clear"
                 android:layout_width="wrap_content"
                 android:layout_height="28dp"
                 android:text="全部删除"
-                android:textColor="#F44336"
+                android:textColor="@color/op_danger"
                 android:textSize="12sp"
                 android:paddingHorizontal="10dp"
                 android:gravity="center"
                 android:background="?attr/selectableItemBackgroundBorderless" />
         </LinearLayout>
-        
+
         <!-- 分隔线 -->
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:background="#22FFFFFF" />
+            android:background="@color/op_divider" />
         
         <!-- 任务列表 -->
         <androidx.recyclerview.widget.RecyclerView
@@ -147,22 +147,22 @@
                 android:layout_width="72dp"
                 android:layout_height="72dp"
                 android:src="@drawable/ic_download"
-                android:tint="#333333"
+                android:tint="@color/op_text_tertiary"
                 android:layout_marginBottom="16dp" />
-            
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="暂无下载任务"
                 android:textSize="15sp"
-                android:textColor="#666666" />
-            
+                android:textColor="@color/op_text_secondary" />
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="点击视频播放页的下载按钮开始下载"
                 android:textSize="12sp"
-                android:textColor="#444444"
+                android:textColor="@color/op_text_tertiary"
                 android:layout_marginTop="6dp" />
         </LinearLayout>
         

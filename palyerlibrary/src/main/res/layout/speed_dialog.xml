@@ -22,7 +22,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
             android:text="播放速度"
-            android:textColor="#B3FFFFFF"
+            android:textColor="@color/op_text_secondary"
             android:textSize="13sp" />
 
         <androidx.recyclerview.widget.RecyclerView

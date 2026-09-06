@@ -3,13 +3,13 @@
     android:id="@+id/layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#80000000">
+    android:background="@color/op_scrim">
 
     <ScrollView
-        android:layout_width="280dp"
+        android:layout_width="@dimen/op_panel_width"
         android:layout_height="match_parent"
         android:layout_gravity="end"
-        android:background="#E6222222"
+        android:background="@drawable/setup_panel_bg"
         android:clickable="true"
         android:focusable="true">
 
@@ -24,7 +24,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="字幕设置"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold"
                 android:layout_marginBottom="16dp" />
@@ -42,7 +42,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="显示字幕"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="14sp" />
 
                 <Switch
@@ -57,7 +57,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="未加载字幕"
-                android:textColor="#888888"
+                android:textColor="@color/op_text_secondary"
                 android:textSize="12sp"
                 android:layout_marginBottom="16dp" />
 
@@ -65,7 +65,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:background="#444444"
+                android:background="@color/op_divider"
                 android:layout_marginBottom="16dp" />
 
             <!-- 加载字幕按钮 -->
@@ -73,7 +73,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="加载字幕"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:layout_marginBottom="12dp" />
@@ -83,7 +83,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:text="从本地加载"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="13sp"
                 android:background="@drawable/btn_subtitle_bg"
                 android:layout_marginBottom="8dp" />
@@ -93,7 +93,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:text="从网络加载"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="13sp"
                 android:background="@drawable/btn_subtitle_bg" />
 
@@ -101,7 +101,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:background="#444444"
+                android:background="@color/op_divider"
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="16dp" />
 
@@ -110,7 +110,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="OCR 翻译字幕"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:layout_marginBottom="12dp" />
@@ -120,7 +120,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="识别视频画面中的硬字幕并翻译"
-                android:textColor="#888888"
+                android:textColor="@color/op_text_secondary"
                 android:textSize="12sp"
                 android:layout_marginBottom="8dp" />
 
@@ -129,7 +129,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:text="开启 OCR 翻译"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="13sp"
                 android:background="@drawable/btn_subtitle_bg" />
 
@@ -137,7 +137,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:background="#444444"
+                android:background="@color/op_divider"
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="16dp" />
 
@@ -146,7 +146,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="语音识别与翻译"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:layout_marginBottom="12dp" />
@@ -156,7 +156,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="识别视频音频并翻译为字幕"
-                android:textColor="#888888"
+                android:textColor="@color/op_text_secondary"
                 android:textSize="12sp"
                 android:layout_marginBottom="8dp" />
 
@@ -165,7 +165,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:text="开启语音识别"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="13sp"
                 android:background="@drawable/btn_subtitle_bg" />
 
@@ -173,7 +173,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:background="#444444"
+                android:background="@color/op_divider"
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="16dp" />
 
@@ -183,7 +183,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="字幕大小: 24sp"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="14sp"
                 android:layout_marginBottom="8dp" />
 
@@ -198,7 +198,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:background="#444444"
+                android:background="@color/op_divider"
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="16dp" />
 
@@ -208,7 +208,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="字幕延迟: 0.0s"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="14sp"
                 android:layout_marginBottom="8dp" />
 
@@ -224,7 +224,7 @@
                     android:layout_weight="1"
                     android:layout_height="40dp"
                     android:text="- 0.5s"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="13sp"
                     android:background="@drawable/btn_subtitle_bg"
                     android:layout_marginEnd="8dp" />
@@ -235,7 +235,7 @@
                     android:layout_weight="1"
                     android:layout_height="40dp"
                     android:text="重置"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="13sp"
                     android:background="@drawable/btn_subtitle_bg"
                     android:layout_marginEnd="8dp" />
@@ -246,7 +246,7 @@
                     android:layout_weight="1"
                     android:layout_height="40dp"
                     android:text="+ 0.5s"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="13sp"
                     android:background="@drawable/btn_subtitle_bg" />
             </LinearLayout>

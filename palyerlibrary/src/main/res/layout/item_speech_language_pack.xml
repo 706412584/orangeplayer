@@ -25,7 +25,7 @@
                 android:id="@+id/tv_language_name"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/op_text_primary"
                 android:textSize="14sp" />
 
             <LinearLayout
@@ -40,7 +40,7 @@
                     android:id="@+id/tv_installed_quality"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#4CAF50"
+                    android:textColor="@color/op_success"
                     android:textSize="10sp"
                     android:visibility="gone" />
 
@@ -48,7 +48,7 @@
                     android:id="@+id/tv_size"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#666666"
+                    android:textColor="@color/op_text_tertiary"
                     android:textSize="10sp"
                     android:layout_marginStart="6dp" />
             </LinearLayout>
@@ -73,7 +73,7 @@
             android:minWidth="48dp"
             android:gravity="center"
             android:text="下载"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/op_text_primary"
             android:textSize="11sp"
             android:paddingHorizontal="10dp"
             android:background="@drawable/btn_small_bg" />

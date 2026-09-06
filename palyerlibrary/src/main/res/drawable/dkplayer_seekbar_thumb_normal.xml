@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 普通状态滑块：白色圆形带阴影 -->
+<!-- 普通状态滑块：白色主体 + 半透明橙光晕，主体放大到 12dp -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- 阴影层 -->
-    <item android:bottom="1dp" android:left="1dp" android:right="1dp" android:top="1dp">
-        <shape android:shape="oval">
-            <solid android:color="#40000000"/>
-            <size android:width="10dp" android:height="10dp"/>
-        </shape>
-    </item>
-    <!-- 主体 -->
+    <!-- 橙色光晕 -->
     <item>
         <shape android:shape="oval">
+            <solid android:color="@color/op_brand_translucent"/>
+            <size android:width="18dp" android:height="18dp"/>
+        </shape>
+    </item>
+    <!-- 主体白点 -->
+    <item android:bottom="3dp" android:left="3dp" android:right="3dp" android:top="3dp">
+        <shape android:shape="oval">
             <solid android:color="#FFFFFF"/>
-            <size android:width="8dp" android:height="8dp"/>
+            <size android:width="12dp" android:height="12dp"/>
         </shape>
     </item>
 </layer-list>

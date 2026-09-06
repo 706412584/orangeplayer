@@ -39,7 +39,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="视频嗅探"
-                android:textColor="@android:color/white"
+                android:textColor="@color/op_text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold"
                 android:gravity="center" />
@@ -58,7 +58,7 @@
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:background="#33FFFFFF" />
+            android:background="@color/op_divider" />
 
         <!-- 状态区域 -->
         <LinearLayout
@@ -103,7 +103,7 @@
             android:layout_height="120dp"
             android:gravity="center"
             android:text="暂无嗅探结果"
-            android:textColor="#99FFFFFF"
+            android:textColor="@color/op_text_secondary"
             android:textSize="14sp"
             android:visibility="gone"
             tools:visibility="visible" />

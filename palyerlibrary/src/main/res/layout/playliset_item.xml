@@ -12,8 +12,11 @@
         android:layout_height="44dp"
         android:background="@drawable/playlist_item_bg"
         android:gravity="center"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:paddingHorizontal="4dp"
         android:text="第N集"
-        android:textColor="#E6FFFFFF"
+        android:textColor="@color/op_text_primary"
         android:textSize="14sp" />
 
 </FrameLayout>

@@ -54,4 +54,17 @@
     <!-- DanmaView 弹幕尺寸 -->
     <dimen name="orange_danmaku_text_size">14sp</dimen>
     <dimen name="orange_danmaku_margin">12dp</dimen>
+
+    <!-- ===== Design Token 尺寸 ===== -->
+    <!-- 右侧滑入面板统一宽度 -->
+    <dimen name="op_panel_width">300dp</dimen>
+    <!-- 圆角 -->
+    <dimen name="op_radius_s">8dp</dimen>
+    <dimen name="op_radius_m">12dp</dimen>
+    <dimen name="op_radius_l">16dp</dimen>
+    <!-- 最小触摸热区 / 控制图标尺寸 -->
+    <dimen name="op_touch">44dp</dimen>
+    <dimen name="op_icon">24dp</dimen>
+    <!-- 底部弹幕行文字按钮统一字号 -->
+    <dimen name="op_row_button_text_size">13sp</dimen>
 </resources>

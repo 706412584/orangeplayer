@@ -7,18 +7,18 @@
 	<color name="gray_400">#FFBDBDBD</color>
 	<color name="gray_600">#FF757575</color>
 	
-	<!-- Orange Player Colors -->
+	<!-- Orange Player Colors（强调色统一到品牌橙 token） -->
 	<color name="orange_background_color">#4D000000</color>
-	<color name="orange_theme_color">#39C5BB</color>
-	<color name="orange_theme_color_translucent">#9939C5BB</color>
-	
+	<color name="orange_theme_color">@color/op_brand</color>
+	<color name="orange_theme_color_translucent">@color/op_brand_translucent</color>
+
 	<!-- DKPlayer compatibility colors -->
 	<color name="dkplayer_background_color">#4D000000</color>
-	<color name="dkplayer_theme_color">#39C5BB</color>
-	<color name="dkplayer_theme_color_translucent">#9939C5BB</color>
-	
+	<color name="dkplayer_theme_color">@color/op_brand</color>
+	<color name="dkplayer_theme_color_translucent">@color/op_brand_translucent</color>
+
 	<!-- VodControlView colors -->
 	<color name="orange_preview_background">#1a1a1a</color>
 	<color name="orange_preview_time_background">#80000000</color>
-	<color name="orange_danmu_hint_color">#CCCCCC</color>
+	<color name="orange_danmu_hint_color">@color/op_text_secondary</color>
 </resources>

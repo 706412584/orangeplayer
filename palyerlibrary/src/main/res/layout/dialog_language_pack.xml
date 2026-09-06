@@ -11,7 +11,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="OCR 语言包管理"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/op_text_primary"
         android:textSize="16sp"
         android:textStyle="bold"
         android:layout_marginBottom="4dp" />
@@ -21,7 +21,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="点击下载需要的语言包（国内用户如下载失败请开启代理）"
-        android:textColor="#FF9800"
+        android:textColor="@color/op_brand"
         android:textSize="11sp"
         android:layout_marginBottom="8dp" />
 
@@ -31,7 +31,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="已安装: 0 个语言包"
-        android:textColor="#888888"
+        android:textColor="@color/op_text_secondary"
         android:textSize="11sp"
         android:layout_marginBottom="6dp" />
 
@@ -57,7 +57,7 @@
             android:layout_height="28dp"
             android:gravity="center"
             android:text="关闭"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/op_text_primary"
             android:textSize="13sp"
             android:background="@drawable/btn_small_bg"
             android:paddingHorizontal="20dp" />

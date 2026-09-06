@@ -119,6 +119,11 @@ public class DialogUtils {
         
         // 添加到 DecorView
         decorView.addView(view);
+
+        // 右侧贴边面板：对背后内容施加毛玻璃（API31+，低版本自动降级为半透明）
+        if (position == DialogPosition.RIGHT) {
+            applyPanelBlur(context);
+        }
         
         // 创建一个自定义的 AlertDialog 子类，重写 dismiss() 方法
         AlertDialog fakeDialog = new AlertDialog(context, R.style.TransparentDialog) {
@@ -152,6 +157,19 @@ public class DialogUtils {
         if (contentLayout != null) {
             contentLayout.setOnClickListener(v -> {
                 // 不做任何事情，只是消费点击事件
+            });
+        }
+
+        // 右侧贴边面板：统一从右侧滑入动效
+        if (position == DialogPosition.RIGHT && contentLayout != null) {
+            final View panel = contentLayout;
+            panel.post(() -> {
+                panel.setTranslationX(panel.getWidth());
+                panel.animate()
+                        .translationX(0f)
+                        .setDuration(220)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .start();
             });
         }
         
@@ -303,18 +321,37 @@ public class DialogUtils {
         }
     }
     
-    public static void showBlurEffect(Activity activity, String str, String str2) {
-        if (Build.VERSION.SDK_INT >= 31) {
-            int parseInt = Integer.parseInt(str);
-            int parseInt2 = Integer.parseInt(str2);
-            activity.getWindow().getDecorView().setRenderEffect(
-                RenderEffect.createBlurEffect(parseInt, parseInt2, Shader.TileMode.CLAMP));
-        }
+    /**
+     * 对面板背后的 Activity 内容施加毛玻璃模糊（API 31+）。
+     * 只模糊 android.R.id.content（承载视频与界面），不影响叠加在 decorView 上的面板本身。
+     * API 31 以下自动降级为无模糊，依赖面板半透明表面色（op_surface_*）达成深色玻璃观感。
+     */
+    public static void applyPanelBlur(Activity activity) {
+        setContentBlur(activity, 24f, 24f);
     }
-    
+
+    public static void showBlurEffect(Activity activity, String str, String str2) {
+        setContentBlur(activity, Integer.parseInt(str), Integer.parseInt(str2));
+    }
+
     public static void removeBlurEffect(Activity activity) {
-        if (Build.VERSION.SDK_INT >= 31) {
-            activity.getWindow().getDecorView().setRenderEffect(null);
+        setContentBlur(activity, 0f, 0f);
+    }
+
+    /** 统一入口：对 android.R.id.content 施加/清除模糊。半径为 0 时清除。 */
+    private static void setContentBlur(Activity activity, float radiusX, float radiusY) {
+        if (activity == null || Build.VERSION.SDK_INT < 31) {
+            return;
+        }
+        View content = activity.findViewById(android.R.id.content);
+        if (content == null) {
+            return;
+        }
+        if (radiusX <= 0f || radiusY <= 0f) {
+            content.setRenderEffect(null);
+        } else {
+            content.setRenderEffect(
+                RenderEffect.createBlurEffect(radiusX, radiusY, Shader.TileMode.CLAMP));
         }
     }
 }

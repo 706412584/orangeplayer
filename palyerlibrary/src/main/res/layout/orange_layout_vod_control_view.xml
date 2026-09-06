@@ -82,7 +82,7 @@
                     android:paddingHorizontal="@dimen/orange_preview_time_padding_horizontal"
                     android:paddingVertical="@dimen/orange_preview_time_padding_vertical"
                     android:text="@string/orange_default_time"
-                    android:textColor="@android:color/white"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="@dimen/orange_preview_time_text_size" />
 
                 <!-- 错误提示 -->
@@ -94,7 +94,7 @@
                     android:gravity="center"
                     android:padding="@dimen/orange_preview_error_padding"
                     android:text="@string/orange_preview_unavailable"
-                    android:textColor="@android:color/white"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="@dimen/orange_preview_error_text_size"
                     android:visibility="gone" />
             </RelativeLayout>
@@ -147,7 +147,7 @@
                 android:gravity="center"
                 android:minWidth="@dimen/orange_time_text_width"
                 android:text="@string/orange_default_time"
-                android:textColor="@android:color/white"
+                android:textColor="@color/op_text_primary"
                 android:textSize="@dimen/orange_time_text_size" />
 
             <!-- 进度条 -->
@@ -177,7 +177,7 @@
                 android:gravity="center"
                 android:minWidth="@dimen/orange_time_text_width"
                 android:text="@string/orange_default_time"
-                android:textColor="@android:color/white"
+                android:textColor="@color/op_text_primary"
                 android:textSize="@dimen/orange_time_text_size" />
 
             <!-- 竖屏全屏按钮 -->
@@ -281,7 +281,7 @@
                 android:marqueeRepeatLimit="marquee_forever"
                 android:maxWidth="@dimen/orange_danmu_input_max_width"
                 android:paddingStart="@dimen/orange_danmu_input_padding_start"
-                android:textColor="@android:color/white"
+                android:textColor="@color/op_text_primary"
                 android:textColorHint="@color/orange_danmu_hint_color"
                 android:textSize="@dimen/orange_danmu_input_text_size" />
 
@@ -307,8 +307,8 @@
                 android:paddingTop="@dimen/orange_control_button_padding"
                 android:paddingBottom="@dimen/orange_control_button_padding"
                 android:text="@string/orange_skip_header_footer"
-                android:textColor="@android:color/white"
-                android:textSize="13sp"
+                android:textColor="@color/op_text_primary"
+                android:textSize="@dimen/op_row_button_text_size"
                 android:minWidth="0dp" />
 
             <!-- 倍速按钮 -->
@@ -322,8 +322,8 @@
                 android:paddingTop="@dimen/orange_control_button_padding"
                 android:paddingBottom="@dimen/orange_control_button_padding"
                 android:text="@string/orange_speed_control"
-                android:textColor="@android:color/white"
-                android:textSize="13sp"
+                android:textColor="@color/op_text_primary"
+                android:textSize="@dimen/op_row_button_text_size"
                 android:minWidth="0dp" />
 
             <!-- 播放源按钮 -->
@@ -334,7 +334,7 @@
                 android:background="?android:attr/selectableItemBackground"
                 android:padding="@dimen/orange_control_button_padding"
                 android:text="@string/orange_source_select"
-                android:textColor="@android:color/white"
+                android:textColor="@color/op_text_primary"
                 android:textSize="@dimen/orange_control_button_text_size"
                 android:visibility="gone" />
 
@@ -349,8 +349,8 @@
                 android:paddingTop="@dimen/orange_control_button_padding"
                 android:paddingBottom="@dimen/orange_control_button_padding"
                 android:text="@string/orange_episode_select"
-                android:textColor="@android:color/white"
-                android:textSize="13sp"
+                android:textColor="@color/op_text_primary"
+                android:textSize="@dimen/op_row_button_text_size"
                 android:minWidth="0dp" />
 
             <!-- 全屏按钮（全屏时显示在弹幕区） -->

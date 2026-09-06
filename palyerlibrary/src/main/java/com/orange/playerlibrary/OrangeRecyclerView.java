@@ -6,6 +6,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -17,14 +18,23 @@ import java.util.HashMap;
  * 简化 RecyclerView 的使用
  */
 public class OrangeRecyclerView {
-    
+
     private OrangeRecyclerViewAdapter mAdapter;
-    
+
     /**
      * 设置线性布局管理器
      */
     public OrangeRecyclerView setLinearLayoutManager(RecyclerView recyclerView, Context context) {
         LinearLayoutManager layoutManager = new LinearLayoutManager(context);
+        recyclerView.setLayoutManager(layoutManager);
+        return this;
+    }
+
+    /**
+     * 设置网格布局管理器
+     */
+    public OrangeRecyclerView setGridLayoutManager(RecyclerView recyclerView, Context context, int spanCount) {
+        GridLayoutManager layoutManager = new GridLayoutManager(context, spanCount);
         recyclerView.setLayoutManager(layoutManager);
         return this;
     }

@@ -42,7 +42,7 @@
                 android:paddingLeft="6dp"
                 android:paddingRight="6dp"
                 android:singleLine="true"
-                android:textColor="@android:color/white"
+                android:textColor="@color/op_text_primary"
                 android:textSize="@dimen/orange_controller_text_size"
                 tools:text="视频标题" />
 
@@ -134,7 +134,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="1dp"
                 android:includeFontPadding="false"
-                android:textColor="@android:color/white"
+                android:textColor="@color/op_text_primary"
                 android:textSize="11sp"
                 tools:text="12:00" />
 

@@ -4,22 +4,21 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- 内容面板 - 右侧居中 -->
+    <!-- 内容面板 - 右侧贴边全高玻璃面板 -->
     <LinearLayout
         android:id="@+id/content_layout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end|center_vertical"
-        android:layout_marginEnd="32dp"
-        android:orientation="vertical">
+        android:layout_width="@dimen/op_panel_width"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="@drawable/setup_panel_bg"
+        android:orientation="vertical"
+        android:padding="16dp">
 
         <LinearLayout
             android:id="@+id/shik"
-            android:layout_width="240dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/setup_card_bg"
-            android:orientation="vertical"
-            android:padding="16dp">
+            android:orientation="vertical">
 
             <!-- 跳过片头 -->
             <LinearLayout
@@ -34,7 +33,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="跳过片头"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
@@ -46,7 +45,7 @@
                     android:paddingHorizontal="12dp"
                     android:paddingVertical="4dp"
                     android:text="不跳过"
-                    android:textColor="#B3FFFFFF"
+                    android:textColor="@color/op_text_secondary"
                     android:textSize="12sp" />
             </LinearLayout>
 
@@ -71,7 +70,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
                 android:layout_marginVertical="12dp"
-                android:background="#1AFFFFFF" />
+                android:background="@color/op_divider" />
 
             <!-- 跳过片尾 -->
             <LinearLayout
@@ -87,7 +86,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="跳过片尾"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/op_text_primary"
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
@@ -99,7 +98,7 @@
                     android:paddingHorizontal="12dp"
                     android:paddingVertical="4dp"
                     android:text="不跳过"
-                    android:textColor="#B3FFFFFF"
+                    android:textColor="@color/op_text_secondary"
                     android:textSize="12sp" />
             </LinearLayout>
 

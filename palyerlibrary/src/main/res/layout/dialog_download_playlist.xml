@@ -17,7 +17,7 @@
             android:layout_height="wrap_content"
             android:layout_centerVertical="true"
             android:text="批量下载选集"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/op_text_primary"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -31,7 +31,7 @@
             android:paddingHorizontal="12dp"
             android:paddingVertical="6dp"
             android:text="全选"
-            android:textColor="#B3FFFFFF"
+            android:textColor="@color/op_text_secondary"
             android:textSize="12sp" />
     </RelativeLayout>
 
@@ -39,7 +39,7 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="#1AFFFFFF" />
+        android:background="@color/op_divider" />
 
     <!-- 选集列表 (支持多选) -->
     <androidx.recyclerview.widget.RecyclerView
@@ -66,7 +66,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="已选择 0 集"
-            android:textColor="#99FFFFFF"
+            android:textColor="@color/op_text_secondary"
             android:textSize="12sp" />
 
         <Button
@@ -74,9 +74,9 @@
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="开始下载"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/op_text_primary"
             android:textSize="14sp"
-            android:backgroundTint="#FF9800"
+            android:backgroundTint="@color/op_brand"
             android:minWidth="80dp" />
     </LinearLayout>
 

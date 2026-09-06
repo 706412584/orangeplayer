@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OrangePlayer Design Token - 夜间差异化。
+  播放器 UI 本身即深色，夜间将表面进一步压暗以增强层次；品牌色与文字保持一致。
+-->
+<resources>
+    <color name="op_surface_1">#F2141416</color>
+    <color name="op_surface_2">#E6202024</color>
+    <color name="op_surface_3">#FF303036</color>
+</resources>
