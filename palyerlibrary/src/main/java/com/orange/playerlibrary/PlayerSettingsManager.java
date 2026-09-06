@@ -14,6 +14,7 @@ public class PlayerSettingsManager {
     private static final String KEY_LONG_PRESS_SPEED = "long_press_speed";
     private static final String KEY_PLAY_MODE = "play_mode";
     private static final String KEY_VIDEO_SCALE = "video_scale";
+    private static final String KEY_VIDEO_FILTER = "video_filter";
     private static final String KEY_SKIP_OPENING = "skip_opening";
     private static final String KEY_SKIP_ENDING = "skip_ending";
     private static final String KEY_BOTTOM_PROGRESS = "bottom_progress";
@@ -199,6 +200,22 @@ public class PlayerSettingsManager {
     
     public String getVideoScale() {
         return mPreferences.getString(KEY_VIDEO_SCALE, "默认");
+    }
+
+    // ===== 画质增强（GL 滤镜）设置 =====
+
+    public static final String FILTER_OFF = "关闭";
+    public static final String FILTER_SHARPEN = "标准增强";
+    public static final String FILTER_VIVID = "鲜艳";
+    public static final String FILTER_BLACK_WHITE = "黑白";
+    public static final String FILTER_SEPIA = "复古";
+
+    public void setVideoFilter(String filter) {
+        mPreferences.edit().putString(KEY_VIDEO_FILTER, filter).apply();
+    }
+
+    public String getVideoFilter() {
+        return mPreferences.getString(KEY_VIDEO_FILTER, FILTER_OFF);
     }
     
     // ===== 会话内画面比例（不持久化，切换剧集时重置）=====

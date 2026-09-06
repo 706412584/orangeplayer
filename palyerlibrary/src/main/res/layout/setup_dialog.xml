@@ -270,7 +270,7 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- 第四行: 下载/进度条 -->
+                <!-- 第四行: 下载/进度条/画质增强 -->
                 <LinearLayout
                     android:id="@+id/set_line4"
                     android:layout_width="match_parent"
@@ -383,6 +383,44 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="截图"
+                            android:textColor="@color/op_text_primary"
+                            android:textSize="12sp"
+                            android:layout_marginTop="6dp"
+                            android:clickable="false"
+                            android:focusable="false" />
+                    </LinearLayout>
+
+                    <!-- 画质增强按钮 -->
+                    <LinearLayout
+                        android:id="@+id/line_filter"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="8dp"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <FrameLayout
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/setup_icon_bg">
+                            <ImageView
+                                android:id="@+id/filter_icon"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_video_filter"
+                                android:clickable="false"
+                                android:focusable="false" />
+                        </FrameLayout>
+
+                        <TextView
+                            android:id="@+id/filter_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="画质增强"
                             android:textColor="@color/op_text_primary"
                             android:textSize="12sp"
                             android:layout_marginTop="6dp"

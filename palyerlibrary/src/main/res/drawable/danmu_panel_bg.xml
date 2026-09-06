@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 弹幕发送弹窗面板：底部弹出，仅上方圆角，surface token -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/op_surface_1" />
+    <corners
+        android:topLeftRadius="@dimen/op_radius_l"
+        android:topRightRadius="@dimen/op_radius_l" />
+</shape>

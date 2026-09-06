@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 弹幕发送按钮：品牌橙实心圆角 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/op_brand" />
+    <corners android:radius="16dp" />
+</shape>

@@ -1,109 +1,170 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- 弹幕发送面板：与 setup_dialog / playliset 同体系的右侧滑入面板 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/layout"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="@drawable/round"
-    android:padding="12dp">
-    
-    <!-- 输入区域 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="@drawable/danmu_input_bg"
-        android:paddingEnd="4dp">
-        
-        <!-- 输入框 -->
-        <EditText
-            android:id="@+id/et_danmu"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:hint="发个友善的弹幕吧~"
-            android:paddingStart="12dp"
-            android:paddingEnd="8dp"
-            android:textSize="14sp"
-            android:maxLines="1"
-            android:maxLength="32"
-            android:background="@null"
-            android:textColor="@color/op_text_primary"
-            android:textColorHint="@color/op_text_tertiary"/>
+    android:layout_height="match_parent">
 
-        <!-- 发送按钮 -->
-        <Button
-            android:id="@+id/btn_send"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:minWidth="60dp"
-            android:text="发送"
-            android:textSize="14sp"
-            android:textColor="@color/op_brand"
-            android:background="#00000000"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:gravity="center"/>
-    </LinearLayout>
-    
-    <!-- 字数统计 -->
+    <!-- 内容面板 - 右侧贴边全高面板 -->
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:id="@+id/content_layout"
+        android:layout_width="@dimen/op_panel_width"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="@drawable/setup_panel_bg"
         android:orientation="vertical"
-        android:gravity="center_vertical"
-        android:layout_marginTop="4dp">
-        
-        <TextView
-            android:id="@+id/tv_danmu_count"
-            android:layout_width="wrap_content"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp">
+
+        <!-- 顶部标题栏（同 playliset 结构） -->
+        <RelativeLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="0/32"
-            android:textSize="12sp"
-            android:textColor="@color/op_text_tertiary"
-            android:layout_gravity="end"
-            android:paddingEnd="4dp"/>
-    </LinearLayout>
-    
-    <!-- 颜色选择区域 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginTop="8dp"
-        android:paddingBottom="4dp">
-        
-        <!-- 颜色标签 -->
-        <TextView
-            android:id="@+id/tv_color_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="弹幕色："
-            android:textColor="@color/op_text_secondary"
-            android:textSize="14sp"
-            android:layout_marginEnd="8dp"/>
-            
-        <!-- 颜色选择器 -->
-        <GridView
-            android:id="@+id/grid_color"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerVertical="true"
+                android:text="发送弹幕"
+                android:textColor="@color/op_text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <!-- 字数统计 -->
+            <TextView
+                android:id="@+id/tv_danmu_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:background="@drawable/setup_option_bg"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:text="0/32"
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp" />
+        </RelativeLayout>
+
+        <!-- 分隔线 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:background="@color/op_divider" />
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="8dp"
-            android:numColumns="7"
-            android:horizontalSpacing="6dp"
-            android:verticalSpacing="6dp"
-            android:stretchMode="columnWidth"
-            android:gravity="center"/>
-        
-        <!-- 颜色预览 -->
-        <TextView
-            android:id="@+id/tv_preview"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:background="@drawable/color_circle_bg"
-            android:layout_marginEnd="4dp"/>
+            android:layout_marginTop="12dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <!-- 弹幕内容卡片 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/setup_card_bg"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="弹幕内容"
+                        android:textColor="@color/op_text_primary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <!-- 输入区域 -->
+                    <EditText
+                        android:id="@+id/et_danmu"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/danmu_input_bg"
+                        android:hint="发个友善的弹幕吧~"
+                        android:maxLength="32"
+                        android:maxLines="1"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:textColor="@color/op_text_primary"
+                        android:textColorHint="@color/op_text_tertiary"
+                        android:textSize="14sp" />
+
+                    <!-- 发送按钮：品牌橙实心 -->
+                    <TextView
+                        android:id="@+id/btn_send"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/danmu_send_btn_bg"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:text="发送"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <!-- 弹幕颜色卡片 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/setup_card_bg"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="弹幕颜色"
+                            android:textColor="@color/op_text_primary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <!-- 颜色预览 -->
+                        <TextView
+                            android:id="@+id/tv_preview"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:background="@drawable/color_circle_bg" />
+                    </LinearLayout>
+
+                    <!-- 颜色选择器 -->
+                    <GridView
+                        android:id="@+id/grid_color"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:numColumns="7"
+                        android:horizontalSpacing="6dp"
+                        android:verticalSpacing="6dp"
+                        android:stretchMode="columnWidth"
+                        android:gravity="center" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </ScrollView>
+
     </LinearLayout>
-</LinearLayout>
+</FrameLayout>

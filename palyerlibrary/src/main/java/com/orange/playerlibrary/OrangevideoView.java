@@ -732,6 +732,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         // 应用解码方式设置
         applyDecodeMode(settingsManager);
 
+        // 恢复持久化的画质增强滤镜（TV 模式内部会跳过）
+        restoreVideoFilter();
+
         mPlayerFactoryInitialized = true;
     }
 
@@ -837,12 +840,76 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     /**
      * 获取当前渲染模式
-     * 
+     *
      * @return true: TextureView, false: SurfaceView
      */
     public boolean isTextureViewMode() {
         return com.shuyu.gsyvideoplayer.utils.GSYVideoType
                 .getRenderType() == com.shuyu.gsyvideoplayer.utils.GSYVideoType.TEXTURE;
+    }
+
+    /**
+     * 应用画质增强（GL 滤镜）
+     *
+     * 原理：滤镜档位非"关闭"时切换渲染模式到 GLSurfaceView，
+     * GSY 基类 addTextureView() 会把 mEffectFilter 透传给 GSYVideoGLView，
+     * 由 GL shader 实时处理画面后上屏。
+     *
+     * @param filterName 档位名（PlayerSettingsManager.FILTER_*）
+     */
+    public void applyVideoFilter(String filterName) {
+        com.shuyu.gsyvideoplayer.render.view.GSYVideoGLView.ShaderInterface effect;
+        boolean useGL;
+
+        if (PlayerSettingsManager.FILTER_SHARPEN.equals(filterName)) {
+            effect = new com.shuyu.gsyvideoplayer.render.effect.SharpnessEffect(0.5f);
+            useGL = true;
+        } else if (PlayerSettingsManager.FILTER_VIVID.equals(filterName)) {
+            effect = new com.shuyu.gsyvideoplayer.render.effect.SaturationEffect(0.5f);
+            useGL = true;
+        } else if (PlayerSettingsManager.FILTER_BLACK_WHITE.equals(filterName)) {
+            effect = new com.shuyu.gsyvideoplayer.render.effect.BlackAndWhiteEffect();
+            useGL = true;
+        } else if (PlayerSettingsManager.FILTER_SEPIA.equals(filterName)) {
+            effect = new com.shuyu.gsyvideoplayer.render.effect.SepiaEffect();
+            useGL = true;
+        } else {
+            effect = new com.shuyu.gsyvideoplayer.render.effect.NoEffect();
+            useGL = false;
+        }
+
+        if (useGL) {
+            com.shuyu.gsyvideoplayer.utils.GSYVideoType.setRenderType(
+                    com.shuyu.gsyvideoplayer.utils.GSYVideoType.GLSURFACE);
+            setEffectFilter(effect);
+            android.util.Log.d(TAG, "applyVideoFilter: " + filterName + "（GL 渲染）");
+        } else {
+            // 回到 TextureView（与 setRenderMode(true) 的恢复路径一致）
+            com.shuyu.gsyvideoplayer.utils.GSYVideoType.setRenderType(
+                    com.shuyu.gsyvideoplayer.utils.GSYVideoType.TEXTURE);
+            com.shuyu.gsyvideoplayer.utils.GSYVideoType.enableMediaCodecTexture();
+            setEffectFilter(new com.shuyu.gsyvideoplayer.render.effect.NoEffect());
+            android.util.Log.d(TAG, "applyVideoFilter: 滤镜已关闭（TextureView 渲染）");
+        }
+
+        // 重建渲染层（清空容器后走 GSY 基类标准流程，播放不中断）
+        if (mTextureViewContainer != null) {
+            mTextureViewContainer.removeAllViews();
+        }
+        addTextureView();
+    }
+
+    /**
+     * 启动时恢复持久化的滤镜档位（在首次 addTextureView 前调用）
+     */
+    private void restoreVideoFilter() {
+        if (OrangePlayerConfig.isTvMode(getContext())) {
+            return; // TV 端强制 SurfaceView，与 GL 滤镜冲突，跳过
+        }
+        String filter = PlayerSettingsManager.getInstance(getContext()).getVideoFilter();
+        if (!PlayerSettingsManager.FILTER_OFF.equals(filter)) {
+            applyVideoFilter(filter);
+        }
     }
 
     public void setDebugLogCallback(DebugLogCallback callback) {

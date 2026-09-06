@@ -741,6 +741,16 @@ public class VideoEventManager {
         if (screenshotButton != null) {
             screenshotButton.setOnClickListener(v -> onScreenshotClick());
         }
+
+        // 绑定画质增强按钮点击事件（TV 模式隐藏入口，与 GL 渲染冲突）
+        android.widget.LinearLayout filterButton = dialogView.findViewById(R.id.line_filter);
+        if (filterButton != null) {
+            if (OrangePlayerConfig.isTvMode(mContext)) {
+                filterButton.setVisibility(View.GONE);
+            } else {
+                filterButton.setOnClickListener(v -> showVideoFilterDialog());
+            }
+        }
     }
     
     /**
@@ -1748,18 +1758,81 @@ public class VideoEventManager {
         if (mCurrentSetupDialog != null) {
             mCurrentSetupDialog.dismiss();
         }
-        
+
         hideController();
-        
+
         // 创建对话框
         View dialogView = View.inflate(mActivity, R.layout.speed_dialog, null);
-        
+
         // 始终显示在右侧
         final AlertDialog dialog = DialogUtils.showCustomDialog(mActivity, dialogView,
                 DialogUtils.DialogPosition.RIGHT, null, null);
-        
+
         // 设置画面比例选项
         setupScreenScaleOptions(dialogView, dialog);
+    }
+
+    /**
+     * 显示画质增强（滤镜）选择对话框
+     */
+    private void showVideoFilterDialog() {
+        if (mCurrentSetupDialog != null) {
+            mCurrentSetupDialog.dismiss();
+        }
+
+        hideController();
+
+        View dialogView = View.inflate(mActivity, R.layout.speed_dialog, null);
+
+        final AlertDialog dialog = DialogUtils.showCustomDialog(mActivity, dialogView,
+                DialogUtils.DialogPosition.RIGHT, null, null);
+
+        RecyclerView recyclerView = dialogView.findViewById(R.id.recycler);
+        if (recyclerView == null) return;
+
+        ArrayList<HashMap<String, Object>> arrayList = new ArrayList<>();
+        String[] filters = {
+                PlayerSettingsManager.FILTER_OFF,
+                PlayerSettingsManager.FILTER_SHARPEN,
+                PlayerSettingsManager.FILTER_VIVID,
+                PlayerSettingsManager.FILTER_BLACK_WHITE,
+                PlayerSettingsManager.FILTER_SEPIA
+        };
+        for (String filter : filters) {
+            HashMap<String, Object> map = new HashMap<>();
+            map.put("name", filter);
+            arrayList.add(map);
+        }
+
+        final String currentFilter = mSettingsManager.getVideoFilter();
+
+        OrangeRecyclerView orangeRecyclerView = new OrangeRecyclerView();
+        orangeRecyclerView.setLinearLayoutManager(recyclerView, mActivity);
+        orangeRecyclerView.setAdapter(recyclerView, R.layout.speed_dialog_item, arrayList,
+            (holder, data, position) -> {
+                android.widget.TextView filterName = holder.itemView.findViewById(R.id.title);
+                String filterText = data.get(position).get("name").toString();
+
+                // 高亮当前滤镜
+                if (filterText.equals(currentFilter)) {
+                    filterName.setTextColor(COLOR_HIGHLIGHT);
+                    filterName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18);
+                } else {
+                    filterName.setTextColor(COLOR_NORMAL);
+                    filterName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+                }
+
+                filterName.setText(filterText);
+
+                filterName.setOnClickListener(v -> {
+                    mSettingsManager.setVideoFilter(filterText);
+                    if (mVideoView != null) {
+                        mVideoView.applyVideoFilter(filterText);
+                    }
+                    showToast("画质增强: " + filterText);
+                    dialog.dismiss();
+                });
+            });
     }
     
     /**
