@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 字幕图标 -->
+<!-- Material Symbols: closed_caption 字幕 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="1024"
-    android:viewportHeight="1024">
+    android:viewportWidth="24"
+    android:viewportHeight="24">
     <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.6"
         android:fillColor="#FFFFFF"
-        android:pathData="M588.8,665.6H256v-102.4h332.8v102.4zM768,665.6h-102.4v-102.4h102.4v102.4zM358.4,460.8H256V358.4h102.4v102.4zM768,460.8H435.2V358.4H768v102.4z"/>
+        android:pathData="M19,4H5C3.89,4 3,4.9 3,6v12c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2V6C21,4.9 20.1,4 19,4zM19,18H5V6h14V18z"/>
     <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.6"
         android:fillColor="#FFFFFF"
-        android:pathData="M827.08,153.8A153.6,153.6 0,0 1,972.8 307.2v409.6l-0.2,7.88a153.6,153.6 0,0 1,-145.51 145.51L819.2,870.4H204.8a153.6,153.6 0,0 1,-153.4 -145.72L51.2,716.8V307.2a153.6,153.6 0,0 1,153.6 -153.6h614.4l7.88,0.2zM204.8,230.4A76.8,76.8 0,0 0,128 307.2v409.6A76.8,76.8 0,0 0,204.8 793.6h614.4a76.8,76.8 0,0 0,76.8 -76.8V307.2A76.8,76.8 0,0 0,819.2 230.4H204.8z"/>
+        android:pathData="M7,9h4.5v1.5H8.5v3H11.5V15H7V9zM13,9h4.5v1.5h-3v3h3V15H13V9z"/>
 </vector>

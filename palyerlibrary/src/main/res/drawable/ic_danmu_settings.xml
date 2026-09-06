@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 弹幕设置：弹幕轨迹屏幕 + 右下角小齿轮角标 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 屏幕框（右下留出齿轮角标位置） -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.6"
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,4H4C2.9,4 2,4.9 2,6v12c0,1.1 0.9,2 2,2h9v-2H4V6h16v4h2V6C22,4.9 21.1,4 20,4z"/>
+    <!-- 弹幕文字轨迹 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.6"
+        android:fillColor="#FFFFFF"
+        android:pathData="M5.5,8h8v1.5h-8V8zM5.5,11h5v1.5h-5V11z"/>
+    <!-- 右下角小齿轮角标：24画布齿轮缩放0.42，中心(12,12)→(17.5,17.5) -->
+    <group
+        android:scaleX="0.42"
+        android:scaleY="0.42"
+        android:translateX="11.9"
+        android:translateY="11.9">
+        <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.6"
+            android:fillColor="#FFFFFF"
+            android:pathData="M19.14,12.94c0.04,-0.3 0.06,-0.61 0.06,-0.94c0,-0.32 -0.02,-0.64 -0.07,-0.94l2.03,-1.58c0.18,-0.14 0.23,-0.4 0.11,-0.61l-1.92,-3.32c-0.12,-0.22 -0.37,-0.29 -0.59,-0.22l-2.39,0.96c-0.5,-0.38 -1.05,-0.7 -1.65,-0.94l-0.36,-2.54c-0.04,-0.24 -0.24,-0.41 -0.48,-0.41h-3.84c-0.24,0 -0.43,0.17 -0.47,0.41L10.21,6.35c-0.6,0.24 -1.13,0.56 -1.63,0.94L6.19,6.33c-0.22,-0.08 -0.47,0 -0.59,0.22L3.68,9.87c-0.12,0.21 -0.08,0.47 0.11,0.61l2.03,1.58c-0.05,0.3 -0.09,0.63 -0.09,0.94s0.02,0.64 0.07,0.94l-2.03,1.58c-0.18,0.14 -0.23,0.4 -0.11,0.61l1.92,3.32c0.12,0.22 0.37,0.29 0.59,0.22l2.39,-0.96c0.5,0.38 1.05,0.7 1.65,0.94l0.36,2.54c0.05,0.24 0.24,0.41 0.48,0.41h3.84c0.24,0 0.44,-0.17 0.47,-0.41l0.36,-2.54c0.6,-0.25 1.13,-0.56 1.63,-0.94l2.39,0.96c0.22,0.08 0.47,0 0.59,-0.22l1.92,-3.32c0.12,-0.22 0.07,-0.47 -0.11,-0.61L19.14,12.94zM12,15.6c-1.98,0 -3.6,-1.62 -3.6,-3.6s1.62,-3.6 3.6,-3.6s3.6,1.62 3.6,3.6S13.98,15.6 12,15.6z"/>
+    </group>
+</vector>

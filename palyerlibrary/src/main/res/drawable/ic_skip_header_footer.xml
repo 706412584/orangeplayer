@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 片头/尾跳过：‹‹ | ›› 双向双箭头 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 左侧双左箭头：尖点 x=2.5 与 x=6.75 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.8"
+        android:fillColor="#FFFFFF"
+        android:pathData="M6.75,7.5L2.5,12l4.25,4.5v-9zM10.75,7.5L6.5,12l4.25,4.5v-9z"/>
+    <!-- 中线 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.8"
+        android:fillColor="#FFFFFF"
+        android:pathData="M11.5,6h1v12h-1V6z"/>
+    <!-- 右侧双右箭头：尖点 x=17.25 与 x=21.5 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.8"
+        android:fillColor="#FFFFFF"
+        android:pathData="M17.25,7.5v9L21.5,12l-4.25,-4.5zM13.25,7.5v9L17.5,12l-4.25,-4.5z"/>
+</vector>

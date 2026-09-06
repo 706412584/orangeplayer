@@ -690,7 +690,7 @@ public class VideoEventManager {
         // 设置进度条开关状态
         if (progressBarIcon != null) {
             boolean showProgress = mSettingsManager.isBottomProgressEnabled();
-            progressBarIcon.setImageResource(showProgress ? R.mipmap.kg2 : R.mipmap.kg1);
+            progressBarIcon.setImageResource(showProgress ? R.drawable.ic_progress_on : R.drawable.ic_progress_off);
         }
         
         // 绑定音量控制
@@ -1266,7 +1266,7 @@ public class VideoEventManager {
         
         // 更新图标
         if (progressBarIcon != null) {
-            progressBarIcon.setImageResource(newState ? R.mipmap.kg2 : R.mipmap.kg1);
+            progressBarIcon.setImageResource(newState ? R.drawable.ic_progress_on : R.drawable.ic_progress_off);
         }
         
         showToast(newState ? "底部进度条已开启" : "底部进度条已关闭");

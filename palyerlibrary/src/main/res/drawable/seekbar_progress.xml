@@ -3,8 +3,8 @@
     <!-- 背景轨道 -->
     <item android:id="@android:id/background">
         <shape android:shape="rectangle">
-            <corners android:radius="2dp"/>
-            <solid android:color="@color/op_track"/>
+            <corners android:radius="4dp"/>
+            <solid android:color="@color/op_progress_track"/>
         </shape>
     </item>
 
@@ -12,8 +12,8 @@
     <item android:id="@android:id/secondaryProgress">
         <clip>
             <shape android:shape="rectangle">
-                <corners android:radius="2dp"/>
-                <solid android:color="@color/op_buffer"/>
+                <corners android:radius="4dp"/>
+                <solid android:color="@color/op_progress_buffer"/>
             </shape>
         </clip>
     </item>
@@ -22,7 +22,7 @@
     <item android:id="@android:id/progress">
         <clip>
             <shape android:shape="rectangle">
-                <corners android:radius="2dp"/>
+                <corners android:radius="4dp"/>
                 <solid android:color="@color/op_progress"/>
             </shape>
         </clip>

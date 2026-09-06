@@ -101,11 +101,11 @@ public class VodControlView extends FrameLayout implements IControlComponent,
     private ImageView mDanmuSet;
     private EditText mDanmuInput;
 
-    // 功能按钮
+    // 功能按钮使用短文字入口，保留原有点击与公开 API
     private TextView mSpeedControl;
     private TextView mEpisodeSelect;
     private TextView mSkipButton;
-    private TextView mSourceSelect;
+    private android.view.View mSourceSelect;
     
     // 字幕按钮
     private ImageView mSubtitleToggle;
@@ -1876,15 +1876,15 @@ public class VodControlView extends FrameLayout implements IControlComponent,
     
     /**
      * 获取选集按钮
-     * @return 选集TextView
+     * @return 选集按钮
      */
     public TextView getEpisodeSelectButton() {
         return mEpisodeSelect;
     }
-    
+
     /**
      * 获取跳过按钮
-     * @return 跳过按钮TextView
+     * @return 跳过按钮
      */
     public TextView getSkipButton() {
         return mSkipButton;

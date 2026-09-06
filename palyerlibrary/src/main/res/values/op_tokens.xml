@@ -28,6 +28,8 @@
     <!-- 进度条 -->
     <color name="op_track">#33FFFFFF</color>
     <color name="op_buffer">#66FFFFFF</color>
+    <color name="op_progress_track">#66FFFFFF</color>
+    <color name="op_progress_buffer">#99FFFFFF</color>
     <color name="op_progress">@color/op_brand</color>
 
     <!-- 选中态 -->

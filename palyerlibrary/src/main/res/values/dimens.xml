@@ -3,7 +3,7 @@
     <!-- 控制器尺寸 -->
     <dimen name="orange_controller_height">46dp</dimen>
     <dimen name="orange_controller_height_fullscreen">88dp</dimen>
-    <dimen name="orange_controller_icon_padding">12dp</dimen>
+    <dimen name="orange_controller_icon_padding">9dp</dimen>
     <dimen name="orange_controller_text_size">16sp</dimen>
     <dimen name="orange_controller_time_text_size">14sp</dimen>
     
@@ -17,8 +17,8 @@
     <dimen name="orange_seekbar_max_size">1dp</dimen>
     <dimen name="orange_seekbar_size_n">12dp</dimen>
     <dimen name="orange_seekbar_size_s">12dp</dimen>
-    <dimen name="orange_seekbar_height">5dp</dimen>
-    <dimen name="orange_seekbar_height_fullscreen">6dp</dimen>
+    <dimen name="orange_seekbar_height">8dp</dimen>
+    <dimen name="orange_seekbar_height_fullscreen">8dp</dimen>
     <dimen name="orange_seekbar_margin">10dp</dimen>
     
     <!-- VodControlView 预览容器尺寸 -->
@@ -37,8 +37,8 @@
     
     <!-- VodControlView 控制区尺寸 -->
     <dimen name="orange_bottom_container_padding">10dp</dimen>
-    <dimen name="orange_time_text_width">48dp</dimen>
-    <dimen name="orange_time_text_size">12sp</dimen>
+    <dimen name="orange_time_text_width">52dp</dimen>
+    <dimen name="orange_time_text_size">13sp</dimen>
     <dimen name="orange_danmu_container_height">40dp</dimen>
     <dimen name="orange_danmu_button_size">38dp</dimen>
     <dimen name="orange_danmu_button_padding">8dp</dimen>
@@ -49,7 +49,7 @@
     <dimen name="orange_danmu_input_text_size">11sp</dimen>
     <dimen name="orange_control_button_padding">6dp</dimen>
     <dimen name="orange_control_button_text_size">14sp</dimen>
-    <dimen name="orange_bottom_progress_height">2dp</dimen>
+    <dimen name="orange_bottom_progress_height">3dp</dimen>
     
     <!-- DanmaView 弹幕尺寸 -->
     <dimen name="orange_danmaku_text_size">14sp</dimen>
@@ -66,5 +66,5 @@
     <dimen name="op_touch">44dp</dimen>
     <dimen name="op_icon">24dp</dimen>
     <!-- 底部弹幕行文字按钮统一字号 -->
-    <dimen name="op_row_button_text_size">13sp</dimen>
+    <dimen name="op_row_button_text_size">15sp</dimen>
 </resources>

@@ -65,10 +65,10 @@
                             android:layout_height="44dp"
                             android:background="@drawable/setup_icon_bg">
                             <ImageView
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
                                 android:layout_gravity="center"
-                                android:src="@mipmap/huamian"
+                                android:src="@drawable/ic_aspect_ratio"
                                 android:clickable="false"
                                 android:focusable="false" />
                         </FrameLayout>
@@ -78,7 +78,7 @@
                             android:layout_height="wrap_content"
                             android:text="画面比例"
                             android:textColor="@color/op_text_primary"
-                            android:textSize="11sp"
+                            android:textSize="12sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
                             android:focusable="false" />
@@ -100,10 +100,10 @@
                             android:layout_height="44dp"
                             android:background="@drawable/setup_icon_bg">
                             <ImageView
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
                                 android:layout_gravity="center"
-                                android:src="@mipmap/longspeeds"
+                                android:src="@drawable/ic_long_press_speed"
                                 android:clickable="false"
                                 android:focusable="false" />
                         </FrameLayout>
@@ -113,7 +113,7 @@
                             android:layout_height="wrap_content"
                             android:text="长按倍速"
                             android:textColor="@color/op_text_primary"
-                            android:textSize="11sp"
+                            android:textSize="12sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
                             android:focusable="false" />
@@ -135,10 +135,10 @@
                             android:layout_height="44dp"
                             android:background="@drawable/setup_icon_bg">
                             <ImageView
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
                                 android:layout_gravity="center"
-                                android:src="@mipmap/times"
+                                android:src="@drawable/ic_timer_panel"
                                 android:clickable="false"
                                 android:focusable="false" />
                         </FrameLayout>
@@ -148,7 +148,7 @@
                             android:layout_height="wrap_content"
                             android:text="定时关闭"
                             android:textColor="@color/op_text_primary"
-                            android:textSize="11sp"
+                            android:textSize="12sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
                             android:focusable="false" />
@@ -162,7 +162,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center"
-                    android:layout_marginTop="4dp">
+                    android:layout_marginTop="8dp">
 
                     <LinearLayout
                         android:id="@+id/line4"
@@ -180,10 +180,10 @@
                             android:layout_height="44dp"
                             android:background="@drawable/setup_icon_bg">
                             <ImageView
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
                                 android:layout_gravity="center"
-                                android:src="@mipmap/playtop"
+                                android:src="@drawable/ic_skip_intro"
                                 android:clickable="false"
                                 android:focusable="false" />
                         </FrameLayout>
@@ -193,7 +193,7 @@
                             android:layout_height="wrap_content"
                             android:text="跳过片头"
                             android:textColor="@color/op_text_primary"
-                            android:textSize="11sp"
+                            android:textSize="12sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
                             android:focusable="false" />
@@ -215,10 +215,10 @@
                             android:layout_height="44dp"
                             android:background="@drawable/setup_icon_bg">
                             <ImageView
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
                                 android:layout_gravity="center"
-                                android:src="@mipmap/playbottom"
+                                android:src="@drawable/ic_skip_outro"
                                 android:clickable="false"
                                 android:focusable="false" />
                         </FrameLayout>
@@ -228,7 +228,7 @@
                             android:layout_height="wrap_content"
                             android:text="跳过片尾"
                             android:textColor="@color/op_text_primary"
-                            android:textSize="11sp"
+                            android:textSize="12sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
                             android:focusable="false" />
@@ -250,10 +250,10 @@
                             android:layout_height="44dp"
                             android:background="@drawable/setup_icon_bg">
                             <ImageView
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
                                 android:layout_gravity="center"
-                                android:src="@mipmap/window"
+                                android:src="@drawable/ic_pip_window"
                                 android:clickable="false"
                                 android:focusable="false" />
                         </FrameLayout>
@@ -263,7 +263,7 @@
                             android:layout_height="wrap_content"
                             android:text="小窗播放"
                             android:textColor="@color/op_text_primary"
-                            android:textSize="11sp"
+                            android:textSize="12sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
                             android:focusable="false" />
@@ -277,7 +277,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center"
-                    android:layout_marginTop="4dp">
+                    android:layout_marginTop="8dp">
 
                     <LinearLayout
                         android:id="@+id/line10"
@@ -296,10 +296,10 @@
                             android:background="@drawable/setup_icon_bg">
                             <ImageView
                                 android:id="@+id/tx1"
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
                                 android:layout_gravity="center"
-                                android:src="@mipmap/ax"
+                                android:src="@drawable/ic_download"
                                 android:clickable="false"
                                 android:focusable="false" />
                         </FrameLayout>
@@ -310,7 +310,7 @@
                             android:layout_height="wrap_content"
                             android:text="下载视频"
                             android:textColor="@color/op_text_primary"
-                            android:textSize="11sp"
+                            android:textSize="12sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
                             android:focusable="false" />
@@ -333,10 +333,10 @@
                             android:background="@drawable/setup_icon_bg">
                             <ImageView
                                 android:id="@+id/kgImage"
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
                                 android:layout_gravity="center"
-                                android:src="@mipmap/kg1"
+                                android:src="@drawable/ic_progress_on"
                                 android:clickable="false"
                                 android:focusable="false" />
                         </FrameLayout>
@@ -347,7 +347,7 @@
                             android:layout_height="wrap_content"
                             android:text="进度条"
                             android:textColor="@color/op_text_primary"
-                            android:textSize="11sp"
+                            android:textSize="12sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
                             android:focusable="false" />
@@ -371,8 +371,8 @@
                             android:background="@drawable/setup_icon_bg">
                             <ImageView
                                 android:id="@+id/screenshot_icon"
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
+                                android:layout_width="26dp"
+                                android:layout_height="26dp"
                                 android:layout_gravity="center"
                                 android:src="@drawable/ic_screenshot"
                                 android:clickable="false"
@@ -384,7 +384,7 @@
                             android:layout_height="wrap_content"
                             android:text="截图"
                             android:textColor="@color/op_text_primary"
-                            android:textSize="11sp"
+                            android:textSize="12sp"
                             android:layout_marginTop="6dp"
                             android:clickable="false"
                             android:focusable="false" />
@@ -439,11 +439,11 @@
                                 <TextView
                                     android:id="@+id/alihx"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginEnd="4dp"
                                     android:text="Ali"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -453,12 +453,12 @@
                                 <TextView
                                     android:id="@+id/exohx"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginStart="4dp"
                                     android:layout_marginEnd="4dp"
                                     android:text="Exo"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -468,12 +468,12 @@
                                 <TextView
                                     android:id="@+id/ijkhx"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginStart="4dp"
                                     android:layout_marginEnd="4dp"
                                     android:text="Ijk"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -483,11 +483,11 @@
                                 <TextView
                                     android:id="@+id/systemhx"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginStart="4dp"
                                     android:text="系统"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -525,11 +525,11 @@
                                 <TextView
                                     android:id="@+id/decode_hardware"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginEnd="4dp"
                                     android:text="硬件解码"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -539,11 +539,11 @@
                                 <TextView
                                     android:id="@+id/decode_software"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginStart="4dp"
                                     android:text="软件解码"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -583,11 +583,11 @@
                                 <TextView
                                     android:id="@+id/sxbf"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginEnd="4dp"
                                     android:text="顺序播放"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -597,12 +597,12 @@
                                 <TextView
                                     android:id="@+id/djxh"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginStart="4dp"
                                     android:layout_marginEnd="4dp"
                                     android:text="单集循环"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -612,11 +612,11 @@
                                 <TextView
                                     android:id="@+id/bwzt"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginStart="4dp"
                                     android:text="播完暂停"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -654,11 +654,11 @@
                                 <TextView
                                     android:id="@+id/auto_rotate_on"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginEnd="4dp"
                                     android:text="开启"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"
@@ -668,11 +668,11 @@
                                 <TextView
                                     android:id="@+id/auto_rotate_off"
                                     android:layout_width="0dp"
-                                    android:layout_height="32dp"
+                                    android:layout_height="36dp"
                                     android:layout_weight="1"
                                     android:layout_marginStart="4dp"
                                     android:text="关闭"
-                                    android:textSize="11sp"
+                                    android:textSize="12sp"
                                     android:textColor="@color/op_text_primary"
                                     android:gravity="center"
                                     android:background="@drawable/setup_option_bg"

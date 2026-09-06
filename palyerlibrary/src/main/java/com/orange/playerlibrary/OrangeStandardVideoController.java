@@ -205,9 +205,9 @@ public class OrangeStandardVideoController extends FrameLayout {
      */
     protected void updateLockButtonState() {
         if (mLockButton != null) {
-            mLockButton.setImageResource(mIsLocked 
-                ? R.drawable.dkplayer_ic_action_lock_close 
-                : R.drawable.dkplayer_ic_action_lock_open);
+            mLockButton.setImageResource(mIsLocked
+                ? R.drawable.op_ic_lock
+                : R.drawable.op_ic_lock_open);
         }
     }
 

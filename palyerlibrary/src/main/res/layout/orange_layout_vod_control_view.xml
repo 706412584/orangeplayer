@@ -145,10 +145,12 @@
                 android:layout_width="@dimen/orange_time_text_width"
                 android:layout_height="wrap_content"
                 android:gravity="center"
+                android:includeFontPadding="false"
                 android:minWidth="@dimen/orange_time_text_width"
                 android:text="@string/orange_default_time"
-                android:textColor="@color/op_text_primary"
-                android:textSize="@dimen/orange_time_text_size" />
+                android:textColor="@color/op_brand"
+                android:textSize="@dimen/orange_time_text_size"
+                android:textStyle="bold" />
 
             <!-- 进度条 -->
             <SeekBar
@@ -175,9 +177,10 @@
                 android:layout_width="@dimen/orange_time_text_width"
                 android:layout_height="wrap_content"
                 android:gravity="center"
+                android:includeFontPadding="false"
                 android:minWidth="@dimen/orange_time_text_width"
                 android:text="@string/orange_default_time"
-                android:textColor="@color/op_text_primary"
+                android:textColor="@color/op_text_secondary"
                 android:textSize="@dimen/orange_time_text_size" />
 
             <!-- 竖屏全屏按钮 -->
@@ -186,7 +189,7 @@
                 android:layout_width="@dimen/orange_controller_height"
                 android:layout_height="@dimen/orange_controller_height"
                 android:padding="@dimen/orange_controller_icon_padding"
-                android:src="@mipmap/shup"
+                android:src="@drawable/ic_fullscreen_portrait"
                 android:visibility="gone"
                 android:contentDescription="@string/orange_fullscreen_desc" />
 
@@ -224,7 +227,7 @@
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:contentDescription="@string/orange_next_episode_desc"
-                android:padding="6dp"
+                android:padding="5dp"
                 android:src="@drawable/ic_skip_next"
                 android:background="?android:attr/selectableItemBackground" />
 
@@ -237,7 +240,7 @@
                     android:id="@+id/danmu_toggle_on"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:padding="6dp"
+                    android:padding="5dp"
                     android:src="@drawable/ic_danmu_on"
                     android:scaleType="fitCenter"
                     android:visibility="gone"
@@ -248,7 +251,7 @@
                     android:id="@+id/danmu_toggle_off"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:padding="6dp"
+                    android:padding="5dp"
                     android:src="@drawable/ic_danmu_off"
                     android:scaleType="fitCenter"
                     android:visibility="visible"
@@ -261,8 +264,8 @@
                 android:id="@+id/danmu_set"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
-                android:padding="6dp"
-                android:src="@mipmap/danmu_set"
+                android:padding="5dp"
+                android:src="@drawable/ic_danmu_settings"
                 android:scaleType="fitCenter"
                 android:background="?android:attr/selectableItemBackground"
                 android:contentDescription="@string/orange_play_desc" />
@@ -290,7 +293,7 @@
                 android:id="@+id/subtitle_toggle"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
-                android:padding="6dp"
+                android:padding="5dp"
                 android:src="@drawable/ic_subtitle"
                 android:scaleType="fitCenter"
                 android:background="?android:attr/selectableItemBackground"

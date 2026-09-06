@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols: screen_rotation 屏幕旋转 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.8"
+        android:fillColor="#FFFFFF"
+        android:pathData="M16.48,2.52c3.27,1.55 5.55,4.9 5.55,8.78c0,3.88 -2.29,7.24 -5.57,8.79v-2.13c2.17,-1.34 3.62,-3.73 3.62,-6.49c0,-2.86 -1.52,-5.36 -3.6,-6.68V2.52zM7.52,21.48C4.25,19.93 1.97,16.57 1.97,12.7c0,-3.88 2.29,-7.24 5.57,-8.79v2.13C5.37,7.37 3.92,9.76 3.92,12.52c0,2.86 1.52,5.36 3.6,6.68V21.48z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12.5,7.5C14.44,7.87 16,9.5 16,11.5c0,2 -1.56,3.63 -3.5,4L12.5,18c3.92,-0.38 7,-3.53 7,-7.5c0,-3.97 -3.08,-7.12 -7,-7.5V7.5z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M11.5,16.5C9.56,16.13 8,14.5 8,12.5c0,-2 1.56,-3.63 3.5,-4L11.5,6C7.58,6.38 4.5,9.53 4.5,13.5c0,3.97 3.08,7.12 7,7.5V16.5z"/>
+</vector>

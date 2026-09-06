@@ -143,9 +143,9 @@ public class GestureView extends FrameLayout implements IControlComponent {
         mProgressPercent.setVisibility(GONE);
         
         if (seekPosition > currentPosition) {
-            mIcon.setImageResource(R.drawable.dkplayer_ic_action_fast_forward);
+            mIcon.setImageResource(R.drawable.op_ic_fast_forward);
         } else {
-            mIcon.setImageResource(R.drawable.dkplayer_ic_action_fast_rewind);
+            mIcon.setImageResource(R.drawable.op_ic_fast_rewind);
         }
         
         mTextPercent.setText(String.format("%s/%s", 
@@ -162,7 +162,7 @@ public class GestureView extends FrameLayout implements IControlComponent {
             return;
         }
         mProgressPercent.setVisibility(VISIBLE);
-        mIcon.setImageResource(R.drawable.dkplayer_ic_action_brightness);
+        mIcon.setImageResource(R.drawable.op_ic_brightness);
         mTextPercent.setText(percent + "%");
         mProgressPercent.setProgress(percent);
     }
@@ -178,9 +178,9 @@ public class GestureView extends FrameLayout implements IControlComponent {
         mProgressPercent.setVisibility(VISIBLE);
         
         if (percent <= 0) {
-            mIcon.setImageResource(R.drawable.dkplayer_ic_action_volume_off);
+            mIcon.setImageResource(R.drawable.op_ic_volume_off);
         } else {
-            mIcon.setImageResource(R.drawable.dkplayer_ic_action_volume_up);
+            mIcon.setImageResource(R.drawable.op_ic_volume_up);
         }
         
         mTextPercent.setText(percent + "%");
@@ -194,7 +194,7 @@ public class GestureView extends FrameLayout implements IControlComponent {
      */
     public void showSpeedHint(float speed, boolean isLongPress) {
         mProgressPercent.setVisibility(GONE);
-        mIcon.setImageResource(R.drawable.dkplayer_ic_action_fast_forward);
+        mIcon.setImageResource(R.drawable.op_ic_fast_forward);
         
         if (isLongPress) {
             mTextPercent.setText(speed + "x 加速中");
