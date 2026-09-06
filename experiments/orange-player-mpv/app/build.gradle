@@ -1,0 +1,44 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.orange.player.mpv.spike'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.orange.player.mpv.spike"
+        minSdk 26          // libmpv AAR 要求 26
+        targetSdk 36
+        versionCode 1
+        versionName "0.1.0-s2"
+        ndk {
+            abiFilters 'arm64-v8a'   // 真机 9c18cb30 为 arm64，控制体积
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            // 复用 S4 纯 Java 桩不在此模块；S2 只做真机渲染
+            java.srcDirs = ['src/main/java']
+        }
+    }
+}
+
+dependencies {
+    // 本地 AAR（GitHub Release 下载）
+    implementation files('libs/libmpv-release.aar')
+    // AAR 的 MPVLib 是 Kotlin 类，Java 工程引用需要 kotlin-stdlib
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.21"
+}

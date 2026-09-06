@@ -1,15 +1,4 @@
+// 顶层声明 AGP 版本（与主仓一致 8.12.0）
 plugins {
-    id 'java-library'
-}
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    testImplementation 'junit:junit:4.13.2'
-}
-
-test {
-    useJUnit()
+    id 'com.android.application' version '8.12.0' apply false
 }
