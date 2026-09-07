@@ -241,14 +241,75 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
         }
     }
 
+    // ===== 画面比例（mpv 原生渲染选项；GSY TextureView 尺寸机制对 mpv 无效） =====
+    // GSY 的裁剪/拉伸依赖渲染器按 TextureView 尺寸做矩阵适配，mpv 的 vo 层永远
+    // 按视频 aspect 在 surface 内居中 fit（keepaspect=on）。因此 mpv 场景：
+    //  - 全屏拉伸 = keepaspect=no（变形拉满 surface）
+    //  - 全屏裁剪 = keepaspect=yes + video-zoom 等比放大到溢出（居中裁边）
+    // 其余档位（默认/16:9/4:3）复位 keepaspect + zoom=0，容器黑边由 GSY
+    // TextureView 尺寸机制呈现。
+    private boolean mCropScale;
+    private int mSurfaceW, mSurfaceH;
+
+    /** 切换画面比例模式（宿主经 MpvPlayerManager 反射调用；档名字面量与宿主一致） */
+    public void setVideoScaleMode(String mode) {
+        if (mpv == null) return;
+        try {
+            if ("全屏拉伸".equals(mode)) {
+                mpv.setOptionString("keepaspect", "no");
+                mCropScale = false;
+                Log.d(TAG, "video scale: 全屏拉伸 (keepaspect=no)");
+            } else if ("全屏裁剪".equals(mode)) {
+                mpv.setOptionString("keepaspect", "yes");
+                mCropScale = true;
+                updateCropZoom();
+            } else {
+                mpv.setOptionString("keepaspect", "yes");
+                mpv.setPropertyString("video-zoom", "0");
+                mCropScale = false;
+                Log.d(TAG, "video scale: " + mode + " (默认 fit)");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "setVideoScaleMode failed", e);
+        }
+    }
+
+    /** 裁剪档按 surface/视频尺寸算等比放大系数（surface 尺寸到达时调用） */
+    private void updateCropZoom() {
+        if (!mCropScale || mpv == null || mSurfaceW <= 0 || mSurfaceH <= 0
+                || videoWidth <= 0 || videoHeight <= 0) {
+            return;
+        }
+        try {
+            double sx = (double) mSurfaceW / videoWidth;
+            double sy = (double) mSurfaceH / videoHeight;
+            double coef = Math.max(sx, sy);
+            if (coef <= 1.0) {
+                // surface 不小于视频时无需放大（fit 已满）
+                mpv.setPropertyString("video-zoom", "0");
+                return;
+            }
+            double zoom = Math.log(coef) / Math.log(2);
+            mpv.setPropertyString("video-zoom", String.valueOf(zoom));
+            Log.d(TAG, "crop zoom=" + zoom + " (surface=" + mSurfaceW + "x" + mSurfaceH
+                    + ", video=" + videoWidth + "x" + videoHeight + ")");
+        } catch (Exception e) {
+            Log.e(TAG, "updateCropZoom failed", e);
+        }
+    }
+
     /** surfaceChanged 时更新尺寸（宿主渲染层调用） */
     public void updateSurfaceSize(int width, int height) {
+        mSurfaceW = width;
+        mSurfaceH = height;
         if (mpv != null && surfaceAttached) {
             try {
                 mpv.setPropertyString("android-surface-size", width + "x" + height);
             } catch (Exception ignored) {
             }
         }
+        // 裁剪档的放大系数依赖 surface 尺寸，尺寸到位后重算
+        updateCropZoom();
     }
 
     private void detachSurfaceInternal() {

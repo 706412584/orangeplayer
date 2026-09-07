@@ -96,7 +96,26 @@ public class VideoScaleManager {
         }
         
         android.util.Log.d(TAG, "applyScaleType: GSYVideoType.getShowType()=" + GSYVideoType.getShowType());
-        
+
+        // mpv 内核：GSY 的裁剪/拉伸靠渲染器矩阵适配 TextureView 尺寸，mpv 无此层
+        // （vo 恒按视频 aspect 在 surface 内 fit）。画面比例改由 mpv 自身渲染选项
+        // 实现：拉伸=keepaspect=no，裁剪=video-zoom 放大裁边；其余档复位。
+        // 反射调用保持零编译依赖。
+        if (mVideoView != null) {
+            try {
+                Class<?> binder = Class.forName("com.orange.player.mpv.MpvPlayerManager");
+                if (binder != null
+                        && PlayerConstants.ENGINE_MPV.equals(mVideoView.getCurrentEngineType())) {
+                    binder.getMethod("applyVideoScaleMode", String.class)
+                            .invoke(null, scaleType);
+                }
+            } catch (ClassNotFoundException ignored) {
+                // mpv 工件未引入：非 mpv 内核场景，忽略
+            } catch (Exception e) {
+                android.util.Log.w(TAG, "mpv applyVideoScaleMode failed", e);
+            }
+        }
+
         // 阿里云播放器特殊处理：需要调用 IPlayer.setScaleMode()
         applyAliPlayerScaleMode(scaleType);
         

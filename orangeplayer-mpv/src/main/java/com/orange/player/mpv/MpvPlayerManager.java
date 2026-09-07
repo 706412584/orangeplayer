@@ -278,6 +278,13 @@ public class MpvPlayerManager extends BasePlayerManager {
         sSharedPlayer.setShaderChain(chain);
     }
 
+    /** 画面比例模式切换（宿主经反射调用；档名字面量：默认/16:9/4:3/全屏裁剪/全屏拉伸） */
+    public static void applyVideoScaleMode(String mode) {
+        if (sSharedPlayer != null && mode != null) {
+            sSharedPlayer.setVideoScaleMode(mode);
+        }
+    }
+
     /** 引擎可用性检测 */
     public static boolean isKernelAvailable() {
         return sSharedPlayer != null;
