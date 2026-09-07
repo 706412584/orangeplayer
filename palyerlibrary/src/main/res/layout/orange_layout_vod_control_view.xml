@@ -136,7 +136,7 @@
                 android:layout_width="@dimen/orange_controller_height"
                 android:layout_height="@dimen/orange_controller_height"
                 android:contentDescription="@string/orange_play_desc"
-                android:padding="@dimen/orange_controller_icon_padding"
+                android:padding="@dimen/orange_play_icon_padding"
                 android:src="@drawable/orange_selector_play_button" />
 
             <!-- 当前时间 -->
@@ -218,7 +218,7 @@
                 android:layout_width="@dimen/orange_controller_height"
                 android:layout_height="@dimen/orange_controller_height"
                 android:contentDescription="@string/orange_play_desc"
-                android:padding="@dimen/orange_controller_icon_padding"
+                android:padding="@dimen/orange_play_icon_padding"
                 android:src="@drawable/orange_selector_play_button" />
 
             <!-- 下一集按钮 -->

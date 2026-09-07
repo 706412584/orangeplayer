@@ -16,7 +16,7 @@
             android:id="@+id/iv_play"
             android:layout_width="@dimen/orange_controller_height"
             android:layout_height="@dimen/orange_controller_height"
-            android:padding="@dimen/orange_controller_icon_padding"
+            android:padding="@dimen/orange_play_icon_padding"
             android:src="@drawable/orange_selector_play_button" />
 
         <ImageView

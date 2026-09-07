@@ -9,6 +9,8 @@
     
     <!-- 播放按钮尺寸 -->
     <dimen name="orange_play_btn_size">50dp</dimen>
+    <!-- 播放/暂停切换键内边距（略大于普通控制图标，图标可见更小、点击热区不变） -->
+    <dimen name="orange_play_icon_padding">11dp</dimen>
     
     <!-- 默认间距 -->
     <dimen name="orange_default_spacing">10dp</dimen>
