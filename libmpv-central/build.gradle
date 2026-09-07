@@ -1,0 +1,124 @@
+// libmpv-central：上游 libmpv-android Release AAR 的中央坐标再分发模块。
+//
+// 背景：libmpv-android（jarnedemeulemeester/libmpv-android）仅发布 GitHub
+// Release AAR，从未上 Maven Central。orangeplayer-mpv 需中央可解析的坐标，
+// 故以本模块将上游 v1.0.0 AAR **原样**再分发为 io.github.706412584:libmpv。
+//
+// 许可合规（LGPL-2.1-or-later + MIT 双层）：
+//  - mpv 本体（so，-Dgpl=false 构建）：LGPLv2.1+，见 https://github.com/mpv-player/mpv
+//  - JNI 包装层（dev.jdtech）：MIT，见 https://github.com/jarnedemeulemeester/libmpv-android
+//  - 原样分发未修改二进制，POM 已声明双许可并附上游源码链接，
+//    满足 LGPL 再分发的许可声明与源码可得性义务。
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'signing'
+}
+
+// 上游 AAR 就位：scripts/setup-mpv-deps.sh 下载至 libs/（不入 git，
+// 构建前必执行；本机可从 orangeplayer-mpv/mavenrepo 拷贝同源文件）。
+def upstreamAar = file("${projectDir}/libs/libmpv-1.0.0.aar")
+def libmpvVersion = '1.0.0'   // 跟随上游版本，非主仓 pomVersion
+
+// ===== 空 sources/javadoc（携带 NOTICE 说明第三方来源，满足 Central 组件要求） =====
+
+def noticeText = """libmpv ${libmpvVersion} (redistributed, unmodified)
+
+This artifact is an unmodified redistribution of the upstream
+libmpv-android v${libmpvVersion} release AAR:
+  https://github.com/jarnedemeulemeester/libmpv-android/releases/tag/v${libmpvVersion}
+
+mpv core: LGPL-2.1-or-later  https://github.com/mpv-player/mpv
+JNI layer (dev.jdtech): MIT   https://github.com/jarnedemeulemeester/libmpv-android
+
+Source of the original binaries: https://github.com/jarnedemeulemeester/libmpv-android
+Redistribution by: io.github.706412584 (OrangePlayer project)
+"""
+
+tasks.register('sourcesJar', Jar) {
+    archiveClassifier = 'sources'
+    from { [file("${projectDir}/NOTICE.txt")] }
+}
+
+tasks.register('javadocJar', Jar) {
+    archiveClassifier = 'javadoc'
+    from { [file("${projectDir}/NOTICE.txt")] }
+}
+
+// ===== Publication =====
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            groupId = 'io.github.706412584'
+            artifactId = 'libmpv'
+            version = libmpvVersion
+            artifact(upstreamAar) {
+                extension = 'aar'
+            }
+            artifact sourcesJar
+            artifact javadocJar
+
+            pom {
+                name = 'libmpv (redistributed)'
+                description = 'Unmodified redistribution of libmpv-android v1.0.0 release AAR for Maven Central resolution. mpv core LGPL-2.1-or-later, JNI layer MIT. See https://github.com/jarnedemeulemeester/libmpv-android'
+                url = 'https://github.com/jarnedemeulemeester/libmpv-android'
+                licenses {
+                    license {
+                        name = 'GNU Lesser General Public License v2.1 or later'
+                        url = 'https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html'
+                        distribution = 'repo'
+                    }
+                    license {
+                        name = 'MIT License'
+                        url = 'https://opensource.org/licenses/MIT'
+                        distribution = 'repo'
+                    }
+                }
+                developers {
+                    developer {
+                        id = '706412584'
+                        name = 'xcwl'
+                        email = '706412584@qq.com'
+                    }
+                }
+                scm {
+                    url = 'https://github.com/jarnedemeulemeester/libmpv-android'
+                    connection = 'scm:git:https://github.com/jarnedemeulemeester/libmpv-android.git'
+                    developerConnection = 'scm:git:https://github.com/jarnedemeulemeester/libmpv-android.git'
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'local'
+            url = layout.buildDirectory.dir('repo')
+        }
+        maven {
+            name = 'sonatype'
+            def releasesRepoUrl = 'https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/'
+            def snapshotsRepoUrl = 'https://ossrh-staging-api.central.sonatype.com/content/repositories/snapshots/'
+            url = version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
+            credentials {
+                username = project.findProperty('ossrhUsername') ?: System.getenv('OSSRH_USERNAME') ?: ''
+                password = project.findProperty('ossrhPassword') ?: System.getenv('OSSRH_PASSWORD') ?: ''
+            }
+        }
+    }
+}
+
+// ===== Signing（同主仓 maven-publish.gradle 的凭据/环境探测逻辑） =====
+
+def signingKeyId = project.findProperty('signing.keyId') ?: System.getenv('SIGNING_KEY_ID') ?: ''
+def signingPassword = project.findProperty('signing.password') ?: System.getenv('SIGNING_PASSWORD') ?: ''
+def signingSecretKeyRingFile = project.findProperty('signing.secretKeyRingFile') ?: System.getenv('SIGNING_SECRET_KEY_RING_FILE') ?: ''
+
+signing {
+    if (signingKeyId && signingPassword && signingSecretKeyRingFile) {
+        required = true
+        sign publishing.publications
+    } else {
+        required = false
+    }
+}

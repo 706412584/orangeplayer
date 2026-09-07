@@ -9,12 +9,19 @@
 implementation project(':orangeplayer-mpv')
 ```
 
-首次构建前需准备 libmpv 本地 maven 仓库（AAR 约 45MB，不入 git）：
+依赖的 libmpv 坐标为中央再分发坐标 `io.github.706412584:libmpv:1.0.0`
+（上游 libmpv-android Release AAR 原样转发，见根级 `libmpv-central/` 模块）。
+**中央发布前**，本地构建需先准备同坐标的本地 maven 仓库
+（AAR 约 45MB，不入 git）：
 
 ```bash
-# 手动方式：从 GitHub Release 下载
+# 方式一（推荐）：由 libmpv-central 模块生成本地仓库结构
+./gradlew :libmpv-central:publishAllPublicationsToLocalRepository
+cp -r libmpv-central/build/repo/io orangeplayer-mpv/mavenrepo/
+
+# 方式二：从 GitHub Release 手动下载摆位
 # https://github.com/jarnedemeulemeester/libmpv-android/releases
-curl -L -o orangeplayer-mpv/mavenrepo/dev/jdtech/libmpv/1.0.0/libmpv-1.0.0.aar \
+curl -L -o orangeplayer-mpv/mavenrepo/io/github/706412584/libmpv/1.0.0/libmpv-1.0.0.aar \
   https://github.com/jarnedemeulemeester/libmpv-android/releases/download/v1.0.0/libmpv-release.aar
 ```
 

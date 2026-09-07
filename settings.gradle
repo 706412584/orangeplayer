@@ -23,7 +23,8 @@ dependencyResolutionManagement {
         maven { url 'https://jitpack.io' }
         // Aliyun Player SDK repository
         maven { url 'https://maven.aliyun.com/repository/releases' }
-        // libmpv prebuilt AAR local repo (see orangeplayer-mpv/mavenrepo/)
+        // libmpv 中央再分发坐标 io.github.706412584:libmpv 的本地解析仓库
+        // （中央发布前用；见 libmpv-central/ 与 orangeplayer-mpv/README.md）
         maven { url "$rootDir/orangeplayer-mpv/mavenrepo" }
     }
 }
@@ -64,5 +65,4 @@ include ':palyerlibrary'
 include ':orange-downloader'  // Download module
 include ':orange-ffmpeg'  // FFmpeg minimal kit module
 include ':orangeplayer-mpv'  // mpv engine (optional, independent artifact; see experiments/orange-player-mpv/README.md)
-
-include ':orangeplayer-mpv:libmpv-aar'
+include ':libmpv-central'    // libmpv AAR 中央坐标再分发（上游 Release 原样，LGPL 合规）

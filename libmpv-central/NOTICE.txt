@@ -1,0 +1,11 @@
+libmpv 1.0.0 (redistributed, unmodified)
+
+This artifact is an unmodified redistribution of the upstream
+libmpv-android v1.0.0 release AAR:
+  https://github.com/jarnedemeulemeester/libmpv-android/releases/tag/v1.0.0
+
+mpv core: LGPL-2.1-or-later  https://github.com/mpv-player/mpv
+JNI layer (dev.jdtech): MIT   https://github.com/jarnedemeulemeester/libmpv-android
+
+Source of the original binaries: https://github.com/jarnedemeulemeester/libmpv-android
+Redistribution by: io.github.706412584 (OrangePlayer project)

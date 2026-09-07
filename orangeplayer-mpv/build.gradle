@@ -34,10 +34,12 @@ if (file(jdk21Home).exists()) {
 }
 
 dependencies {
-    // libmpv（LGPL 构建）：本地 maven 仓库坐标
-    // （AGP 不允许 library 直接依赖本地 .aar；mavenrepo/ 目录已 .gitignore，
-    //  构建前需执行 scripts/setup-mpv-deps.sh 下载 AAR 放入）
-    api "dev.jdtech:libmpv:1.0.0"
+    // libmpv（LGPL 构建）：中央再分发坐标 io.github.706412584:libmpv
+    // （libmpv-central 模块把上游 libmpv-android Release AAR 原样推送中央。
+    //  本地构建经 orangeplayer-mpv/mavenrepo/ 解析同一坐标——目录已
+    //  .gitignore，需先跑 ./gradlew :libmpv-central:publishAllPublicationsToLocalRepository
+    //  再拷贝 build/repo 内容到 mavenrepo/，或按 README 手动下载 AAR 摆位）
+    api "io.github.706412584:libmpv:1.0.0"
     implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.21"
 
     // GSY 播放器体系（compileOnly：宿主必须已依赖 gsyVideoPlayer-java）
