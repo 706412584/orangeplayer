@@ -86,6 +86,14 @@ echo   [10/10] orange-ffmpeg...
 call gradlew.bat :orange-ffmpeg:publishReleasePublicationToLocalRepository
 if errorlevel 1 goto ERROR
 
+echo   [11/12] libmpv-central（上游 AAR 再分发）...
+call gradlew.bat :libmpv-central:publishMavenPublicationToLocalRepository
+if errorlevel 1 goto ERROR
+
+echo   [12/12] orangeplayer-mpv...
+call gradlew.bat :orangeplayer-mpv:publishMavenPublicationToLocalRepository
+if errorlevel 1 goto ERROR
+
 echo.
 echo [SUCCESS] 所有模块已发布到本地仓库
 echo.
@@ -113,6 +121,21 @@ if exist "orange-ffmpeg\build\repo\io\github\706412584\orange-ffmpeg\%VERSION%" 
     echo   ✓ orange-ffmpeg %VERSION%
 ) else (
     echo   ✗ orange-ffmpeg %VERSION% 未找到
+    goto ERROR
+)
+
+REM libmpv-central 固定版本 1.0.0（跟随上游，不随 pomVersion）
+if exist "libmpv-central\build\repo\io\github\706412584\libmpv\1.0.0" (
+    echo   ✓ libmpv 1.0.0
+) else (
+    echo   ✗ libmpv 1.0.0 未找到（先执行 libmpv-central 本地发布）
+    goto ERROR
+)
+
+if exist "orangeplayer-mpv\build\repo\io\github\706412584\orangeplayer-mpv\%VERSION%" (
+    echo   ✓ orangeplayer-mpv %VERSION%
+) else (
+    echo   ✗ orangeplayer-mpv %VERSION% 未找到
     goto ERROR
 )
 

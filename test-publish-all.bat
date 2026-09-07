@@ -63,6 +63,14 @@ echo   [10/10] gsyVideoPlayer-x86_64...
 call gradlew.bat :gsyVideoPlayer-x86_64:publishReleasePublicationToLocalRepository
 if errorlevel 1 goto ERROR
 
+echo   [11/12] libmpv-central（上游 AAR 再分发）...
+call gradlew.bat :libmpv-central:publishMavenPublicationToLocalRepository
+if errorlevel 1 goto ERROR
+
+echo   [12/12] orangeplayer-mpv...
+call gradlew.bat :orangeplayer-mpv:publishMavenPublicationToLocalRepository
+if errorlevel 1 goto ERROR
+
 echo.
 echo [SUCCESS] 所有模块已发布到本地仓库
 echo.
@@ -74,6 +82,18 @@ mkdir temp_bundle_build
 echo   复制 palyerlibrary...
 if exist "palyerlibrary\build\repo\io" (
     xcopy /E /I /Y "palyerlibrary\build\repo\io" "temp_bundle_build\io"
+)
+
+REM Copy libmpv-central artifacts
+echo   复制 libmpv...
+if exist "libmpv-central\build\repo\io" (
+    xcopy /E /I /Y "libmpv-central\build\repo\io" "temp_bundle_build\io"
+)
+
+REM Copy orangeplayer-mpv artifacts
+echo   复制 orangeplayer-mpv...
+if exist "orangeplayer-mpv\build\repo\io" (
+    xcopy /E /I /Y "orangeplayer-mpv\build\repo\io" "temp_bundle_build\io"
 )
 
 echo   复制 GSYVideoPlayer 模块...
