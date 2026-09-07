@@ -2775,7 +2775,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 return new com.orange.playerlibrary.track.NoopTrackController();
             }
             tv.danmaku.ijk.media.player.IMediaPlayer mediaPlayer = manager.getMediaPlayer();
-            if (mediaPlayer instanceof tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) {
+            if (isIjkExo2Player(mediaPlayer)) {
                 return new com.orange.playerlibrary.track.ExoTrackController(
                         (tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) mediaPlayer);
             }
@@ -2825,12 +2825,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 return false;
             }
             tv.danmaku.ijk.media.player.IMediaPlayer mediaPlayer = manager.getMediaPlayer();
-            if (mediaPlayer instanceof tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) {
+            if (isIjkExo2Player(mediaPlayer)) {
                 mExternalSubtitleUri = uriString;
                 mExternalSubtitleMimeType = mimeType;
                 mExternalSubtitleVideoUrl = getUrl();
-                bindExoSubtitlePlayer(
-                        (tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) mediaPlayer);
+                bindExoSubtitlePlayer(mediaPlayer);
                 return true;
             }
             return false;
@@ -4980,12 +4979,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                     }
                     return;
                 }
-                if (!(player instanceof tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer)
+                if (!isIjkExo2Player(player)
                         || !isExternalSubtitleForUrl(model.getUrl())) {
                     return;
                 }
-                bindExoSubtitlePlayer(
-                        (tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) player);
+                bindExoSubtitlePlayer(player);
             }
         });
         super.prepareVideo();
@@ -5083,7 +5081,25 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 && mExternalSubtitleUri != null && mExternalSubtitleMimeType != null;
     }
 
-    private void bindExoSubtitlePlayer(tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer exoPlayer) {
+    /**
+     * Exo 内核是否在运行 classpath 且 player 是其实例。
+     * 反射守卫：exo_player2 是 compileOnly 可选内核，palyerlibrary 字节码
+     * 不得直接 instanceof 其类（用户未引入 exo_player2 时类加载即
+     * NoClassDefFoundError，真机复现：IJK 内核 onPlayerInitSuccess 崩溃）。
+     */
+    private boolean isIjkExo2Player(Object player) {
+        if (player == null) {
+            return false;
+        }
+        try {
+            Class<?> exoCls = findClass("tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer");
+            return exoCls != null && exoCls.isInstance(player);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void bindExoSubtitlePlayer(tv.danmaku.ijk.media.player.IMediaPlayer exoPlayer) {
         // 不能用 exoPlayer.getDataSource() 校验：边看边存缓存开启后数据源是本地缓存路径，
         // 与记忆字幕挂钩的原始 URL 不一致。URL 匹配由两个调用点各自保证
         // （onPlayerInitSuccess 用 model.getUrl()；setExternalSubtitle 现设现绑），
@@ -5099,10 +5115,37 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         }
         long delayMs = PlayerSettingsManager.getInstance(getContext())
                 .getSubtitleDelayForVideo(mExternalSubtitleVideoUrl);
-        exoPlayer.setExternalSubtitle(android.net.Uri.parse(mExternalSubtitleUri),
-                mExternalSubtitleMimeType, delayMs);
-        exoPlayer.setOnCueListener(subtitleManager::setMedia3Cues);
-        subtitleManager.getMedia3SubtitleView();
+        // 反射调用 IjkExo2MediaPlayer 的扩展方法（exo_player2 可选，避免硬引用）
+        try {
+            Class<?> exoCls = Class.forName("tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer");
+            if (!exoCls.isInstance(exoPlayer)) {
+                return;
+            }
+            exoCls.getMethod("setExternalSubtitle", android.net.Uri.class,
+                            String.class, long.class)
+                    .invoke(exoPlayer, android.net.Uri.parse(mExternalSubtitleUri),
+                            mExternalSubtitleMimeType, delayMs);
+            // setOnCueListener(OnCueListener) 是内部接口：动态代理转发给
+            // SubtitleManager.setMedia3Cues，避免字节码引用可选工件类型
+            Class<?> listenerCls = Class.forName(
+                    "tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer$OnCueListener");
+            Object listenerProxy = java.lang.reflect.Proxy.newProxyInstance(
+                    listenerCls.getClassLoader(), new Class<?>[]{listenerCls},
+                    (proxy, method, args) -> {
+                        if (args != null && args.length > 0) {
+                            // 按运行时实参精确类型反射调 setMedia3Cues
+                            subtitleManager.getClass()
+                                    .getMethod("setMedia3Cues", args[0].getClass())
+                                    .invoke(subtitleManager, args[0]);
+                        }
+                        return null;
+                    });
+            exoCls.getMethod("setOnCueListener", listenerCls)
+                    .invoke(exoPlayer, listenerProxy);
+            subtitleManager.getMedia3SubtitleView();
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "bindExoSubtitlePlayer(reflect): " + t);
+        }
     }
 
     public boolean isExternalSubtitleConfiguredForCurrentUrl() {
