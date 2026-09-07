@@ -16,7 +16,8 @@
 
 ## 功能特性
 
-- 🎬 **多播放内核**：系统/ExoPlayer/IJK/阿里云，运行时切换
+- 🎬 **多播放内核**：系统/ExoPlayer/IJK/阿里云/MPV，运行时切换
+- ✨ **画质增强**：GL 滤镜（Exo/IJK/系统）+ Anime4K 超分与色彩档（MPV 内核）
 - 📝 **字幕系统**：SRT/ASS/VTT 格式支持
 - 🔍 **视频嗅探**：自动检测网页中的视频资源
 - 🔤 **OCR 识别**：硬字幕识别 + ML Kit 翻译
@@ -81,6 +82,7 @@ dependencies {
 > - `gsyVideoPlayer-java` - IJK 播放器（推荐，支持更多格式）
 > - `gsyVideoPlayer-exo_player2` - ExoPlayer（性能好，RTSP 支持完整）
 > - `gsyVideoPlayer-aliplay` - 阿里云播放器（商业级，RTMP 延迟低）
+> - `orangeplayer-mpv` - MPV 内核（可选，Anime4K 超分与色彩档画质增强，Android 8.0+）
 > - `gsyVideoPlayer-base` - 播放器基础库
 > - `gsyVideoPlayer-proxy_cache` - 代理缓存支持
 > - `gsyVideoPlayer-armv7a` - ARMv7a 架构 so 库

@@ -1,4 +1,40 @@
 # OrangePlayer 更新日志
+## [1.4.0] - 2026-09-07
+
+### 🎬 新增 MPV 第五播放内核（可选工件 orangeplayer-mpv）
+
+- **MPV 内核（libmpv 0.41 / FFmpeg n8.1 / libplacebo v7）**：与 ExoPlayer / IJK / 阿里云 / 系统内核并列的可选第五内核，仅用户显式选择，永不自动回退
+- **渲染与时序**：TextureView 渲染、SurfaceTexture 同源幂等 attach、prepare 前预创建/重建渲染 View、渲染尺寸经 `android-surface-size` 属性显式下发（修复全屏/切内核黑屏、二次切换报错）
+- **GSY 子模块兼容补丁**：`prepareAsync` 前对已有效 surface 主动补推（对 Exo/IJK/Ali/系统四内核幂等，向下兼容）
+- **MPV 画质增强 6 档**：关闭 / 标准增强（Anime4K Restore）/ 鲜艳 / 黑白 / 复古（GLSL 色彩矩阵 shader）/ Anime4K 超分（Mode A 4-shader 链）；档位持久化、会话自动恢复、经 `glsl-shaders` 属性原子切换（不重建渲染层、播放中实时生效）
+- **画面比例**：裁剪/拉伸走 mpv 原生渲染选项（`keepaspect` / `video-zoom`），修复 GSY TextureView 尺寸机制对 mpv 无效导致的"短暂生效被拉回"
+- **体积策略**：libmpv AAR（约 46MB）不入库，经本地仓库 + README 下载指引获取
+
+### 🎨 UI 重构（品牌橙设计语言 + Material Symbols）
+
+- **第一阶段**：品牌橙设计语言统一——Design Token（op_tokens）+ 夜间主题实质差异 + 首页能力门面重做（真机验证通过）
+- **第二阶段**：Material Symbols 图标库统一（顶栏/底栏/快捷面板全部控制图标）+ 控制器排版收敛（真机多轮验收）
+- 弹幕发送面板重构为右侧滑入面板（与设置/选集面板形态统一）
+- 播放/暂停按钮图标微调（内边距 9→11dp，点击热区不变）
+- 画质增强 GL 滤镜（Exo/IJK/系统内核）+ 滤镜持久化与会话恢复；阿里云内核渲染管线不兼容 GL 滤镜，自动禁用并提示
+
+### 🔧 内核能力与容错（P2–P7 批次）
+
+- **P2** 统一轨道枚举与选择 API；**P3** 外挂字幕断链修复、延迟 API 与真实 ASS 双路径支持（Exo 端到端）
+- **P4** 内核能力矩阵与有界自动回退（K=1）；**P5** MediaSession 系统控制（锁屏/通知）与 TV 自动帧率匹配
+- **P6** 可选 OkHttp DataSource；**P7** orange-player-mpv 原型隔离骨架与 CI 门禁；MediaSession 共享模块收尾
+- Exo 坏段跳段自愈、下载去广告与锁定诊断日志（真机三问题收口）；退出全屏锁定残留修复
+- M3U8 去广告开关改为持久化设置（去掉 demo 写死开启）
+- Media3 升级至 1.11.0
+
+### 📦 工程与发布基建
+
+- 凭据出库，入库无凭据的 Maven 发布脚本（本地 gradle.properties / CI secret 注入）
+- CI：修复 Maven 发布工作流、新增单元测试门禁、移除 app-legacy 单测任务（规避 DLNA manifest 冲突）、修复 app 单测 manifest 合并与主题解析
+- gradle.properties 重新入库仅含构建配置；Jellyfin 解码器升至 1.9.0+1
+
+---
+
 ## [1.3.2] - 2026-04-02
 
 ### 📦 依赖升级
