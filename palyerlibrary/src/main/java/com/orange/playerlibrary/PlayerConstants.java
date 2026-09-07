@@ -55,6 +55,8 @@ public class PlayerConstants {
     public static final String ENGINE_ALI = "ali";
     /** Android 原生 MediaPlayer */
     public static final String ENGINE_DEFAULT = "default";
+    /** mpv 内核（可选独立工件 orangeplayer-mpv，仅用户显式选择，永不自动回退到达） */
+    public static final String ENGINE_MPV = "mpv";
     
     // ===== 屏幕方向常量 =====
     /** 竖屏 */

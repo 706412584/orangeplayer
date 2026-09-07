@@ -619,6 +619,33 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
         // 根据设置切换播放器核心
         switch (engine) {
+            case PlayerConstants.ENGINE_MPV:
+                // mpv 内核：可选独立工件 orangeplayer-mpv（反射加载，主 SDK 零编译依赖）。
+                // 纪律：仅用户显式选择，不可用时提示回退（不做静默自动回退到达）。
+                if (Build.VERSION.SDK_INT >= 26) {
+                    Class<?> mpvManager = findClass("com.orange.player.mpv.MpvPlayerManager");
+                    if (mpvManager != null) {
+                        try {
+                            PlayerFactory.setPlayManager((Class<? extends IPlayerManager>) mpvManager);
+                            // mpv 走 TextureView 渲染（GSY 默认路径，surface 事件时序最成熟；
+                            // MpvPlayerManager.showDisplay 已处理 TextureView 的 SurfaceTexture 包装）
+                            com.shuyu.gsyvideoplayer.utils.GSYVideoType.setRenderType(
+                                    com.shuyu.gsyvideoplayer.utils.GSYVideoType.TEXTURE);
+                            android.util.Log.d(TAG, "initPlayerFactory: 使用 mpv 内核（TextureView 渲染）");
+                        } catch (Exception e) {
+                            android.util.Log.w(TAG, "initPlayerFactory: mpv 内核初始化失败，回退到系统播放器", e);
+                            fallbackToSystem = true;
+                        }
+                    } else {
+                        android.util.Log.w(TAG, "initPlayerFactory: orangeplayer-mpv 工件未引入，回退到系统播放器");
+                        fallbackToSystem = true;
+                    }
+                } else {
+                    android.util.Log.w(TAG, "initPlayerFactory: Android 版本过低（需要 8.0+），不支持 mpv 内核，回退到系统播放器");
+                    fallbackToSystem = true;
+                }
+                break;
+
             case PlayerConstants.ENGINE_IJK:
                 // IJK 播放器需要 Android 4.1+ (API 16)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
@@ -739,6 +766,17 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     /**
+     * 反射查找可选内核类（orangeplayer-mpv 独立工件，主 SDK 零编译依赖）
+     */
+    private Class<?> findClass(String className) {
+        try {
+            return Class.forName(className);
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
+    }
+
+    /**
      * 检查 IJK 播放器是否可用
      * 同时检查 Java 类和 native 库
      */
@@ -849,15 +887,58 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     /**
+     * MPV 内核画质增强档位切换（反射调 MpvPlayerManager.applyEnhancement）。
+     * MPV 的画质增强走自身 glsl-shaders 链（Anime4K 超分/锐化与色彩矩阵 shader），
+     * 与 GL 滤镜互斥且不重建渲染层。档位持久化，切走/重进 mpv 会话自动恢复。
+     *
+     * @param filterName PlayerSettingsManager.FILTER_*（mpv 档位集）
+     */
+    public void applyMpvEnhancement(String filterName) {
+        try {
+            Class<?> binder = findClass("com.orange.player.mpv.MpvPlayerManager");
+            if (binder == null) {
+                android.util.Log.w(TAG, "applyMpvEnhancement: mpv 工件未引入");
+                return;
+            }
+            binder.getMethod("applyEnhancement", Context.class, String.class)
+                    .invoke(null, getContext(), filterName);
+            PlayerSettingsManager.getInstance(getContext()).setMpvVideoFilter(filterName);
+            android.util.Log.d(TAG, "applyMpvEnhancement: " + filterName);
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "applyMpvEnhancement failed", e);
+        }
+    }
+
+    /**
      * 应用画质增强（GL 滤镜）
      *
      * 原理：滤镜档位非"关闭"时切换渲染模式到 GLSurfaceView，
      * GSY 基类 addTextureView() 会把 mEffectFilter 透传给 GSYVideoGLView，
      * 由 GL shader 实时处理画面后上屏。
      *
+     * 兼容性：阿里云内核自有渲染管线，GLSurfaceView 下帧同步冲突会
+     * 蓝白闪烁（真机实测），该内核下滤镜自动禁用（等效"关闭"）。
+     * MPV 内核走 Anime4K shader 路线，不经此方法。
+     *
      * @param filterName 档位名（PlayerSettingsManager.FILTER_*）
      */
     public void applyVideoFilter(String filterName) {
+        // 阿里云内核渲染管线不兼容 GL 滤镜，强制关闭
+        String engine = PlayerSettingsManager.getInstance(getContext()).getPlayerEngine();
+        if (PlayerConstants.ENGINE_ALI.equals(engine)) {
+            filterName = PlayerSettingsManager.FILTER_OFF;
+        }
+        // mpv 内核同样强制关闭：mpv 走自身 GPU VO（wid 直渲）+ Anime4K shader 管线，
+        // GLSurfaceView 的二次 GL 重渲染不适用；且 GL 渲染 View 会把 mpv 的
+        // surface 绑定时序复杂化（prepare 前需保证 TextureView 路径的渲染 View）
+        if (PlayerConstants.ENGINE_MPV.equals(engine)) {
+            // mpv 的渲染层恒为 TextureView、滤镜在 mpv 内部 shader 链处理，
+            // 无需（也不能）重建渲染 View：重建会 detach 播放中的活 surface，
+            // mpv vo 重启失败 → 黑屏（真机实测）。
+            android.util.Log.d(TAG, "applyVideoFilter: mpv 内核使用内部 shader 链，跳过 GL 滤镜");
+            return;
+        }
+
         com.shuyu.gsyvideoplayer.render.view.GSYVideoGLView.ShaderInterface effect;
         boolean useGL;
 
@@ -1676,13 +1757,21 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     private String getCurrentPlayerEngine() {
         IPlayerManager currentManager = GSYVideoManager.instance().getPlayer();
 
+        // playerManager 为 null（首次 prepare 前）时读用户持久化偏好：
+        // Demo 场景存在多个 View 实例，实例字段 mSelectedPlayerEngine 可能未初始化
         if (currentManager == null) {
+            String saved = PlayerSettingsManager.getInstance(getContext()).getPlayerEngine();
+            if (saved != null) {
+                return saved;
+            }
             return mSelectedPlayerEngine;
         }
 
         String className = currentManager.getClass().getName();
 
-        if (className.contains("OrangeExoPlayerManager")) {
+        if (className.contains("MpvPlayerManager")) {
+            return PlayerConstants.ENGINE_MPV;
+        } else if (className.contains("OrangeExoPlayerManager")) {
             return PlayerConstants.ENGINE_EXO;
         } else if (className.contains("IjkPlayerManager")) {
             return PlayerConstants.ENGINE_IJK;
@@ -1731,7 +1820,12 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             mSkipManager.reset();
         }
         if (mErrorRecoveryManager != null) {
-            mErrorRecoveryManager.startBlackScreenDetection();
+            // mpv 内核：暂停态画面冻结、无帧心跳，黑屏检测会把它误判为黑屏并
+            // 反复 seek（seek 不解暂停 → 永远不出帧 → 无限恢复循环）。停用该检测，
+            // 仅保留状态一致性检测；其他内核保持原行为。
+            if (!PlayerConstants.ENGINE_MPV.equals(getCurrentPlayerEngine())) {
+                mErrorRecoveryManager.startBlackScreenDetection();
+            }
             mErrorRecoveryManager.startStateConsistencyCheck();
         }
         // 清除旧的缩略图
@@ -2444,6 +2538,20 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
         // 2. 设置新的播放器工厂
         switch (engineType) {
+            case PlayerConstants.ENGINE_MPV:
+                // mpv 内核（可选工件，反射加载）：SurfaceView 渲染（GPU VO）
+                Class<?> mpvCls = findClass("com.orange.player.mpv.MpvPlayerManager");
+                if (mpvCls != null && Build.VERSION.SDK_INT >= 26) {
+                    PlayerFactory.setPlayManager((Class<? extends IPlayerManager>) mpvCls);
+                    com.shuyu.gsyvideoplayer.utils.GSYVideoType.setRenderType(
+                            com.shuyu.gsyvideoplayer.utils.GSYVideoType.TEXTURE);
+                    android.util.Log.d(TAG, "selectPlayerFactory: 使用 mpv 内核（TextureView 渲染）");
+                } else {
+                    android.util.Log.w(TAG, "selectPlayerFactory: mpv 不可用，回退到系统播放器");
+                    PlayerFactory.setPlayManager(com.orange.playerlibrary.player.OrangeSystemPlayerManager.class);
+                    engineType = PlayerConstants.ENGINE_DEFAULT;
+                }
+                break;
             case PlayerConstants.ENGINE_IJK:
                 PlayerFactory.setPlayManager(com.orange.playerlibrary.player.OrangeIjkPlayerManager.class);
                 // IJK 播放器使用 TextureView 模式（更稳定）
@@ -3413,6 +3521,53 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     public void refreshVideoShowType() {
         changeTextureViewShowType();
+    }
+
+    /**
+     * mpv 渲染 surface 尺寸转发：GSY 基类该回调是空实现，而 mpv 的 EGL
+     * 渲染 surface 尺寸必须经 android-surface-size 属性显式下发，否则
+     * 部分驱动上渲染尺寸错乱（纯色闪动/花屏）。仅 mpv 内核转发，
+     * 其他内核保持基类原行为。反射调用保持零编译依赖。
+     */
+    @Override
+    public void onSurfaceSizeChanged(Surface surface, int width, int height) {
+        super.onSurfaceSizeChanged(surface, width, height);
+        if (!PlayerConstants.ENGINE_MPV.equals(getCurrentPlayerEngine())) {
+            return;
+        }
+        try {
+            Class<?> binder = findClass("com.orange.player.mpv.MpvPlayerManager");
+            if (binder == null) return;
+            binder.getMethod("updateSurfaceSize", int.class, int.class)
+                    .invoke(null, width, height);
+            android.util.Log.d(TAG, "mpv surface size forwarded: " + width + "x" + height);
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "mpv updateSurfaceSize failed", e);
+        }
+    }
+
+    /**
+     * mpv 内核：渲染 View 已就位且仍挂在当前容器时跳过 GSY 标准流程的
+     * 「removeAllViews + 重建」。GSY 在 onPrepared 后（startAfterPrepared）
+     * 会无条件重建渲染 View，对 mpv 意味着一次 surface detach/attach 往返，
+     * 而 mpv 的 loadfile 已经绑定在旧 surface 上（表面交换期间可能黑屏）。
+     * 仅 mpv 生效，其他内核保持原行为（全屏/小窗路径的容器不同，不受影响）。
+     */
+    @Override
+    protected void addTextureView() {
+        if (PlayerConstants.ENGINE_MPV.equals(getCurrentPlayerEngine())
+                && mTextureView != null
+                && mTextureView.getShowView() != null
+                && mTextureView.getShowView().getParent() == mTextureViewContainer
+                // View 存在还不够：切内核/全屏退出后其 SurfaceTexture 可能已被
+                // release（isAvailable=false），复用一个"死"渲染 View 会导致
+                // mpv 永远等不到新 surface。SurfaceTexture 活着才跳过重建。
+                && (!(mTextureView.getShowView() instanceof android.view.TextureView)
+                    || ((android.view.TextureView) mTextureView.getShowView()).isAvailable())) {
+            android.util.Log.d(TAG, "addTextureView: mpv 内核复用现有渲染 View（跳过重建）");
+            return;
+        }
+        super.addTextureView();
     }
 
     /**
@@ -4759,6 +4914,12 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         setOrangePlayState(PlayerConstants.STATE_PREPARING);
 
         String currentEngine = getCurrentPlayerEngine();
+        // 引擎切换瞬间（selectEngine 先 release 旧引擎再 setUp）GSY 管理器里仍是
+        // 旧 player 类型，getCurrentPlayerEngine 会误判为旧引擎。用 mSelectedPlayerEngine
+        // 判断"即将启动的目标引擎"（selectPlayerFactoryInternal 末尾已同步）。
+        String targetEngine = PlayerConstants.ENGINE_MPV.equals(mSelectedPlayerEngine)
+                || PlayerConstants.ENGINE_MPV.equals(currentEngine)
+                ? PlayerConstants.ENGINE_MPV : currentEngine;
         // ExoPlayer 使用 SurfaceControl 处理全屏切换 (Android Q+)
         if (PlayerConstants.ENGINE_EXO.equals(currentEngine) &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -4768,9 +4929,36 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             releaseExoSurfaceControl();
         }
 
+        // mpv 内核时序补偿：mpv 要求 surface attach 必须先于 loadfile，而 GSY 标准
+        // 流程是 onPrepared 后才 addTextureView——对 mpv 构成死锁（无 surface →
+        // 不发 loadfile → 无 FILE_LOADED → 无 onPrepared → 永远不建渲染 View）。
+        // 这里在 prepare 前确保渲染 View 存在且其 SurfaceTexture 存活：若 player
+        // 先建好，surfaceCreated 后 showDisplay → setSurface 会补发 loadfile；若
+        // surface 先到，GSYVideoBaseManager.initVideo 会在 prepareAsync 前推缓存 surface。
+        // 渲染 View 存在但 SurfaceTexture 已死（切内核时被 release）同样必须重建，
+        // 否则加载永远等不到活 surface（真机实测：切 mpv 后 TextureView not ready 卡加载）。
+        boolean mpvRenderDead = getRenderProxy() != null
+                && getRenderProxy().getShowView() != null
+                && getRenderProxy().getShowView() instanceof android.view.TextureView
+                && !((android.view.TextureView) getRenderProxy().getShowView()).isAvailable();
+        if (PlayerConstants.ENGINE_MPV.equals(targetEngine)
+                && (getRenderProxy() == null || getRenderProxy().getShowView() == null
+                    || mpvRenderDead)) {
+            android.util.Log.d(TAG, "startPlayLogic: mpv 内核 prepare 前" + (mpvRenderDead ? "重建死渲染 View" : "预创建渲染 View")
+                    + "（cur=" + currentEngine + ", target=" + targetEngine
+                    + ", proxy=" + (getRenderProxy() != null)
+                    + ", showView=" + (getRenderProxy() != null && getRenderProxy().getShowView() != null)
+                    + ", dead=" + mpvRenderDead + "）");
+            addTextureView();
+        } else {
+            android.util.Log.d(TAG, "startPlayLogic: engine=" + currentEngine
+                    + "（proxy=" + (getRenderProxy() != null)
+                    + ", showView=" + (getRenderProxy() != null && getRenderProxy().getShowView() != null)
+                    + ", mSelectedPlayerEngine=" + mSelectedPlayerEngine + "）");
+        }
+
         prepareVideo();
     }
-
 
     @Override
     protected void prepareVideo() {
@@ -4779,6 +4967,19 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             @Override
             public void onPlayerInitSuccess(tv.danmaku.ijk.media.player.IMediaPlayer player,
                     com.shuyu.gsyvideoplayer.model.GSYModel model) {
+                // mpv 内核：player 已建好但渲染 View 的 surface 可能早已存在且不会再触发
+                // onSurfaceAvailable（MediaCodecTexture 保留的 SurfaceTexture 复用场景）。
+                // 从渲染代理反取 surface 推给 mpv，触发 attachSurface + loadfile。
+                if (player != null && "MpvMediaPlayer".equals(
+                        player.getClass().getSimpleName())) {
+                    bindMpvRenderSurface();
+                    // 恢复持久化的 mpv 画质增强档位（glsl-shaders 在本次 loadfile 前加载）
+                    String mpvFilter = PlayerSettingsManager.getInstance(getContext()).getMpvVideoFilter();
+                    if (mpvFilter != null && !PlayerSettingsManager.FILTER_OFF.equals(mpvFilter)) {
+                        applyMpvEnhancement(mpvFilter);
+                    }
+                    return;
+                }
                 if (!(player instanceof tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer)
                         || !isExternalSubtitleForUrl(model.getUrl())) {
                     return;
@@ -4788,6 +4989,52 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             }
         });
         super.prepareVideo();
+    }
+
+    /**
+     * mpv surface 反取补推（反射调用 MpvPlayerManager.bindRenderProxySurface）。
+     * player 初始化成功后调用：渲染 View 已就位时把它的 surface 推给 mpv。
+     * 渲染 View/SurfaceTexture 就绪时机不定，短间隔重试兜底。
+     * 反射加载保持 palyerlibrary 对 orangeplayer-mpv 零编译依赖。
+     */
+    private void bindMpvRenderSurface() {
+        postDelayed(new Runnable() {
+            private int attempts = 0;
+
+            @Override
+            public void run() {
+                if (tryBindMpvRenderSurfaceOnce()) {
+                    return;
+                }
+                if (++attempts < 10) {
+                    postDelayed(this, 200);
+                } else {
+                    android.util.Log.w(TAG, "bindMpvRenderSurface: 重试耗尽，surface 未就绪");
+                }
+            }
+        }, 100);
+    }
+
+    /** 单次尝试：渲染代理存在且推给 mpv 返回 true；View 未就绪返回 false 继续重试 */
+    private boolean tryBindMpvRenderSurfaceOnce() {
+        try {
+            Class<?> binder = findClass("com.orange.player.mpv.MpvPlayerManager");
+            if (binder == null) return true;
+            if (getRenderProxy() == null || getRenderProxy().getShowView() == null) {
+                android.util.Log.d(TAG, "tryBindMpvRenderSurface: 渲染 View 未就绪");
+                return false;
+            }
+            Object result = binder.getMethod("bindRenderProxySurface", Object.class)
+                    .invoke(null, getRenderProxy());
+            // bindRenderProxySurface 已带 ready 检查；未 ready 时返回 Boolean.FALSE
+            if (Boolean.FALSE.equals(result)) {
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "mpv bindRenderProxySurface failed", e);
+            return true;
+        }
     }
 
     private void prepareRememberedExternalSubtitle() {

@@ -164,6 +164,9 @@ dependencies {
 
     // 可选：Media3 OkHttp DataSource（P6；OkHttp 网络栈替代 HttpURLConnection）
     implementation 'androidx.media3:media3-datasource-okhttp:1.11.0'
+
+    // 可选内核：mpv（第五内核 + Anime4K 超分；仅用户显式选择）
+    implementation project(':orangeplayer-mpv')
     
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.mockito:mockito-core:5.3.1'

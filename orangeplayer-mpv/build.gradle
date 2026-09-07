@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.orange.player.mpv'
+    compileSdk 36
+
+    defaultConfig {
+        minSdk 26          // libmpv AAR 要求 API 26+（独立可选内核，主 SDK 不依赖）
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// libmpv AAR 的 classes.jar 为 Java 21 字节码（v65），本模块编译需 JDK 21。
+// 显式 fork 到本机 JDK 21（CI 环境通过 ORANGE_MPV_JDK21 环境变量注入路径）。
+def jdk21Home = System.getenv('ORANGE_MPV_JDK21') ?: 'D:/android/openjdk/jdk-21.0.11+10'
+if (file(jdk21Home).exists()) {
+    tasks.withType(JavaCompile).configureEach {
+        options.fork = true
+        options.forkOptions.javaHome = file(jdk21Home)
+    }
+}
+
+dependencies {
+    // libmpv（LGPL 构建）：本地 maven 仓库坐标
+    // （AGP 不允许 library 直接依赖本地 .aar；mavenrepo/ 目录已 .gitignore，
+    //  构建前需执行 scripts/setup-mpv-deps.sh 下载 AAR 放入）
+    api "dev.jdtech:libmpv:1.0.0"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.21"
+
+    // GSY 播放器体系（compileOnly：宿主必须已依赖 gsyVideoPlayer-java）
+    compileOnly project(':gsyVideoPlayer-java')
+}

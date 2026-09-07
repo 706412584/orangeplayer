@@ -2,8 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
 	
-	<!-- 允许使用 minSdk 24 的投屏库 -->
-	<uses-sdk tools:overrideLibrary="com.uaoanlao.tv" />
+	<!-- 允许使用 minSdk 24 的投屏库；mpv 内核 minSdk 26（运行时 API 26 守卫，低版本自动隐藏入口） -->
+	<uses-sdk tools:overrideLibrary="com.uaoanlao.tv,com.orange.player.mpv,dev.jdtech.mpv" />
 	
 	<!-- 网络权限 -->
 	<uses-permission android:name="android.permission.INTERNET" />

@@ -675,8 +675,9 @@ public class VideoEventManager {
         android.widget.SeekBar volumeSeekBar = dialogView.findViewById(R.id.volumeSeek_bar);
         android.widget.TextView volumeText = dialogView.findViewById(R.id.volumeText);
         
-        // 设置播放核心按钮
-        setupEngineButtons(aliEngineBtn, exoEngineBtn, ijkEngineBtn, systemEngineBtn);
+        // 设置播放核心按钮（MPV 可选内核）
+        android.widget.TextView mpvEngineBtn = dialogView.findViewById(R.id.mpvhx);
+        setupEngineButtons(aliEngineBtn, exoEngineBtn, ijkEngineBtn, systemEngineBtn, mpvEngineBtn);
         
         // 设置解码方式按钮
         setupDecodeModeButtons(decodeHardwareBtn, decodeSoftwareBtn);
@@ -756,8 +757,14 @@ public class VideoEventManager {
     /**
      * 设置播放核心按钮
      */
-    private void setupEngineButtons(android.widget.TextView aliBtn, android.widget.TextView exoBtn, 
+    private void setupEngineButtons(android.widget.TextView aliBtn, android.widget.TextView exoBtn,
                                    android.widget.TextView ijkBtn, android.widget.TextView systemBtn) {
+        setupEngineButtons(aliBtn, exoBtn, ijkBtn, systemBtn, null);
+    }
+
+    private void setupEngineButtons(android.widget.TextView aliBtn, android.widget.TextView exoBtn,
+                                   android.widget.TextView ijkBtn, android.widget.TextView systemBtn,
+                                   android.widget.TextView mpvBtn) {
         // 检查核心是否可用
         boolean isAliPlayerAvailable = isClassPresent("com.aliyun.player.AliPlayer");
         boolean isIjkPlayerAvailable = isIjkPlayerAvailable(); // 使用新的检测方法，同时检查 Java 类和 SO 库
@@ -766,23 +773,27 @@ public class VideoEventManager {
                                        isClassPresent("com.google.android.exoplayer2.ExoPlayer") ||
                                        isClassPresent("com.google.android.exoplayer2.Player") ||
                                        isClassPresent("androidx.media3.exoplayer.ExoPlayer");
-        
+        // mpv 内核检测：可选工件 orangeplayer-mpv 存在且系统 API 26+
+        boolean isMpvAvailable = android.os.Build.VERSION.SDK_INT >= 26
+                && isClassPresent("com.orange.player.mpv.MpvPlayerManager");
+
         // 调试日志：显示内核可用性
-        android.util.Log.d("VideoEventManager", "setupEngineButtons: Ali=" + isAliPlayerAvailable + 
-            ", IJK=" + isIjkPlayerAvailable + ", Exo=" + isExoPlayerAvailable);
-        
+        android.util.Log.d("VideoEventManager", "setupEngineButtons: Ali=" + isAliPlayerAvailable +
+            ", IJK=" + isIjkPlayerAvailable + ", Exo=" + isExoPlayerAvailable + ", MPV=" + isMpvAvailable);
+
         // 设置可见性
         if (aliBtn != null) aliBtn.setVisibility(isAliPlayerAvailable ? View.VISIBLE : View.GONE);
         if (ijkBtn != null) ijkBtn.setVisibility(isIjkPlayerAvailable ? View.VISIBLE : View.GONE);
         if (exoBtn != null) exoBtn.setVisibility(isExoPlayerAvailable ? View.VISIBLE : View.GONE);
         if (systemBtn != null) systemBtn.setVisibility(View.VISIBLE); // 系统核心始终可用
-        
+        if (mpvBtn != null) mpvBtn.setVisibility(isMpvAvailable ? View.VISIBLE : View.GONE);
+
         // 获取当前引擎
         String currentEngine = mSettingsManager.getPlayerEngine();
-        
+
         // 调试日志：显示当前引擎
         android.util.Log.d("VideoEventManager", "setupEngineButtons: currentEngine=" + currentEngine);
-        
+
         // 高亮当前引擎
         if (aliBtn != null) {
             aliBtn.setTextColor(PlayerConstants.ENGINE_ALI.equals(currentEngine) ? COLOR_HIGHLIGHT : COLOR_NORMAL);
@@ -799,6 +810,10 @@ public class VideoEventManager {
         if (systemBtn != null) {
             systemBtn.setTextColor(PlayerConstants.ENGINE_DEFAULT.equals(currentEngine) ? COLOR_HIGHLIGHT : COLOR_NORMAL);
             systemBtn.setOnClickListener(v -> selectEngine(PlayerConstants.ENGINE_DEFAULT));
+        }
+        if (mpvBtn != null && isMpvAvailable) {
+            mpvBtn.setTextColor(PlayerConstants.ENGINE_MPV.equals(currentEngine) ? COLOR_HIGHLIGHT : COLOR_NORMAL);
+            mpvBtn.setOnClickListener(v -> selectEngine(PlayerConstants.ENGINE_MPV));
         }
     }
     
@@ -897,6 +912,8 @@ public class VideoEventManager {
                 return "EXO";
             case PlayerConstants.ENGINE_ALI:
                 return "阿里云";
+            case PlayerConstants.ENGINE_MPV:
+                return "MPV";
             case PlayerConstants.ENGINE_DEFAULT:
             default:
                 return "系统核心";
@@ -1776,6 +1793,16 @@ public class VideoEventManager {
      * 显示画质增强（滤镜）选择对话框
      */
     private void showVideoFilterDialog() {
+        // 阿里云内核渲染管线与 GL 滤镜不兼容（蓝白闪烁），直接提示不可用
+        if (PlayerConstants.ENGINE_ALI.equals(mSettingsManager.getPlayerEngine())) {
+            showToast("阿里云内核暂不支持画质增强");
+            return;
+        }
+
+        // mpv 内核：GL 滤镜不适用（渲染层恒 TextureView、滤镜在 mpv 内部
+        // glsl-shaders 链处理），面板改提供 Anime4K 超分档位
+        boolean isMpv = PlayerConstants.ENGINE_MPV.equals(mSettingsManager.getPlayerEngine());
+
         if (mCurrentSetupDialog != null) {
             mCurrentSetupDialog.dismiss();
         }
@@ -1791,20 +1818,30 @@ public class VideoEventManager {
         if (recyclerView == null) return;
 
         ArrayList<HashMap<String, Object>> arrayList = new ArrayList<>();
-        String[] filters = {
-                PlayerSettingsManager.FILTER_OFF,
-                PlayerSettingsManager.FILTER_SHARPEN,
-                PlayerSettingsManager.FILTER_VIVID,
-                PlayerSettingsManager.FILTER_BLACK_WHITE,
-                PlayerSettingsManager.FILTER_SEPIA
-        };
+        String[] filters = isMpv
+                ? new String[]{
+                    PlayerSettingsManager.FILTER_OFF,
+                    PlayerSettingsManager.FILTER_SHARPEN,
+                    PlayerSettingsManager.FILTER_VIVID,
+                    PlayerSettingsManager.FILTER_BLACK_WHITE,
+                    PlayerSettingsManager.FILTER_SEPIA,
+                    PlayerSettingsManager.FILTER_ANIME4K_SUPER}
+                : new String[]{
+                    PlayerSettingsManager.FILTER_OFF,
+                    PlayerSettingsManager.FILTER_SHARPEN,
+                    PlayerSettingsManager.FILTER_VIVID,
+                    PlayerSettingsManager.FILTER_BLACK_WHITE,
+                    PlayerSettingsManager.FILTER_SEPIA};
         for (String filter : filters) {
             HashMap<String, Object> map = new HashMap<>();
             map.put("name", filter);
             arrayList.add(map);
         }
 
-        final String currentFilter = mSettingsManager.getVideoFilter();
+        // 高亮当前项：mpv 走独立档位持久化，其他内核看 GL 滤镜档位
+        final String currentFilter = isMpv
+                ? mSettingsManager.getMpvVideoFilter()
+                : mSettingsManager.getVideoFilter();
 
         OrangeRecyclerView orangeRecyclerView = new OrangeRecyclerView();
         orangeRecyclerView.setLinearLayoutManager(recyclerView, mActivity);
@@ -1825,11 +1862,20 @@ public class VideoEventManager {
                 filterName.setText(filterText);
 
                 filterName.setOnClickListener(v -> {
-                    mSettingsManager.setVideoFilter(filterText);
-                    if (mVideoView != null) {
-                        mVideoView.applyVideoFilter(filterText);
+                    if (isMpv) {
+                        // 档位走 mpv glsl-shaders 链，点击即实时切换
+                        if (mVideoView != null) {
+                            mVideoView.applyMpvEnhancement(filterText);
+                        }
+                        showToast("画质增强: " + (PlayerSettingsManager.FILTER_OFF.equals(filterText)
+                                ? "已关闭" : filterText + " 已开启"));
+                    } else {
+                        mSettingsManager.setVideoFilter(filterText);
+                        if (mVideoView != null) {
+                            mVideoView.applyVideoFilter(filterText);
+                        }
+                        showToast("画质增强: " + filterText);
                     }
-                    showToast("画质增强: " + filterText);
                     dialog.dismiss();
                 });
             });

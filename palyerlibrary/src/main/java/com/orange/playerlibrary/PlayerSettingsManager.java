@@ -209,6 +209,8 @@ public class PlayerSettingsManager {
     public static final String FILTER_VIVID = "鲜艳";
     public static final String FILTER_BLACK_WHITE = "黑白";
     public static final String FILTER_SEPIA = "复古";
+    /** MPV 内核专用：Anime4K 超分档（glsl-shaders 链，与 GL 滤镜互斥） */
+    public static final String FILTER_ANIME4K_SUPER = "Anime4K 超分";
 
     public void setVideoFilter(String filter) {
         mPreferences.edit().putString(KEY_VIDEO_FILTER, filter).apply();
@@ -216,6 +218,18 @@ public class PlayerSettingsManager {
 
     public String getVideoFilter() {
         return mPreferences.getString(KEY_VIDEO_FILTER, FILTER_OFF);
+    }
+
+    // ===== MPV 内核画质增强档位设置（持久化，仅 mpv 生效；与 GL 滤镜档独立） =====
+
+    private static final String KEY_MPV_VIDEO_FILTER = "mpv_video_filter";
+
+    public void setMpvVideoFilter(String filter) {
+        mPreferences.edit().putString(KEY_MPV_VIDEO_FILTER, filter).apply();
+    }
+
+    public String getMpvVideoFilter() {
+        return mPreferences.getString(KEY_MPV_VIDEO_FILTER, FILTER_OFF);
     }
     
     // ===== 会话内画面比例（不持久化，切换剧集时重置）=====

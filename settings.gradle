@@ -23,6 +23,8 @@ dependencyResolutionManagement {
         maven { url 'https://jitpack.io' }
         // Aliyun Player SDK repository
         maven { url 'https://maven.aliyun.com/repository/releases' }
+        // libmpv prebuilt AAR local repo (see orangeplayer-mpv/mavenrepo/)
+        maven { url "$rootDir/orangeplayer-mpv/mavenrepo" }
     }
 }
 
@@ -61,4 +63,6 @@ include ':orange-player-session' // Shared foreground MediaSession adapter
 include ':palyerlibrary'
 include ':orange-downloader'  // Download module
 include ':orange-ffmpeg'  // FFmpeg minimal kit module
+include ':orangeplayer-mpv'  // mpv engine (optional, independent artifact; see experiments/orange-player-mpv/README.md)
 
+include ':orangeplayer-mpv:libmpv-aar'

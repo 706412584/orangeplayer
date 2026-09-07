@@ -531,6 +531,20 @@
                                     android:background="@drawable/setup_option_bg"
                                     android:clickable="true"
                                     android:focusable="true" />
+
+                                <TextView
+                                    android:id="@+id/mpvhx"
+                                    android:layout_width="0dp"
+                                    android:layout_height="36dp"
+                                    android:layout_weight="1"
+                                    android:layout_marginStart="4dp"
+                                    android:text="MPV"
+                                    android:textSize="12sp"
+                                    android:textColor="@color/op_text_primary"
+                                    android:gravity="center"
+                                    android:background="@drawable/setup_option_bg"
+                                    android:clickable="true"
+                                    android:focusable="true" />
                             </LinearLayout>
                         </LinearLayout>
 
