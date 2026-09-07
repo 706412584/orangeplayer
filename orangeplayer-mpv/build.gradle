@@ -45,3 +45,77 @@ dependencies {
     // GSY 播放器体系（compileOnly：宿主必须已依赖 gsyVideoPlayer-java）
     compileOnly project(':gsyVideoPlayer-java')
 }
+
+// ===== Maven Central 发布（随主仓 pomVersion；依赖 libmpv 中央坐标先行发布） =====
+// 手动 bundle 流程入口见 maven-central/publish.bat 选项 3。
+// libmpv 坐标解析：中央发布前经根 settings.gradle 的本地 mavenrepo 兜底。
+
+def mavenPublishScript = file("${rootProject.projectDir}/maven-publish.gradle")
+if (mavenPublishScript.exists()) {
+    apply from: mavenPublishScript
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            maven(MavenPublication) {
+                groupId = pomGroupId
+                artifactId = 'orangeplayer-mpv'
+                version = pomVersion
+
+                artifact bundleReleaseAar
+                artifact androidSourcesJar
+                artifact androidJavadocJar
+
+                pom {
+                    packaging = 'aar'
+                    configurePom(pom)
+                    withXml {
+                        def dependenciesNode = asNode().appendNode('dependencies')
+                        configurations.api.allDependencies.each {
+                            if (it instanceof ProjectDependency) {
+                                def dependencyNode = dependenciesNode.appendNode('dependency')
+                                dependencyNode.appendNode('groupId', pomGroupId)
+                                dependencyNode.appendNode('artifactId', it.name)
+                                dependencyNode.appendNode('version', pomVersion)
+                                dependencyNode.appendNode('scope', 'compile')
+                            } else if (it.group != null && it.name != null && it.version != null) {
+                                def dependencyNode = dependenciesNode.appendNode('dependency')
+                                dependencyNode.appendNode('groupId', it.group)
+                                dependencyNode.appendNode('artifactId', it.name)
+                                dependencyNode.appendNode('version', it.version)
+                                dependencyNode.appendNode('scope', 'compile')
+                            }
+                        }
+                        configurations.implementation.allDependencies.each {
+                            if (it instanceof ProjectDependency) {
+                                def dependencyNode = dependenciesNode.appendNode('dependency')
+                                dependencyNode.appendNode('groupId', pomGroupId)
+                                dependencyNode.appendNode('artifactId', it.name)
+                                dependencyNode.appendNode('version', pomVersion)
+                                dependencyNode.appendNode('scope', 'runtime')
+                            } else if (it.group != null && it.name != null && it.version != null) {
+                                def dependencyNode = dependenciesNode.appendNode('dependency')
+                                dependencyNode.appendNode('groupId', it.group)
+                                dependencyNode.appendNode('artifactId', it.name)
+                                dependencyNode.appendNode('version', it.version)
+                                dependencyNode.appendNode('scope', 'runtime')
+                            }
+                        }
+                        // compileOnly（gsyVideoPlayer-java）不进 POM：宿主自带 GSY 体系
+                    }
+                }
+            }
+        }
+    }
+}
+
+task androidSourcesJar(type: Jar) {
+    archiveClassifier.set('sources')
+    from android.sourceSets.main.java.srcDirs
+}
+
+task androidJavadocJar(type: Jar) {
+    archiveClassifier.set('javadoc')
+    from android.sourceSets.main.java.srcDirs
+}

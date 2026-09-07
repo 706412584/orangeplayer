@@ -14,10 +14,19 @@
 2. **gsyVideoPlayer-base** - GSYVideoPlayer 基础模块
 3. **gsyVideoPlayer-proxy_cache** - 缓存代理模块
 4. **gsyVideoPlayer-java** - Java 实现模块
-5. **gsyVideoPlayer-armv7a** - ARM 32位 native 库
-6. **gsyVideoPlayer-armv64** - ARM 64位 native 库
-7. **gsyVideoPlayer-x86** - x86 32位 native 库
-8. **gsyVideoPlayer-x86_64** - x86 64位 native 库
+5. **gsyVideoPlayer-exo_player2** - ExoPlayer 内核
+6. **gsyVideoPlayer-aliplay** - 阿里云播放器内核
+7. **gsyVideoPlayer-armv7a** - ARM 32位 native 库
+8. **gsyVideoPlayer-armv64** - ARM 64位 native 库
+9. **gsyVideoPlayer-x86** - x86 32位 native 库
+10. **gsyVideoPlayer-x86_64** - x86 64位 native 库
+11. **gsyVideoPlayer-ex_so** - IJK 加密 so（全架构）
+12. **orange-downloader** - 下载管理
+13. **orange-ffmpeg** - FFmpeg 合并
+14. **libmpv** - 上游 libmpv-android AAR 再分发（**固定 1.0.0**，不随 pomVersion；需 `libmpv-central/libs/libmpv-1.0.0.aar` 就位）
+15. **orangeplayer-mpv** - MPV 引擎内核（依赖 libmpv + 宿主自带 GSY）
+
+> 注：libmpv 版本固定为上游 1.0.0，与主仓 1.4.0 不同属预期；全模块发布脚本对其单独校验。
 
 ## 使用方法
 
