@@ -17,7 +17,9 @@
 ## 功能特性
 
 - 🎬 **多播放内核**：系统/ExoPlayer/IJK/阿里云/MPV，运行时切换
-- ✨ **画质增强**：GL 滤镜（Exo/IJK/系统）+ Anime4K 超分与色彩档（MPV 内核）
+- ✨ **画质增强**：GL 滤镜（Exo/IJK/系统）+ Anime4K 超分与色彩档（MPV 内核，6 档实时切换）
+- 🖼️ **画面比例**：MPV 内核原生裁剪/拉伸（keepaspect/video-zoom），其余内核矩阵适配
+- 🔄 **内核稳定性**：MPV 内核 Android 16 全屏/切内核 surface 时序自愈（vo fatal 三层恢复、vid=no 主动退场、死 SurfaceTexture 防线）
 - 📝 **字幕系统**：SRT/ASS/VTT 格式支持
 - 🔍 **视频嗅探**：自动检测网页中的视频资源
 - 🔤 **OCR 识别**：硬字幕识别 + ML Kit 翻译
@@ -38,6 +40,7 @@
 
 - **Android 4.0+ (API 14+)** - 从 v1.1.0+ 开始支持 Android 4.0 及以上版本
 - **Android 5.0+ (API 21+)** - 推荐使用，支持所有功能（包括 ExoPlayer 和 AI 功能）
+- **Android 8.0+ (API 26+)** - MPV 内核（orangeplayer-mpv + libmpv）要求
 
 
 
@@ -72,6 +75,11 @@ dependencies {
     implementation 'com.alphacephei:vosk-android:0.3.47'  // 语音识别
     implementation 'androidx.media3:media3-decoder-ffmpeg:1.5.0'  // FFmpeg 解码器(可选)
 
+    // MPV 内核（可选第五内核，Anime4K 超分/画质增强/画面比例；Android 8.0+）
+    implementation 'io.github.706412584:orangeplayer-mpv:+'
+    // libmpv 运行库（orangeplayer-mpv 的必带依赖，Android 8.0+）
+    implementation 'io.github.706412584:libmpv:1.0.0'
+
     // 下载与合并（按需启用）
     implementation 'io.github.706412584:orange-downloader:+'//视频下载库
     implementation 'io.github.706412584:orange-ffmpeg:+'//m3u8合并mp4（可选）
@@ -82,7 +90,7 @@ dependencies {
 > - `gsyVideoPlayer-java` - IJK 播放器（推荐，支持更多格式）
 > - `gsyVideoPlayer-exo_player2` - ExoPlayer（性能好，RTSP 支持完整）
 > - `gsyVideoPlayer-aliplay` - 阿里云播放器（商业级，RTMP 延迟低）
-> - `orangeplayer-mpv` - MPV 内核（可选，Anime4K 超分与色彩档画质增强，Android 8.0+）
+> - `orangeplayer-mpv` - MPV 内核（可选，Anime4K 超分与色彩档画质增强，Android 8.0+，需搭配 `io.github.706412584:libmpv:1.0.0` 运行库）
 > - `gsyVideoPlayer-base` - 播放器基础库
 > - `gsyVideoPlayer-proxy_cache` - 代理缓存支持
 > - `gsyVideoPlayer-armv7a` - ARMv7a 架构 so 库
@@ -473,7 +481,7 @@ M3U8AdManager.getInstance(context).setEnabled(false);
 查看完整文档了解更多功能：
 
 - [更新日志](docs/CHANGELOG.md) - 版本更新历史
-- [播放内核切换](docs/PLAYER_ENGINES.md) - 系统/ExoPlayer/IJK/阿里云
+- [播放内核切换](docs/PLAYER_ENGINES.md) - 系统/ExoPlayer/IJK/阿里云/MPV
 - [OCR 字幕翻译](docs/OCR_GUIDE.md) - 硬字幕识别与翻译
 - [语音识别字幕](docs/SPEECH_RECOGNITION.md) - 实时语音转字幕
 - [投屏功能](docs/CAST_GUIDE.md) - DLNA 投屏配置

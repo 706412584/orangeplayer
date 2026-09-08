@@ -1,4 +1,16 @@
 # OrangePlayer 更新日志
+## [1.4.2] - 2026-09-08
+
+### 🛡️ MPV 内核稳定性（Android 16 全屏/切内核专项）
+
+- **vo fatal 三层自愈体系**：`MPV_EVENT_SHUTDOWN` 标记核心终止 → `initVideoPlayer` 销毁重建；视频轨丢失（fatal 后 mpv deselect track 但不进 idle）经 playback-restart 校验后分层恢复——`vid=auto` 快速恢复（demuxer 缓存仍在，无网络重载）→ 连续 fatal 才 `loadfile replace` 全量重载兜底
+- **全屏切换时序纪律（mpvRx PR#329 模式）**：surface 销毁回调主动 `vid=no` 摘视频轨再 detach（mpv 全程无视频输出诉求，杜绝 wid 空窗 fatal）；新 surface available 立即重绑 + `vid=auto` 恢复（lavf 自动 refresh seek 定位关键帧，解码器不销毁、音频不断）。实测 PJA110/Android 16 全屏切换黑屏从 1s+ 降至 ~500ms，vo fatal 归零
+- **切内核 EGL fatal 无限循环修复**：切内核期间渲染 View 重建导致旧 SurfaceTexture 被 release，但包装 Surface 的 `isValid()` 仍为 true——`showDisplay` 增加 `TextureView.isAvailable()` 死源防线，死 texture 不再进入 mpv；连续 fatal（vid=auto 已试）标记核心不可恢复（EGL 状态损坏）走销毁重建，终止循环
+- **SurfaceTexture 漂移检测修正**：`Surface.toString()` 含 `mNativeObject` 指针而 `SurfaceTexture.toString()` 不含，整串比对永远不等——改用 `@` 后 hex 身份段比对，消除同源误判引发的重复重绑与 vid no/auto 翻转（二次黑屏）
+- **配套修复**：`loadfile` 的 `start=` 选项在本构建仅接受整数秒，进度回跳改至 `FILE_LOADED` 后 `seek absolute`；`loadfile replace` 的旧文件 `END_FILE` 经 `recovering` 标志静默消化（此前误报 completed 触发 GSY 完成界面）；`checkMpvSurfaceDrift` 挂载全部四条全屏路径（横/竖屏进出）并同步 GSYTextureView 保留纹理
+
+---
+
 ## [1.4.0] - 2026-09-07
 
 ### 🎬 新增 MPV 第五播放内核（可选工件 orangeplayer-mpv）
