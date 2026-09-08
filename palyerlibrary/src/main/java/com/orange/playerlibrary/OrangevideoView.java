@@ -1858,6 +1858,29 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     /**
+     * 重写 onSurfaceAvailable - mpv 时序纪律恢复点。
+     *
+     * Android 16 上退出全屏/进全屏时系统给 TextureView 换新 SurfaceTexture，
+     * 换新后本回调立即触发（view 未销毁时也可能因 GSYTextureView 复用路径
+     * 触发）。mpv 主动退场（teardownForSurfaceChange）后必须在此第一时间
+     * 重绑新 surface（MpvMediaPlayer.setSurface 检测 teardown 标志自动
+     * vid=auto 恢复），不等全屏切换完成的 500-800ms 延迟检测。
+     * 基类行为（pauseLogic→setDisplay）即完成 mpv 的 setSurface 推送，
+     * 但 MediaCodecTexture 复用路径 pauseLogic 有 showPauseCover 副作用，
+     * mpv 场景直接走 setDisplay 最短路径。
+     */
+    @Override
+    public void onSurfaceAvailable(Surface surface) {
+        String currentEngine = PlayerSettingsManager.getInstance(getContext()).getPlayerEngine();
+        if (PlayerConstants.ENGINE_MPV.equals(currentEngine)) {
+            android.util.Log.d(TAG, "onSurfaceAvailable: mpv 立即重绑（时序纪律恢复点）");
+            setDisplay(surface);
+            return;
+        }
+        super.onSurfaceAvailable(surface);
+    }
+
+    /**
      * 重写 onSurfaceDestroyed - 关键方法
      * 
      * 问题分析：
@@ -1894,17 +1917,36 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 && com.orange.playerlibrary.exo.OrangeExoPlayerManager.isForceTextureViewMode();
         boolean isSystemTextureMode = PlayerConstants.ENGINE_DEFAULT.equals(currentEngine)
                 && com.orange.playerlibrary.player.OrangeSystemPlayerManager.isForceTextureViewMode();
-        // mpv 内核：GSYVideoType 全局启用了 MediaCodecTexture（保留 SurfaceTexture，
-        // onSurfaceTextureDestroyed 返回 false 不销毁 view），mpv 绑定的是该保留的
-        // SurfaceTexture——surfaceDestroyed 通知若透传下去会触发 mpv detach，
-        // 而保留的 view 之后不再触发 onSurfaceAvailable 补推，mpv 永久无 surface
-        // → 全屏后黑屏但有声（Android 16 实测；Android 10 时序宽松未暴露）。
-        // 故 mpv 与 Exo/System 同策略：直接跳过销毁处理，靠保留的 SurfaceTexture
-        // 继续渲染，尺寸变化走 onSurfaceSizeChanged 更新。
+        // mpv 内核：mpvRx PR#329 时序纪律——surface 销毁回调里主动退场：
+        // 先 vid=no（摘视频轨，mpv 全程无视频输出诉求）再 detachSurface。
+        // 若什么都不做（旧策略），Android 16 上系统给 TextureView 换新
+        // SurfaceTexture 的空窗期会让 mpv 内部 vo 重配撞 wid=0 → fatal
+        // "Missing surface pointer" → deselect track → 黑屏有声。
+        // 新 surface available（GSYTextureView onSurfaceTextureAvailable →
+        // onSurfaceAvailable → setDisplay）时 MpvMediaPlayer.setSurface 检测
+        // teardown 标志自动 vid=auto 恢复 + seek 刷新，解码器不销毁、音频不断。
         boolean isMpvTextureMode = PlayerConstants.ENGINE_MPV.equals(currentEngine);
 
         if (isExoTextureMode || isSystemTextureMode || isMpvTextureMode) {
-            if (!isMpvTextureMode) {
+            if (isMpvTextureMode) {
+                try {
+                    // GSY 播放器单例持有当前 manager，经它拿 mpv 实例
+                    // （getMediaPlayer 为实例方法，MpvPlayerManager 无静态入口）
+                    Object manager = getGSYVideoManager().getPlayer();
+                    if (manager != null && "MpvPlayerManager".equals(
+                            manager.getClass().getSimpleName())) {
+                        Object player = manager.getClass().getMethod("getMediaPlayer")
+                                .invoke(manager);
+                        if (player != null) {
+                            player.getClass()
+                                    .getMethod("teardownForSurfaceChange")
+                                    .invoke(player);
+                        }
+                    }
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG, "mpv teardownForSurfaceChange failed", t);
+                }
+            } else {
                 // 通过 setDisplay(null) 触发切换到 PlaceholderSurface
                 setDisplay(null);
             }
@@ -5069,6 +5111,16 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             if (!tv.isAvailable() || tv.getSurfaceTexture() == null) {
                 return;
             }
+            // 同步 GSYTextureView 的 mSaveTexture：Android 16 换新 texture 后
+            // MediaCodecTexture 仍持有旧引用，不刷新会让后续 available 复用
+            // 路径继续产出旧 surface
+            try {
+                showView.getClass().getMethod("refreshSavedTexture",
+                        android.graphics.SurfaceTexture.class)
+                        .invoke(showView, tv.getSurfaceTexture());
+            } catch (NoSuchMethodException ignored) {
+                // 非 GSYTextureView（自定义渲染）忽略
+            }
             String attached = (String) binder.getMethod("getAttachedSurfaceName")
                     .invoke(null);
             String currentName = String.valueOf(tv.getSurfaceTexture());
@@ -5078,7 +5130,12 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 // 未加载时推 surface 也无害（attach 后 maybeLoadFile 才真正加载）
                 shouldBind = true;
             } else {
-                shouldBind = !attached.equals(currentName);
+                // 只比对 SurfaceTexture@hex 身份段：attached 存的是 Surface.toString()
+                // name（含 mNativeObject 指针），currentName 是 SurfaceTexture.toString()
+                // （不含），整串比对永远不等（实测同源被判不一致 → 多余重绑 →
+                // vid no/auto 翻转 → 二次黑屏）
+                shouldBind = !extractTextureId(attached)
+                        .equals(extractTextureId(currentName));
             }
             if (shouldBind) {
                 android.util.Log.w(TAG, "checkMpvSurfaceDrift: SurfaceTexture 不一致（mpv 绑 "
@@ -5089,6 +5146,18 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         } catch (Exception e) {
             android.util.Log.w(TAG, "checkMpvSurfaceDrift failed", e);
         }
+    }
+
+    /** 提取 SurfaceTexture.toString / Surface.toString name 中的身份段
+     *  "android.graphics.SurfaceTexture@hex"（截断到 '@' 后 hex，剔除
+     *  Surface 特有的 mNativeObject 指针）。 */
+    private static String extractTextureId(String name) {
+        if (name == null) return "";
+        int at = name.indexOf('@');
+        if (at < 0) return name;
+        String rest = name.substring(at + 1);
+        int space = rest.indexOf(' ');
+        return rest.substring(0, space >= 0 ? space : rest.length());
     }
 
     private void prepareRememberedExternalSubtitle() {

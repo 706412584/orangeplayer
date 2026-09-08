@@ -60,6 +60,10 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
     private long pendingSeekMs;
     // vo fatal 快速恢复已尝试（vid=auto 失败后才走 loadfile 全量重载）
     private boolean voBroken;
+    // surface 主动退场标记（detachSurfaceInternal 置位，attach 清除）。
+    // 退场期间 mpv 不该有视频帧输出诉求，playback-restart 的轨校验跳过，
+    // 避免退场瞬间把合法的"视频暂无输出"误判为 fatal
+    private boolean surfaceTearingDown;
     private volatile int bufferedPercent;
     private float speed = 1.0f;
     private boolean looping;
@@ -200,6 +204,24 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
         surfaceAttached = true;
         attachedSurface = surface;
         attachedSurfaceName = surfaceName(surface);
+        // 主动退场结束（detach 时曾 vid=no）：恢复视频轨。vid=auto 重选轨 +
+        // seek relative 0 强制 demuxer 立即送关键帧（否则要等下一个 video
+        // packet，实测 1s+ 空窗），触发 vo reinit + playback-restart 出画。
+        // 解码器全程未销毁，音频不断——这是"接近无缝"的关键路径。
+        if (surfaceTearingDown) {
+            surfaceTearingDown = false;
+            Log.d(TAG, "surface re-attached after teardown, restore vid=auto");
+            try {
+                mpv.setPropertyString("vid", "auto");
+                if (loadIssued) {
+                    // vid=auto 的轨重选本身已触发 lavf refresh seek（内部立即
+                    // 定位+解码关键帧），无需再叠加 seek relative 0 —— 双重
+                    // seek 会串行执行两遍定位（实测 0.7s+ 的出画延迟来源）。
+                }
+            } catch (Exception ignored) {
+            }
+            return;
+        }
         maybeLoadFile();
         // 重绑/换 surface 后强制出帧：暂停状态下 mpv 不主动重绘，vo 已在新
         // surface 上重建但最后一帧未呈现（Android 16 全屏切换实测：重绑后
@@ -331,14 +353,33 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
     private void detachSurfaceInternal() {
         if (mpv != null && surfaceAttached) {
             try {
+                // mpvRx PR#329 时序纪律：detach 前先摘视频轨（vid=no）。
+                // 视频轨激活状态下 wid 空窗内的任何 vo 重配都会 fatal
+                // （Missing surface pointer → deselect track）。主动退场让
+                // mpv 全程无视频输出诉求，新 surface attach 后恢复。
+                mpv.setPropertyString("vid", "no");
                 mpv.setOptionString("force-window", "no");
-                mpv.setPropertyString("vo", "gpu");
                 mpv.detachSurface();
             } catch (Exception ignored) {
             }
             surfaceAttached = false;
             attachedSurface = null;
+            surfaceTearingDown = true;
         }
+    }
+
+    /**
+     * 主动退场入口（宿主 surfaceDestroyed 时序纪律调用）：视频轨先摘除再
+     * detach，与 detachSurfaceInternal 的区别是 vid=no 为本方法的固定步骤
+     * 且不受 surfaceAttached 状态限制（未 attach 时也置 vid=no 兜底）。
+     */
+    public void teardownForSurfaceChange() {
+        if (mpv == null) return;
+        try {
+            mpv.setPropertyString("vid", "no");
+        } catch (Exception ignored) {
+        }
+        detachSurfaceInternal();
     }
 
     // ===== Anime4K 超分（spike S2 实测：change-list 逐个 add） =====
@@ -431,7 +472,13 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
             // vo fatal（Missing surface pointer）自愈检测：fatal 后 mpv 不会进入
             // idle（idle 事件仅在初始发过一次），而是 deselect 视频轨继续放音频
             // （"playback restart complete ... video=eof"）。每次 playback-restart
-            // 后校验视频轨有效性，轨丢失则 loadfile replace + seek 恢复。
+            // 后校验视频轨有效性，轨丢失则恢复。时序纪律生效后（teardown 主动
+            // 退场）正常不应再 fatal，本检测降级为兜底。
+            if (surfaceTearingDown) {
+                // 退场中（vid=no）：轨无视频输出是预期状态，跳过校验，
+                // 否则 vid=no 会被误判为轨丢失触发恢复循环
+                return;
+            }
             if (loadIssued && dataSource != null && mpv != null) {
                 Integer w = mpv.getPropertyInt("width");
                 Integer h = mpv.getPropertyInt("height");
