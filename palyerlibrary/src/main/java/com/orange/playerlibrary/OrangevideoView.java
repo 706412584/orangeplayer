@@ -238,7 +238,8 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         });
 
         // 初始化视频嗅探代理
-        mSniffingDelegate = new com.orange.playerlibrary.sniffing.SniffingDelegate(getContext());
+        mSniffingDelegate = new com.orange.playerlibrary.sniffing.SniffingDelegate(getContext(),
+                () -> getActivity());
         mSniffingDelegate.setViewCallback(new com.orange.playerlibrary.sniffing.SniffingDelegate.ViewCallback() {
             @Override
             public void onSniffingStarted(boolean autoPlay) {
