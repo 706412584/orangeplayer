@@ -45,24 +45,21 @@ public class MpvPlayerManager extends BasePlayerManager {
     public void initVideoPlayer(Context context, Message msg, List<VideoOptionModel> optionModelList, ICacheManager cacheManager) {
         this.context = context.getApplicationContext();
 
-        if (sSharedPlayer == null) {
+        // MPV_EVENT_SHUTDOWN 后核心无法复用（loadfile 被静默丢弃），必须重建；
+        // 首次创建同理。其余情况复用共享实例（release 只 stop+detach，实例保留；
+        // 紧接的重播直接重新 attach + loadfile，避免销毁重建的 vo 竞态）。
+        if (sSharedPlayer == null || MpvMediaPlayer.isCoreShutdown()) {
+            if (sSharedPlayer != null) {
+                android.util.Log.d(TAG, "initVideoPlayer: mpv 核心已 shutdown，重建共享实例");
+                sSharedPlayer.destroy();
+                sSharedPlayer = null;
+                MpvMediaPlayer.clearCoreShutdown();
+            }
             sSharedPlayer = new MpvMediaPlayer();
             if (!sSharedPlayer.create(this.context)) {
                 sSharedPlayer = null;
                 throw new IllegalStateException("libmpv create failed");
             }
-        } else if (MpvMediaPlayer.needsRebuild()) {
-            // 上次会话非空闲退出（播放中切走）：mpv 残留文件状态，异步 vo
-            // teardown 会在新会话 detach 窗口触发 Missing surface fatal。
-            // 销毁重建，每次会话从干净 idle 起步（真机实测修复二次切换报错）。
-            android.util.Log.d(TAG, "initVideoPlayer: 上次会话非空闲退出，重建共享实例");
-            sSharedPlayer.destroy();
-            sSharedPlayer = new MpvMediaPlayer();
-            if (!sSharedPlayer.create(this.context)) {
-                sSharedPlayer = null;
-                throw new IllegalStateException("libmpv create failed");
-            }
-            MpvMediaPlayer.clearRebuild();
         }
         // 上一次会话可能残留监听器状态
         sSharedPlayer.resetListeners();
@@ -291,6 +288,20 @@ public class MpvPlayerManager extends BasePlayerManager {
     }
 
     /**
+     * 当前 mpv 绑定的底层 SurfaceTexture 对象名（SurfaceTexture@hex）。
+     * 宿主用它和渲染 View 的 SurfaceTexture 比对，检测 Android 16 旋转时
+     * 框架静默换新 SurfaceTexture（view 不销毁、无回调）导致的绑定漂移。
+     *
+     * @return 已 attach 时返回 name 字符串；未 attach/无 player 返回 null
+     */
+    public static String getAttachedSurfaceName() {
+        if (sSharedPlayer == null || !sSharedPlayer.surfaceAttached) {
+            return null;
+        }
+        return sSharedPlayer.attachedSurfaceName;
+    }
+
+    /**
      * 冷启动 surface 补取：渲染 View 的 surface 回调早于 player 创建时，
      * 由宿主（OrangevideoView）在 onPlayerInitSuccess 后调用本方法，
      * 从其渲染代理的 showView 反取 SurfaceTexture/Surface 推给 mpv。
@@ -307,6 +318,13 @@ public class MpvPlayerManager extends BasePlayerManager {
                 if (tv.isAvailable() && tv.getSurfaceTexture() != null) {
                     android.util.Log.d("MpvPlayerManager", "bind surface from TextureView");
                     sSharedPlayer.setSurface(new Surface(tv.getSurfaceTexture()));
+                    // 绑定后同步渲染尺寸：Android 16 旋转时框架会静默换新
+                    // SurfaceTexture（getHardwareLayer createNewSurface:true），
+                    // 不触发 onSurfaceSizeChanged，android-surface-size 必须随
+                    // 重绑显式下发，否则 vo 重启后渲染尺寸错乱
+                    if (tv.getWidth() > 0 && tv.getHeight() > 0) {
+                        sSharedPlayer.updateSurfaceSize(tv.getWidth(), tv.getHeight());
+                    }
                     return Boolean.TRUE;
                 }
                 android.util.Log.d("MpvPlayerManager",

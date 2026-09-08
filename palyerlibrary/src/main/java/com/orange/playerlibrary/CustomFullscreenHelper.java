@@ -318,16 +318,21 @@ public class CustomFullscreenHelper {
                     @Override
                     public void run() {
                         mFullscreenTransitioning = false;
-                        
+
+                        // mpv 绑定漂移检测：Android 16 旋转时框架静默换新
+                        // SurfaceTexture（view 不销毁、无回调），mpv 仍绑旧
+                        // SurfaceTexture → 全屏黑屏。切换完成后比对重绑。
+                        mVideoView.checkMpvSurfaceDrift();
+
                         // 最终确保渲染视图尺寸正确
                         mVideoView.requestLayout();
                         if (mVideoView.getRenderProxy() != null) {
                             mVideoView.getRenderProxy().requestLayout();
                         }
-                        
+
                         // ExoPlayer 特殊处理：再次更新 SurfaceControl 尺寸
                         updateExoSurfaceControlSize();
-                        
+
                         // 启动重力感应旋转监听（如果启用）
                         if (mAutoRotateEnabled) {
                             startOrientationListener();
@@ -493,7 +498,10 @@ public class CustomFullscreenHelper {
                     @Override
                     public void run() {
                         mFullscreenTransitioning = false;
-                        
+
+                        // mpv 绑定漂移检测（同 startFullScreen，覆盖退出全屏方向）
+                        mVideoView.checkMpvSurfaceDrift();
+
                         // 最终确保渲染视图尺寸正确
                         mVideoView.requestLayout();
                         if (mVideoView.getRenderProxy() != null) {
@@ -505,7 +513,7 @@ public class CustomFullscreenHelper {
             }
         });
     }
-    
+
     public void enterFullscreen(Activity activity) {
         startFullScreen();
     }
@@ -632,6 +640,10 @@ public class CustomFullscreenHelper {
                     @Override
                     public void run() {
                         mFullscreenTransitioning = false;
+
+                        // mpv 绑定漂移检测（View 搬家路径也可能触发
+                        // TextureView SurfaceTexture 换新，同 startFullScreen）
+                        mVideoView.checkMpvSurfaceDrift();
                     }
                 }, 500);
             }
@@ -697,12 +709,15 @@ public class CustomFullscreenHelper {
                     @Override
                     public void run() {
                         mFullscreenTransitioning = false;
+
+                        // mpv 绑定漂移检测（退出竖屏全屏路径）
+                        mVideoView.checkMpvSurfaceDrift();
                     }
                 }, 500);
             }
         });
     }
-    
+
     /**
      * 检查是否使用 SystemPlayerManager 或 OrangeSystemPlayerManager
      */

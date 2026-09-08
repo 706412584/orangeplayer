@@ -1894,10 +1894,20 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 && com.orange.playerlibrary.exo.OrangeExoPlayerManager.isForceTextureViewMode();
         boolean isSystemTextureMode = PlayerConstants.ENGINE_DEFAULT.equals(currentEngine)
                 && com.orange.playerlibrary.player.OrangeSystemPlayerManager.isForceTextureViewMode();
+        // mpv 内核：GSYVideoType 全局启用了 MediaCodecTexture（保留 SurfaceTexture，
+        // onSurfaceTextureDestroyed 返回 false 不销毁 view），mpv 绑定的是该保留的
+        // SurfaceTexture——surfaceDestroyed 通知若透传下去会触发 mpv detach，
+        // 而保留的 view 之后不再触发 onSurfaceAvailable 补推，mpv 永久无 surface
+        // → 全屏后黑屏但有声（Android 16 实测；Android 10 时序宽松未暴露）。
+        // 故 mpv 与 Exo/System 同策略：直接跳过销毁处理，靠保留的 SurfaceTexture
+        // 继续渲染，尺寸变化走 onSurfaceSizeChanged 更新。
+        boolean isMpvTextureMode = PlayerConstants.ENGINE_MPV.equals(currentEngine);
 
-        if (isExoTextureMode || isSystemTextureMode) {
-            // 通过 setDisplay(null) 触发切换到 PlaceholderSurface
-            setDisplay(null);
+        if (isExoTextureMode || isSystemTextureMode || isMpvTextureMode) {
+            if (!isMpvTextureMode) {
+                // 通过 setDisplay(null) 触发切换到 PlaceholderSurface
+                setDisplay(null);
+            }
             // 返回 true 表示我们已经处理了 Surface 销毁
             return true;
         }
@@ -5032,6 +5042,52 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         } catch (Exception e) {
             android.util.Log.w(TAG, "mpv bindRenderProxySurface failed", e);
             return true;
+        }
+    }
+
+    /**
+     * mpv 绑定漂移检测：Android 16 横竖屏旋转时框架会静默给 TextureView 换新
+     * SurfaceTexture（logcat: getHardwareLayer createNewSurface:true），但 view 不销毁、
+     * MediaCodecTexture 复用路径不触发 onSurfaceAvailable，mpv 仍绑旧 SurfaceTexture
+     * → 全屏后画面黑但有声（Android 10 时序宽松未暴露）。
+     * 全屏切换完成后对比 mpv 已绑 SurfaceTexture name 与渲染 View 当前 name，
+     * 不一致则强制重绑（重绑附带 android-surface-size 下发）。
+     * 其他系统无此行为，比对一致时空跑，无副作用。
+     */
+    void checkMpvSurfaceDrift() {
+        if (!PlayerConstants.ENGINE_MPV.equals(getCurrentPlayerEngine())) {
+            return;
+        }
+        try {
+            Class<?> binder = findClass("com.orange.player.mpv.MpvPlayerManager");
+            if (binder == null) return;
+            Object showView = getRenderProxy() != null ? getRenderProxy().getShowView() : null;
+            if (!(showView instanceof android.view.TextureView)) {
+                return;
+            }
+            android.view.TextureView tv = (android.view.TextureView) showView;
+            if (!tv.isAvailable() || tv.getSurfaceTexture() == null) {
+                return;
+            }
+            String attached = (String) binder.getMethod("getAttachedSurfaceName")
+                    .invoke(null);
+            String currentName = String.valueOf(tv.getSurfaceTexture());
+            boolean shouldBind;
+            if (attached == null) {
+                // 未绑定（新会话/重置后）：若已加载则推 surface 触发 loadfile，
+                // 未加载时推 surface 也无害（attach 后 maybeLoadFile 才真正加载）
+                shouldBind = true;
+            } else {
+                shouldBind = !attached.equals(currentName);
+            }
+            if (shouldBind) {
+                android.util.Log.w(TAG, "checkMpvSurfaceDrift: SurfaceTexture 不一致（mpv 绑 "
+                        + attached + "，view 当前 " + currentName + "），强制重绑");
+                binder.getMethod("bindRenderProxySurface", Object.class)
+                        .invoke(null, getRenderProxy());
+            }
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "checkMpvSurfaceDrift failed", e);
         }
     }
 

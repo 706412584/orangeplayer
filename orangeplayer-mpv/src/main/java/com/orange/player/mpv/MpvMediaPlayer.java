@@ -50,10 +50,16 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
     private volatile boolean prepared;
     private volatile boolean completed;
     private String dataSource;
-    private boolean surfaceAttached;
+    boolean surfaceAttached;
     private Surface attachedSurface;
-    private String attachedSurfaceName;
+    String attachedSurfaceName;
     private boolean loadIssued;
+    // vo fatal 自愈重载进行中（loadfile replace 的旧文件 end-file 不上报）
+    private boolean recovering;
+    // 自愈重载完成后的回跳进度
+    private long pendingSeekMs;
+    // vo fatal 快速恢复已尝试（vid=auto 失败后才走 loadfile 全量重载）
+    private boolean voBroken;
     private volatile int bufferedPercent;
     private float speed = 1.0f;
     private boolean looping;
@@ -195,6 +201,16 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
         attachedSurface = surface;
         attachedSurfaceName = surfaceName(surface);
         maybeLoadFile();
+        // 重绑/换 surface 后强制出帧：暂停状态下 mpv 不主动重绘，vo 已在新
+        // surface 上重建但最后一帧未呈现（Android 16 全屏切换实测：重绑后
+        // 画面仍黑，因为暂停中 vo 重启不触发 playmsg/refresh）。video-sync=
+        // display-resample 场景下 seek 到当前位置等价于"刷新当前帧"。
+        if (!loadIssued || prepared) {
+            try {
+                mpv.command(new String[]{"seek", "0", "relative"});
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /** 两个 Surface 是否指向同一底层 SurfaceTexture */
@@ -365,7 +381,23 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
         if (eventId == MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED) {
             prepared = true;
             notifyOnPrepared();
+            // 自愈重载完成：恢复到重载前保存的进度（loadfile 后 seek 才作用于
+            // 新文件；command 异步排队，紧跟 loadfile 的 seek 会打到旧文件流）
+            if (recovering && pendingSeekMs > 0 && mpv != null) {
+                Log.d(TAG, "recovery file loaded, seek back to " + pendingSeekMs + "ms");
+                mpv.command(new String[]{"seek", String.valueOf(pendingSeekMs / 1000.0),
+                        "absolute"});
+                pendingSeekMs = 0;
+            }
+            recovering = false;
+            voBroken = false;
         } else if (eventId == MPVLib.MpvEvent.MPV_EVENT_END_FILE) {
+            // 自愈重载进行中：loadfile replace 对旧文件发的 end-file 是流程
+            // 内部事件，不映射 completed/error（实测会被 GSY 当完成弹完成界面）
+            if (recovering) {
+                Log.d(TAG, "END_FILE during recovery, ignored");
+                return;
+            }
             if (!prepared) {
                 // 本会话从未 loadfile（stop/release 残留或旧会话迟到的 END_FILE，
                 // 共享实例切内核时 stop 的异步事件会打到新会话监听器上）→ 忽略，
@@ -385,6 +417,68 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
         } else if (eventId == MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART) {
             // 渲染（重新）出画信号：loadfile 后 vo 出首帧、seek 完成、surface 重建后恢复
             Log.d(TAG, "first video frame after restart shown");
+            // vid=auto 快速恢复成功的时机兜底：恢复后 video-reconfig 可能早于
+            // width 属性就绪（实测 voBroken 清除日志未出现），restart 时轨已
+            // 有效则同样清除 voBroken，让下次 fatal 重新从快速恢复起步
+            if (voBroken && mpv != null) {
+                Integer rw = mpv.getPropertyInt("width");
+                Integer rh = mpv.getPropertyInt("height");
+                if (rw != null && rw > 0 && rh != null && rh > 0) {
+                    Log.d(TAG, "vid=auto recovered (restart check), clear voBroken");
+                    voBroken = false;
+                }
+            }
+            // vo fatal（Missing surface pointer）自愈检测：fatal 后 mpv 不会进入
+            // idle（idle 事件仅在初始发过一次），而是 deselect 视频轨继续放音频
+            // （"playback restart complete ... video=eof"）。每次 playback-restart
+            // 后校验视频轨有效性，轨丢失则 loadfile replace + seek 恢复。
+            if (loadIssued && dataSource != null && mpv != null) {
+                Integer w = mpv.getPropertyInt("width");
+                Integer h = mpv.getPropertyInt("height");
+                if ((w == null || w <= 0) || (h == null || h <= 0)) {
+                    Log.w(TAG, "vo fatal dropped video track (width=" + w + ", height="
+                            + h + "), vid=auto fast recover at " + currentPositionMs + "ms");
+                    // 快速恢复：deselect 的视频轨用 vid=auto 重新选择，
+                    // demuxer 缓存未失效，无网络重载（loadfile replace 需
+                    // 重新开流约 0.5s+，实测黑屏延迟不可接受）。
+                    // vo fatal 标记 voBroken：其后的 vo reinit 若再 fatal，
+                    // fallback 到 loadfile 全量重载。
+                    if (!voBroken) {
+                        voBroken = true;
+                        mpv.command(new String[]{"set", "vid", "auto"});
+                        // vid=auto 靠等下一个 video packet 才重选轨（实测 1s+）。
+                        // 紧跟 seek relative 0 强制 demuxer 立即送关键帧，
+                        // 触发 select track + vo reinit + playback-restart，
+                        // 恢复时间从 1s+ 压到 200ms 内。
+                        mpv.command(new String[]{"seek", "0", "relative"});
+                    } else {
+                        // 上次 vid=auto 后 vo 仍 fatal（surface 未就绪窗口），
+                        // 全量重载兜底（recovering 流程：END_FILE 静默 +
+                        // FILE_LOADED 回跳进度）
+                        voBroken = false;
+                        recovering = true;
+                        pendingSeekMs = currentPositionMs;
+                        loadIssued = false;
+                        mpv.command(new String[]{"loadfile", dataSource, "replace"});
+                        loadIssued = true;
+                    }
+                }
+            }
+        } else if (eventId == MPVLib.MpvEvent.MPV_EVENT_SHUTDOWN) {
+            // 核心终止（实测路径：stop 后 idle=once 时 EOF 走 end-file → shutdown）。
+            // 之后的 loadfile 命令会被静默丢弃（无任何事件/日志），核心无法复用，
+            // 标记重建，下次 initVideoPlayer 销毁重建实例。
+            Log.e(TAG, "MPV_EVENT_SHUTDOWN: core terminated, mark rebuild");
+            sCoreShutdown = true;
+        } else if (eventId == MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG) {
+            readVideoSize();
+            // vid=auto 快速恢复后视频轨重选成功（width>0）：清除 voBroken，
+            // 后续再 fatal 时重新从快速恢复起步
+            if (videoWidth > 0 && videoHeight > 0 && voBroken) {
+                Log.d(TAG, "vid=auto recovered, video track alive (" + videoWidth + "x"
+                        + videoHeight + "), clear voBroken");
+                voBroken = false;
+            }
         }
     }
 
@@ -458,33 +552,35 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
             loadIssued = false;
             prepared = false;
             completed = false;
+            recovering = false;
+            pendingSeekMs = 0;
+            voBroken = false;
         }
+    }
+
+    /** MPV_EVENT_SHUTDOWN：核心已终止（stop 后 idle=once 的 EOF 路径实测触发）。
+     *  核心终止后无法复用，标记重建标志，下次 initVideoPlayer 销毁重建。 */
+    private static volatile boolean sCoreShutdown;
+
+    static boolean isCoreShutdown() {
+        return sCoreShutdown;
+    }
+
+    static void clearCoreShutdown() {
+        sCoreShutdown = false;
     }
 
     @Override
     public void release() {
-        // 共享实例策略：正常空闲退出（无加载/未 prepared）可复用；
-        // 播放中被切换走则 mpv 停在"文件残留"状态，其异步 vo teardown/
-        // re-init 会在下次会话的 detach 窗口触发 Missing surface pointer
-        // fatal（真机实测：第二次切回 mpv 报错黑屏）。标记需重建，
-        // 下次 initVideoPlayer 时销毁重建，保证每次会话从干净 idle 起步。
-        if (loadIssued || prepared) {
-            sNeedsRebuild = true;
-        }
+        // 共享实例策略：停止 + detach，实例本身保留复用（so 常驻）。
+        // 不销毁重建：release 后紧接的重播（全屏/同视频重载会立即 setUp +
+        // startPlayLogic，同步同线程）会马上重新 attach 新 surface 并 loadfile，
+        // 此时若销毁重建，旧实例刚初始化的 vo 被废弃、新实例在新 surface 上
+        // 重建 vo 会竞态 Missing surface pointer（Android 16 实测全屏黑屏）。
+        // 旧会话残留 END_FILE 误报由 event() 的 loadIssued 守卫兜底。
         stop();
         detachSurfaceInternal();
         // 共享实例不 destroy（内核切换复用；进程退出回收）
-    }
-
-    private static volatile boolean sNeedsRebuild;
-
-    /** 上次会话是否非空闲退出（需要重建实例） */
-    public static boolean needsRebuild() {
-        return sNeedsRebuild;
-    }
-
-    public static void clearRebuild() {
-        sNeedsRebuild = false;
     }
 
     @Override
@@ -495,6 +591,9 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
         prepared = false;
         completed = false;
         loadIssued = false;
+        recovering = false;
+        pendingSeekMs = 0;
+        voBroken = false;
     }
 
     @Override
