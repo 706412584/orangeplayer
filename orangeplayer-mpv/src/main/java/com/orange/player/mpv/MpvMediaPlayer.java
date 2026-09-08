@@ -499,15 +499,14 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
                         // 恢复时间从 1s+ 压到 200ms 内。
                         mpv.command(new String[]{"seek", "0", "relative"});
                     } else {
-                        // 上次 vid=auto 后 vo 仍 fatal（surface 未就绪窗口），
-                        // 全量重载兜底（recovering 流程：END_FILE 静默 +
-                        // FILE_LOADED 回跳进度）
+                        // 上次 vid=auto 后 vo 仍 fatal：核心 VO 状态已损坏
+                        // （EGL surface 创建失败残留，wid 更新也无法恢复，
+                        // 实测切内核回 mpv 死 texture attach 后无限循环）。
+                        // vid=auto/loadfile 都救不活，只能销毁重建核心。
                         voBroken = false;
-                        recovering = true;
-                        pendingSeekMs = currentPositionMs;
-                        loadIssued = false;
-                        mpv.command(new String[]{"loadfile", dataSource, "replace"});
-                        loadIssued = true;
+                        Log.e(TAG, "vo fatal persists after vid=auto, core unrecoverable "
+                                + "(EGL state corrupt), mark rebuild");
+                        sCoreShutdown = true;
                     }
                 }
             }

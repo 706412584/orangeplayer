@@ -66,7 +66,10 @@ public class MpvPlayerManager extends BasePlayerManager {
         mediaPlayer = sSharedPlayer;
 
         // GSY 时序补偿：surface 可能先于 prepareAsync 到达（showDisplay 缓存），
-        // 在 loadfile 前先绑定，否则 mpv 渲染器 Missing surface pointer
+        // 在 loadfile 前先绑定，否则 mpv 渲染器 Missing surface pointer。
+        // 宿主换内核期间渲染 View 可能已重建，缓存的 pendingSurface 可能指向
+        // 已销毁的旧 SurfaceTexture（attach 死 texture → EGL createSurface
+        // 永久 fatal），绑定前必须用活渲染 View 校验/覆盖。
         android.util.Log.d(TAG, "initVideoPlayer: pendingSurface=" + pendingSurface
                 + ", valid=" + (pendingSurface != null && pendingSurface.isValid()));
         if (pendingSurface != null && pendingSurface.isValid()) {
@@ -74,7 +77,8 @@ public class MpvPlayerManager extends BasePlayerManager {
             pendingSurface = null;
         }
         // 冷启动 surface 回调早于 player 的场景由宿主 startPlayLogic 后调
-        // bindRenderProxySurface(getRenderProxy()) 补推（见 OrangevideoView）
+        // bindRenderProxySurface(getRenderProxy()) 补推（见 OrangevideoView）；
+        // 补推的活 surface 优先级高于上面的 pendingSurface（后者可能已死）
 
         GSYModel gsyModel = (GSYModel) msg.obj;
         try {
@@ -125,6 +129,19 @@ public class MpvPlayerManager extends BasePlayerManager {
                 mediaPlayer.setSurface(null);
             }
             return;
+        }
+        // 死 surface 防线：Surface.isValid() 只反映本地对象状态，SurfaceTexture
+        // 被 release（切内核渲染 View 重建）后包装 Surface 仍"valid"，attach 后
+        // mpv EGL createSurface 永久失败且核心不可恢复（实测无限 fatal 循环）。
+        // 校验同源 TextureView 的 isAvailable：源已死则丢弃本次推送，等宿主
+        // 用活渲染 View 补推。
+        if (msg.obj instanceof TextureView) {
+            TextureView tv = (TextureView) msg.obj;
+            if (!tv.isAvailable()) {
+                android.util.Log.w(TAG, "showDisplay: TextureView not available"
+                        + "（死 SurfaceTexture）, drop to avoid EGL fatal loop");
+                return;
+            }
         }
 
         android.util.Log.d(TAG, "showDisplay: surface=" + surface
