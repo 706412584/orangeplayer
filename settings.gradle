@@ -26,6 +26,9 @@ dependencyResolutionManagement {
         // libmpv 中央再分发坐标 io.github.706412584:libmpv 的本地解析仓库
         // （中央发布前用；见 libmpv-central/ 与 orangeplayer-mpv/README.md）
         maven { url "$rootDir/orangeplayer-mpv/mavenrepo" }
+        // sherpa-onnx 官方 AAR（orangeplayer-sherpa 模块；AGP 禁止 android library
+        // 直依赖本地 .aar 文件，flatDir 仓库则作为坐标正常 transform）
+        flatDir { dirs "$rootDir/orangeplayer-sherpa/libs" }
     }
 }
 
@@ -65,4 +68,5 @@ include ':palyerlibrary'
 include ':orange-downloader'  // Download module
 include ':orange-ffmpeg'  // FFmpeg minimal kit module
 include ':orangeplayer-mpv'  // mpv engine (optional, independent artifact; see experiments/orange-player-mpv/README.md)
+include ':orangeplayer-sherpa'  // sherpa-onnx 批量 ASR（可选，自动字幕生成）
 include ':libmpv-central'    // libmpv AAR 中央坐标再分发（上游 Release 原样，LGPL 合规）

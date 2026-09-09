@@ -81,6 +81,11 @@ public class MainActivity extends AppCompatActivity {
             }
             // 必须在主线程执行（涉及 UI 弹窗）
             runOnUiThread(() -> {
+                // asr_smoke: 引擎冒烟（不依赖播放器）；格式 asr_smoke:<lang>:<wav绝对路径>
+                if (cmd.startsWith("asr_smoke:")) {
+                    handleAsrSmoke(cmd.substring("asr_smoke:".length()));
+                    return;
+                }
                 if (mController == null || mController.getVideoEventManager() == null) {
                     android.util.Log.w("MainActivity", "TEST_CMD: 控制器未就绪, cmd=" + cmd);
                     return;
@@ -89,6 +94,79 @@ public class MainActivity extends AppCompatActivity {
             });
         }
     };
+
+    /**
+     * 【测试专用】ASR 冒烟：加载模型目录识别 wav 打印结果与耗时。
+     * 格式：asr_smoke:<lang>:<wav路径>；模型目录固定 app 私有 filesDir/asr_model
+     * 用法：
+     *   adb push docs/asr_model/ /sdcard/Android/data/com.orange.player/files/asr_model/
+     *   adb push docs/asr_samples/zh.wav /sdcard/Android/data/com.orange.player/files/asr_zh.wav
+     *   adb shell am broadcast -a com.orange.player.TEST_CMD --es cmd "asr_smoke:auto:/sdcard/Android/data/com.orange.player/files/asr_zh.wav"
+     */
+    private void handleAsrSmoke(String spec) {
+        try {
+            int sep = spec.indexOf(':');
+            String lang = sep > 0 ? spec.substring(0, sep).trim() : "auto";
+            String wavPath = sep > 0 ? spec.substring(sep + 1).trim() : spec;
+            final java.io.File modelDir = new java.io.File(getExternalFilesDir(null), "asr_model");
+            if (!new java.io.File(modelDir, "model.int8.onnx").exists()) {
+                android.util.Log.w("MainActivity", "ASR 冒烟: 模型缺失 " + modelDir);
+                return;
+            }
+            android.util.Log.d("MainActivity", "ASR 冒烟开始 lang=" + lang + " wav=" + wavPath);
+
+            final com.orange.playerlibrary.speech.BatchAsrEngine engine =
+                    com.orange.playerlibrary.speech.SherpaAvailabilityChecker.createEngine();
+            if (engine == null) {
+                android.util.Log.e("MainActivity", "ASR 冒烟: 引擎不可用（模块未链接？）");
+                return;
+            }
+            final String finalLang = lang;
+            new Thread(() -> {
+                long t0 = System.currentTimeMillis();
+                final boolean ok = engine.init(modelDir.getAbsolutePath(), finalLang);
+                long tInit = System.currentTimeMillis() - t0;
+                if (!ok) {
+                    android.util.Log.e("MainActivity", "ASR 冒烟: init 失败");
+                    engine.release();
+                    return;
+                }
+                final long[] tDone = {0};
+                engine.transcribeFile(wavPath, new com.orange.playerlibrary.speech.BatchAsrEngine.BatchAsrCallback() {
+                    @Override
+                    public void onReady() {
+                    }
+
+                    @Override
+                    public void onSegment(String text, long startMs, long endMs) {
+                        android.util.Log.d("MainActivity", "ASR 段 [" + startMs + "-" + endMs + "ms] " + text);
+                    }
+
+                    @Override
+                    public void onProgress(int percent, String stage) {
+                    }
+
+                    @Override
+                    public void onCompleted(int segmentCount) {
+                        tDone[0] = System.currentTimeMillis() - t0;
+                        android.util.Log.d("MainActivity", "ASR 冒烟完成: " + segmentCount
+                                + " 段, init=" + tInit + "ms, total=" + tDone[0] + "ms");
+                        engine.release();
+                    }
+
+                    @Override
+                    public void onError(int errorCode, String errorMessage) {
+                        tDone[0] = System.currentTimeMillis() - t0;
+                        android.util.Log.e("MainActivity", "ASR 冒烟失败: code=" + errorCode
+                                + " msg=" + errorMessage + " total=" + tDone[0] + "ms");
+                        engine.release();
+                    }
+                }, null);
+            }, "asr-smoke").start();
+        } catch (Exception e) {
+            android.util.Log.e("MainActivity", "ASR 冒烟异常", e);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

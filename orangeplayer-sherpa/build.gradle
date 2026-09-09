@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.orange.player.sherpa'
+    compileSdk 36
+
+    defaultConfig {
+        minSdk 23          // 与主库一致（sherpa AAR 要求 21+，无抬升需求）
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}
+
+dependencies {
+    // 接口定义在 palyerlibrary（BatchAsrEngine）
+    api project(':palyerlibrary')
+
+    // sherpa-onnx（k2-fsa）官方 GitHub Release AAR（无 Maven Central 坐标）。
+    // 经 settings.gradle 的 flatDir 仓库解析。49MB 全 4 架构；
+    // 打包时随 app 的 orangeAppReleaseAbis 裁到目标 ABI。
+    api(name: 'sherpa-onnx-1.13.7', ext: 'aar')
+}
+
+// ===== Maven Central 发布（随主仓 pomVersion；与 orangeplayer-mpv 同模式） =====
+def mavenPublishScript = file("${rootProject.projectDir}/maven-publish.gradle")
+if (mavenPublishScript.exists()) {
+    apply from: mavenPublishScript
+}

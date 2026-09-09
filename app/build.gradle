@@ -167,6 +167,8 @@ dependencies {
 
     // 可选内核：mpv（第五内核 + Anime4K 超分；仅用户显式选择）
     implementation project(':orangeplayer-mpv')
+    // sherpa-onnx 批量 ASR（AI 语音生成字幕；palyerlibrary 反射解耦，缺依赖时功能自动隐藏）
+    implementation project(':orangeplayer-sherpa')
     
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.mockito:mockito-core:5.3.1'
