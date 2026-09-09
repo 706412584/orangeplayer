@@ -92,6 +92,15 @@ public class MainActivity extends AppCompatActivity {
                     handleAsrGenFile(cmd.substring("asr_gen_file:".length()));
                     return;
                 }
+                // play_file: 播放本地文件（测试用）；格式 play_file:<绝对路径>
+                if (cmd.startsWith("play_file:")) {
+                    String path = cmd.substring("play_file:".length()).trim();
+                    if (mEtVideoUrl != null && !path.isEmpty()) {
+                        mEtVideoUrl.setText(path);
+                        playInputUrl(false);
+                    }
+                    return;
+                }
                 if (mController == null || mController.getVideoEventManager() == null) {
                     android.util.Log.w("MainActivity", "TEST_CMD: 控制器未就绪, cmd=" + cmd);
                     return;
