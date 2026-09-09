@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- unit-test 变体专用的 manifest：主 manifest 的 uses-sdk override 在
      test manifest 合并时会被 AGP 注入的 sdk 版本覆盖而失效，
-     因此在此重复声明 DLNA 库（minSdk 24）的 override。 -->
+     因此在此重复声明 minSdk 高于 app(23) 的库的 override：
+     DLNA 库(minSdk 24)、mpv 内核(libmpv 要求 minSdk 26)。 -->
 <manifest xmlns:tools="http://schemas.android.com/tools">
-    <uses-sdk tools:overrideLibrary="com.uaoanlao.tv" />
+    <uses-sdk tools:overrideLibrary="com.uaoanlao.tv,com.orange.player.mpv,dev.jdtech.mpv" />
 </manifest>
