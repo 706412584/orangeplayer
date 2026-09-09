@@ -172,6 +172,14 @@ public class VideoEventManager {
                 }
                 return;
             }
+            // 复合命令：asr_gen_hls:<m3u8 url> —— 下载 HLS 后生成字幕（测试用）
+            if (command.startsWith("asr_gen_hls:")) {
+                String u = command.substring("asr_gen_hls:".length()).trim();
+                if (!u.isEmpty()) {
+                    downloadHlsAndGenerate(u);
+                }
+                return;
+            }
             switch (command) {
                 case "subtitle_dialog":
                     showSubtitleDialog(null);
@@ -3757,7 +3765,11 @@ public class VideoEventManager {
             showToast("未安装 ASR 引擎模块");
             return;
         }
-        // 选视频文件
+        // 优先解析当前播放视频源
+        if (resolveCurrentVideoForAsr()) {
+            return;
+        }
+        // 当前视频不可用（网络未缓存等）→ 弹文件选择器选本地视频
         try {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -3769,6 +3781,153 @@ public class VideoEventManager {
             Log.e(TAG, "打开视频选择器失败", e);
             showToast("无法打开视频选择器");
         }
+    }
+
+    /**
+     * 解析当前播放视频供 ASR 生成字幕。
+     * 返回 true 表示已接管（开始 ASR 或提示）；false 表示当前视频不可用需选文件。
+     * 规则：
+     *  - 本地路径 / file:// → 直接用
+     *  - 网络 mp4 → danikula 缓存完整则取缓存文件，否则提示
+     *  - m3u8/HLS → M3U8Downloader 下载完整后 ASR
+     */
+    private boolean resolveCurrentVideoForAsr() {
+        try {
+            String url = mVideoView != null ? mVideoView.getUrl() : null;
+            if (url == null || url.isEmpty()) {
+                return false;
+            }
+            Log.d(TAG, "ASR 解析当前视频: " + url);
+
+            // 本地文件路径
+            if (url.startsWith("file://")) {
+                java.io.File f = new java.io.File(android.net.Uri.parse(url).getPath());
+                if (f.exists()) {
+                    startAsrGenerate(f);
+                    return true;
+                }
+                return false;
+            }
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                java.io.File f = new java.io.File(url);
+                if (f.exists()) {
+                    startAsrGenerate(f);
+                    return true;
+                }
+                return false;
+            }
+
+            // 网络 mp4
+            if (isM3u8Url(url)) {
+                downloadHlsAndGenerate(url);
+                return true;
+            }
+
+            // mp4 → 尝试缓存文件
+            java.io.File cacheFile = getCachedVideoFile(url);
+            if (cacheFile != null) {
+                startAsrGenerate(cacheFile);
+                return true;
+            }
+            showToast("网络视频需先完整缓存（完整播放一遍或下载）再生成字幕");
+            return true;   // 已提示，不回落文件选择器
+        } catch (Exception e) {
+            Log.e(TAG, "解析当前视频失败", e);
+            return false;
+        }
+    }
+
+    private boolean isM3u8Url(String url) {
+        String lower = url.toLowerCase();
+        return lower.contains(".m3u8") || lower.contains("m3u8");
+    }
+
+    /**
+     * 取网络 mp4 的 danikula 缓存文件（完整缓存才有；md5 命名）。
+     */
+    private java.io.File getCachedVideoFile(String url) {
+        try {
+            String cacheDirPath = com.orange.playerlibrary.cache.ExternalProxyCacheManager
+                    .getCacheDirectoryPath();
+            if (cacheDirPath == null) {
+                return null;
+            }
+            java.io.File cacheDir = new java.io.File(cacheDirPath);
+            String md5 = md5Hex(url);
+            java.io.File f = new java.io.File(cacheDir, md5);
+            // danikula 缓存完整后文件名即 md5（无 .download 后缀）
+            if (f.exists() && f.length() > 0) {
+                Log.d(TAG, "命中缓存文件: " + f.getAbsolutePath() + " (" + f.length() + "B)");
+                return f;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "取缓存文件失败", e);
+        }
+        return null;
+    }
+
+    private String md5Hex(String s) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+        byte[] d = md.digest(s.getBytes("UTF-8"));
+        StringBuilder sb = new StringBuilder();
+        for (byte b : d) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * HLS 下载完整后 ASR：M3U8Downloader 下载 → 合并 mp4 → AsrSubtitleGenerator。
+     */
+    private void downloadHlsAndGenerate(final String m3u8Url) {
+        if (mIsAsrGenerating) {
+            showToast("字幕生成已在运行");
+            return;
+        }
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(mActivity);
+        progress.setMessage("下载 HLS 中 0%");
+        progress.setCancelable(false);
+        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        progress.setMax(100);
+        progress.show();
+
+        com.orange.playerlibrary.download.M3U8Downloader downloader =
+                new com.orange.playerlibrary.download.M3U8Downloader(mContext);
+        downloader.download(m3u8Url, "asr_tmp",
+                new com.orange.playerlibrary.download.M3U8Downloader.DownloadCallback() {
+                    @Override
+                    public void onProgress(int p, String msg) {
+                        mActivity.runOnUiThread(() -> {
+                            if (progress.isShowing()) {
+                                progress.setProgress(p);
+                                progress.setMessage(msg + " " + p + "%");
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onSuccess(String filePath) {
+                        mActivity.runOnUiThread(() -> {
+                            try {
+                                progress.dismiss();
+                            } catch (Exception ignored) {
+                            }
+                            Log.d(TAG, "HLS 下载完成: " + filePath);
+                            startAsrGenerate(new java.io.File(filePath));
+                        });
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        mActivity.runOnUiThread(() -> {
+                            try {
+                                progress.dismiss();
+                            } catch (Exception ignored) {
+                            }
+                            showToast("HLS 下载失败: " + error);
+                        });
+                    }
+                });
     }
 
     /**

@@ -11,6 +11,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -130,45 +131,94 @@ public class M3U8Downloader {
     }
     
     /**
-     * 解析 M3U8 文件，获取所有 TS 分片 URL
+     * 解析 M3U8 文件，获取所有 TS 分片 URL。
+     * 支持 master（多码率变体）清单：遇 #EXT-X-STREAM-INF 自动选最低码率的
+     * 视频变体递归解析；普通单层清单直接收集 TS 分片。
      */
     private List<String> parseM3U8(String m3u8Url) throws Exception {
         List<String> tsUrls = new ArrayList<>();
-        
-        URL url = new URL(m3u8Url);
+        String content = fetchUrl(m3u8Url);
+        if (content == null || content.isEmpty()) {
+            throw new Exception("M3U8 清单为空");
+        }
+        String baseUrl = getBaseUrl(m3u8Url);
+
+        // master 清单：包含变体流声明 → 选最低码率视频变体递归
+        boolean isMaster = content.contains("#EXT-X-STREAM-INF:");
+        if (isMaster) {
+            String chosenVariant = null;
+            String chosenBandwidth = null;
+            BufferedReader reader = new BufferedReader(new StringReader(content));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.startsWith("#EXT-X-STREAM-INF:")) {
+                    // 提取 BANDWIDTH 作为码率（粗选最低）
+                    String bw = null;
+                    int idx = line.indexOf("BANDWIDTH=");
+                    if (idx >= 0) {
+                        int end = line.indexOf(',', idx);
+                        bw = end > idx ? line.substring(idx + 10, end).trim()
+                                : line.substring(idx + 10).trim();
+                    }
+                    // 下一行是变体 URL
+                    String variantUrl = reader.readLine();
+                    if (variantUrl != null) {
+                        variantUrl = variantUrl.trim();
+                        if (chosenVariant == null || (bw != null && (chosenBandwidth == null
+                                || Long.parseLong(bw) < Long.parseLong(chosenBandwidth)))) {
+                            chosenVariant = variantUrl;
+                            chosenBandwidth = bw;
+                        }
+                    }
+                }
+            }
+            if (chosenVariant != null) {
+                String abs = chosenVariant.startsWith("http")
+                        ? chosenVariant : baseUrl + chosenVariant;
+                android.util.Log.d(TAG, "Master 清单选变体: " + abs + " (bw=" + chosenBandwidth + ")");
+                return parseM3U8(abs);   // 递归解析所选变体
+            }
+            throw new Exception("Master 清单无可用变体");
+        }
+
+        // 普通清单：收集所有 TS 分片
+        BufferedReader reader = new BufferedReader(new StringReader(content));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            String tsUrl;
+            if (line.startsWith("http://") || line.startsWith("https://")) {
+                tsUrl = line;
+            } else {
+                tsUrl = baseUrl + line;
+            }
+            tsUrls.add(tsUrl);
+        }
+        return tsUrls;
+    }
+
+    /** 下载 URL 文本内容（跟随重定向） */
+    private String fetchUrl(String urlStr) throws Exception {
+        URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(10000);
-        
+        conn.setInstanceFollowRedirects(true);
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(conn.getInputStream()))) {
-            
+            StringBuilder sb = new StringBuilder();
             String line;
-            String baseUrl = getBaseUrl(m3u8Url);
-            
             while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                
-                // 跳过注释和空行
-                if (line.isEmpty() || line.startsWith("#")) {
-                    continue;
-                }
-                
-                // 处理相对路径和绝对路径
-                String tsUrl;
-                if (line.startsWith("http://") || line.startsWith("https://")) {
-                    tsUrl = line;
-                } else {
-                    tsUrl = baseUrl + line;
-                }
-                
-                tsUrls.add(tsUrl);
+                sb.append(line).append('\n');
             }
+            return sb.toString();
         } finally {
             conn.disconnect();
         }
-        
-        return tsUrls;
     }
     
     /**
