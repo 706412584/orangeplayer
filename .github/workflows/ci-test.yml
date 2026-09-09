@@ -36,6 +36,13 @@ jobs:
         run: |
           # app-legacy 的 6 个测试与 app 完全重复（Robolectric 组件测试），
           # 且其 unit-test manifest 合并受 DLNA 库 minSdk 24 冲突影响，暂不纳入 CI
+          # app 测试编译依赖链含 :orangeplayer-mpv（app 依赖它），其源码 import
+          # dev.jdtech.mpv.MPVLib（Java 21 字节码），需 fork JDK 21 编译——
+          # 与 release-apk.yml 的 Build 步骤同理，从 runner 预装路径注入。
+          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export ORANGE_MPV_JDK21="$JAVA_HOME_21_X64"
+            echo "Using JDK21 for orangeplayer-mpv: $ORANGE_MPV_JDK21"
+          fi
           ./gradlew :palyerlibrary:testDebugUnitTest \
                     :app:testDebugUnitTest \
                     :orange-downloader:testDebugUnitTest
