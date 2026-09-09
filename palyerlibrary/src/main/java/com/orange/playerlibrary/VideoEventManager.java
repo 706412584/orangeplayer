@@ -142,6 +142,26 @@ public class VideoEventManager {
         }
         Log.d(TAG, "handleTestCommand: " + command);
         try {
+            // 复合命令：load_subtitle_url:<url> —— 直接加载字幕并显示
+            if (command.startsWith("load_subtitle_url:")) {
+                String url = command.substring("load_subtitle_url:".length()).trim();
+                if (!url.isEmpty()) {
+                    loadSubtitleFromUrl(url);
+                }
+                return;
+            }
+            // 复合命令：seek_to:<ms> —— 跳到指定播放位置（测试字幕时间轴用）
+            if (command.startsWith("seek_to:")) {
+                try {
+                    long ms = Long.parseLong(command.substring("seek_to:".length()).trim());
+                    if (mVideoView != null) {
+                        mVideoView.seekTo(ms);
+                        Log.d(TAG, "handleTestCommand: seekTo " + ms + "ms");
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+                return;
+            }
             switch (command) {
                 case "subtitle_dialog":
                     showSubtitleDialog(null);
@@ -3508,6 +3528,20 @@ public class VideoEventManager {
 
     private volatile boolean mIsAiTranslating = false;
 
+    /**
+     * 同步控制器上字幕开关图标的显示状态（翻译完成后置为高亮）。
+     * 全屏控制条是独立实例且无点击 View 可用时可能不同步，
+     * 仅影响图标 alpha 提示，不影响字幕实际渲染。
+     */
+    private void syncSubtitleSwitchUi() {
+        try {
+            if (mVodControlView != null) {
+                mVodControlView.updateSubtitleToggleState(true);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private boolean isAiTranslating() {
         return mIsAiTranslating;
     }
@@ -3615,6 +3649,17 @@ public class VideoEventManager {
                             }
                         }
                         int written = subtitleManager.applyAiTranslation(translated);
+                        if (written > 0) {
+                            // 翻译完成必须强制开启字幕显示：普通字幕条目（非 OCR/语音的
+                            // showText 直显路径）依赖 mEnabled + start() 循环才会渲染。
+                            // 用户可能没开"显示字幕"开关或循环未运行——此处统一拉起。
+                            subtitleManager.show();               // mEnabled = true
+                            if (mController != null) {
+                                mController.startSubtitle();      // 确保 update 循环在跑
+                            }
+                            mSettingsManager.setSubtitleEnabled(true);
+                            syncSubtitleSwitchUi();
+                        }
                         if (result.untranslated == 0) {
                             showToast("AI 翻译完成：" + written + "/" + total + " 条已替换");
                         } else {
@@ -3737,6 +3782,9 @@ public class VideoEventManager {
             public void onLoadSuccess(int count) {
                 mActivity.runOnUiThread(() -> {
                     showToast("字幕加载成功，共 " + count + " 条");
+                    // 用户主动加载字幕的意图即显示：开启字幕显示（mEnabled=true）
+                    // 并确保 update 循环运行，否则字幕永不渲染（updateSubtitle 依赖 mEnabled）
+                    mController.getSubtitleManager().show();
                     mController.startSubtitle();
                     // 保存本地字幕记忆
                     String videoUrl = mVideoView.getUrl();
@@ -3814,6 +3862,8 @@ public class VideoEventManager {
             public void onLoadSuccess(int count) {
                 mActivity.runOnUiThread(() -> {
                     showToast("字幕加载成功，共 " + count + " 条");
+                    // 用户主动加载字幕的意图即显示：开启字幕显示并启动循环
+                    mController.getSubtitleManager().show();
                     mController.startSubtitle();
                     // 保存网络字幕记忆
                     String videoUrl = mVideoView.getUrl();
@@ -3932,6 +3982,8 @@ public class VideoEventManager {
                     public void onLoadSuccess(int count) {
                         mActivity.runOnUiThread(() -> {
                             Log.d(TAG, "自动加载本地字幕成功，共 " + count + " 条");
+                            // 记忆恢复加载即显示（用户上次是开着字幕的）
+                            mController.getSubtitleManager().show();
                             mController.startSubtitle();
                         });
                     }
@@ -3962,6 +4014,8 @@ public class VideoEventManager {
                 public void onLoadSuccess(int count) {
                     mActivity.runOnUiThread(() -> {
                         Log.d(TAG, "自动加载网络字幕成功，共 " + count + " 条");
+                        // 记忆恢复加载即显示（用户上次是开着字幕的）
+                        mController.getSubtitleManager().show();
                         mController.startSubtitle();
                     });
                 }

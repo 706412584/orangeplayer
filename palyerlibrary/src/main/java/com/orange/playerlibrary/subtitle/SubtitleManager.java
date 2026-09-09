@@ -48,6 +48,8 @@ public class SubtitleManager {
     private boolean mEnabled = false; // 默认关闭
     private boolean mLoaded = false;
     private String mCurrentSubtitlePath;
+    /** 上次已显示的文本（updateSubtitle 内容未变时跳过动画，防闪烁） */
+    private String mLastShownText;
     
     // 字幕样式
     private float mTextSize = 18f; // 默认18sp
@@ -604,7 +606,12 @@ public class SubtitleManager {
      * 更新字幕显示
      */
     private void updateSubtitle() {
+        // [诊断] 打印各显示条件，定位字幕不显示根因
         if (!mEnabled || !mLoaded || mSubtitleView == null || mProgressProvider == null) {
+            Log.d(TAG, "updateSubtitle: skip mEnabled=" + mEnabled + " mLoaded=" + mLoaded
+                    + " view=" + (mSubtitleView != null)
+                    + " attached=" + (mSubtitleView != null && mSubtitleView.getParent() != null)
+                    + " provider=" + (mProgressProvider != null));
             return;
         }
 
@@ -614,11 +621,25 @@ public class SubtitleManager {
         SubtitleEntry current = findSubtitleAt(adjustedPosition);
 
         if (current != null) {
-            mSubtitleView.setText(current.getText());
-            mSubtitleView.setVisibility(View.VISIBLE);
+            String text = current.getText();
+            if (text == null) {
+                text = "";
+            }
+            if (text.equals(mLastShownText) && mSubtitleView.isSubtitleShowing()) {
+                // 内容未变且正在显示：跳过动画，防 100ms 轮询反复淡入导致闪烁
+                return;
+            }
+            mLastShownText = text;
+            // 必须走 setSubtitleText（内部 showWithAnimation 把 alpha 置 1 并显示）：
+            // 直接 setText + setVisibility 时 SubtitleView 的 alpha 仍为 0（初始隐藏态），
+            // 文字"已设置但完全透明"——普通字幕循环此前永不显示、仅 OCR 的 showText
+            // 显式 setAlpha(1f) 才可见的根因。
+            mSubtitleView.setSubtitleText(text);
         } else {
-            mSubtitleView.setText("");
-            mSubtitleView.setVisibility(View.GONE);
+            mLastShownText = null;
+            // 未命中用 clearSubtitle 触发隐藏（而非裸 setText("") + GONE，
+            // 保持 SubtitleView 内部状态机一致）
+            mSubtitleView.clearSubtitle();
         }
     }
 
