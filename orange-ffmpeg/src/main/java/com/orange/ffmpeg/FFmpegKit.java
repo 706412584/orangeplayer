@@ -214,6 +214,32 @@ public final class FFmpegKit {
         return execute(args.toArray(new String[0]));
     }
 
+    /**
+     * 抽取 16k 单声道 PCM wav（ASR 输入标准格式，SenseVoice/VAD 硬性要求 16k）。
+     * -vn 去视频；-ac 1 混单声道（比取单声道更稳）；-ar 16000 重采样。
+     */
+    public static int extractAudioWav16k(String inputPath, String outputPath) {
+        if (isEmpty(inputPath) || isEmpty(outputPath)) {
+            return RESULT_EXECUTE_FAILED;
+        }
+        List<String> args = new ArrayList<>();
+        args.add("-y");
+        args.add("-i");
+        args.add(inputPath);
+        args.add("-vn");
+        args.add("-ac");
+        args.add("1");
+        args.add("-ar");
+        args.add("16000");
+        // 裸 PCM 流（16k/单声道/s16le）——native 库对 wav 容器封装支持不稳
+        // （实测输出 ftyp 头即原容器），裸流只需 demux+重采样，兼容性最稳。
+        // 调用方需自行包 RIFF 头或按裸 PCM 读取。
+        args.add("-f");
+        args.add("s16le");
+        args.add(outputPath);
+        return execute(args.toArray(new String[0]));
+    }
+
     private static int executeInStubMode(String[] args) {
         if (args == null || args.length == 0) {
             return RESULT_EXECUTE_FAILED;

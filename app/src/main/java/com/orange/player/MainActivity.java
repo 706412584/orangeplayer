@@ -86,6 +86,12 @@ public class MainActivity extends AppCompatActivity {
                     handleAsrSmoke(cmd.substring("asr_smoke:".length()));
                     return;
                 }
+                // asr_gen_file: 全管线生成（视频→抽音频→识别→srt→加载显示）
+                // 格式 asr_gen_file:<lang>:<视频绝对路径>
+                if (cmd.startsWith("asr_gen_file:")) {
+                    handleAsrGenFile(cmd.substring("asr_gen_file:".length()));
+                    return;
+                }
                 if (mController == null || mController.getVideoEventManager() == null) {
                     android.util.Log.w("MainActivity", "TEST_CMD: 控制器未就绪, cmd=" + cmd);
                     return;
@@ -165,6 +171,80 @@ public class MainActivity extends AppCompatActivity {
             }, "asr-smoke").start();
         } catch (Exception e) {
             android.util.Log.e("MainActivity", "ASR 冒烟异常", e);
+        }
+    }
+
+    /**
+     * 【测试专用】ASR 全管线：视频 → 抽音频 → 识别 → srt → 加载到播放器显示。
+     * 格式：asr_gen_file:<lang>:<视频绝对路径>
+     * 用法：
+     *   adb push sample.mp4 /sdcard/Android/data/com.orange.player/files/sample.mp4
+     *   adb shell am broadcast -a com.orange.player.TEST_CMD --es cmd \
+     *     "asr_gen_file:auto:/sdcard/Android/data/com.orange.player/files/sample.mp4"
+     */
+    private void handleAsrGenFile(String spec) {
+        try {
+            int sep = spec.indexOf(':');
+            String lang = sep > 0 ? spec.substring(0, sep).trim() : "auto";
+            String videoPath = sep > 0 ? spec.substring(sep + 1).trim() : spec;
+            final java.io.File videoFile = new java.io.File(videoPath);
+            if (!videoFile.exists()) {
+                android.util.Log.w("MainActivity", "ASR 生成: 视频不存在 " + videoPath);
+                return;
+            }
+            android.util.Log.d("MainActivity", "ASR 生成开始 lang=" + lang + " video=" + videoPath);
+
+            com.orange.playerlibrary.speech.AsrSubtitleGenerator generator =
+                    new com.orange.playerlibrary.speech.AsrSubtitleGenerator(this);
+            generator.generate(videoFile, lang,
+                    new com.orange.playerlibrary.speech.AsrSubtitleGenerator.GenerateCallback() {
+                        @Override
+                        public void onProgress(int percent, String stage) {
+                            android.util.Log.d("MainActivity", "ASR 生成进度: " + percent + "% " + stage);
+                        }
+
+                        @Override
+                        public void onSuccess(java.io.File srtFile, int subtitleCount) {
+                            android.util.Log.d("MainActivity", "ASR 生成成功: " + subtitleCount
+                                    + " 条 srt=" + srtFile);
+                            if (srtFile == null) {
+                                return;
+                            }
+                            // 加载字幕到播放器显示
+                            if (mController != null) {
+                                com.orange.playerlibrary.subtitle.SubtitleManager sm =
+                                        mController.getSubtitleManager();
+                                if (sm != null) {
+                                    sm.loadSubtitle(srtFile, new com.orange.playerlibrary.subtitle.SubtitleManager.OnSubtitleLoadListener() {
+                                        @Override
+                                        public void onLoadSuccess(int count) {
+                                            runOnUiThread(() -> {
+                                                sm.show();
+                                                mController.startSubtitle();
+                                                // 同步持久化开关与控制器图标（用户可能没开"显示字幕"）
+                                                com.orange.playerlibrary.PlayerSettingsManager.getInstance(
+                                                        MainActivity.this).setSubtitleEnabled(true);
+                                                android.util.Log.d("MainActivity",
+                                                        "ASR 字幕已加载显示: " + count + " 条");
+                                            });
+                                        }
+
+                                        @Override
+                                        public void onLoadFailed(String error) {
+                                            android.util.Log.e("MainActivity", "ASR 字幕加载失败: " + error);
+                                        }
+                                    });
+                                }
+                            }
+                        }
+
+                        @Override
+                        public void onError(int code, String message) {
+                            android.util.Log.e("MainActivity", "ASR 生成失败: code=" + code + " msg=" + message);
+                        }
+                    }, null);
+        } catch (Exception e) {
+            android.util.Log.e("MainActivity", "ASR 生成异常", e);
         }
     }
 
