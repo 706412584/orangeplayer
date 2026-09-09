@@ -32,7 +32,24 @@
 **期望文本**：官方仓库未附 golden 文本 → M1 真机冒烟时人工核验（标准短句）。
 **准确率阈值**（拟定）：中英 ≥90%，日韩 ≥80%（SenseVoice 日韩为覆盖级，实测校准）。
 
-## 实施中须记录
+## M1 真机验证结果（SKW-A0 / Android 10 / arm64）
 
-- sha256：AAR / 模型下载后补录（M1 下载时）
-- M1 真机 RTF 基准（4/8 线程 1min 样本计时外推）
+**4 语识别（SenseVoice int8 auto 模式，VAD 分段 + 逐段解码）**：
+
+| 语种 | 样本时长 | 识别文本 | init+总耗时 |
+|---|---|---|---|
+| 中文 | 5.6s | 派放时间早上9点至下午5点。 | ~2.6s |
+| 英文 | 7.2s | The tribal chieftain called for the boy. / And presented him with 50 pieces of code.（VAD 自动分 2 句） | ~2.8s |
+| 日文 | 7.2s | うちの中学は弁当制で持っていけない場合は五十円の学校販売のパンを買う。 | ~2.8s |
+| 韩文 | 4.6s | 금만 생각을 하면서 살면 훨씬 편할 거야. | ~2.4s |
+
+- 模型加载（init）：~2.0s（239MB int8）
+- **解码 RTF ≈ 0.08-0.1（约 10x 实时）**：7s 音频解码 <0.7s → 1h 视频音频预计 <10min
+- 英文样本 VAD 正确断 2 句（句子边界=字幕时间轴验证通过）
+
+**过程中修复**：FeatureConfig featureDim 必须 80（fbank 维），传 1 时 decode 恒空（首日最大坑）。
+
+**sha256**：
+- model.int8.onnx: c71f0ce00bec95b0...
+- tokens.txt: f449eb28dc567533...
+- silero_vad.onnx: 9e2449e1087496d8...（https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx）

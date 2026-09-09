@@ -82,10 +82,10 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
                 OfflineModelConfig modelConfig = new OfflineModelConfig();
                 modelConfig.setSenseVoice(senseVoice);
                 modelConfig.setTokens(tokensFile.getAbsolutePath());
-                modelConfig.setModelType("sense_voice");
+                // 不设 modelType——senseVoice 非空时 SDK 自动推断（官方示例同）
                 modelConfig.setNumThreads(1);
                 modelConfig.setProvider("cpu");
-                FeatureConfig featureConfig = new FeatureConfig(16000, 1, 1.0f);
+                FeatureConfig featureConfig = new FeatureConfig(16000, 80, 0f);  // 16k/80维fbank/无抖动
                 OfflineRecognizerConfig recognizerConfig = new OfflineRecognizerConfig();
                 recognizerConfig.setFeatConfig(featureConfig);
                 recognizerConfig.setModelConfig(modelConfig);
@@ -210,7 +210,7 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
                 }
                 vad.pop();
             }
-            Log.d(TAG, "VAD 切段完成: " + segments.size() + " 段");
+            Log.d(TAG, "VAD 切段完成: " + segments.size() + " 段 (输入样本=" + samples.length + ")");
 
             if (segments.isEmpty()) {
                 callback.onCompleted(0);
