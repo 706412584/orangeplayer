@@ -636,10 +636,14 @@ public class SubtitleManager {
             // 显式 setAlpha(1f) 才可见的根因。
             mSubtitleView.setSubtitleText(text);
         } else {
-            mLastShownText = null;
-            // 未命中用 clearSubtitle 触发隐藏（而非裸 setText("") + GONE，
-            // 保持 SubtitleView 内部状态机一致）
-            mSubtitleView.clearSubtitle();
+            // 未命中：立即隐藏（文字+背景条一起消失）。
+            // 不用 clearSubtitle()——其 scheduleHide 有 2s 默认延迟（mHideDelay），
+            // 且淡出动画期间 mIsShowing 仍 true，100ms 轮询会反复重启动画导致
+            // 半透明背景条永久挂屏。hideImmediately() 同步复位视图状态。
+            if (mLastShownText != null || mSubtitleView.isSubtitleShowing()) {
+                mLastShownText = null;
+                mSubtitleView.hideImmediately();
+            }
         }
     }
 
@@ -843,9 +847,10 @@ public class SubtitleManager {
         mSubtitles.clear();
         mLoaded = false;
         mCurrentSubtitlePath = null;
+        mLastShownText = null;
         if (mSubtitleView != null) {
             mSubtitleView.setText("");
-            mSubtitleView.setVisibility(View.GONE);
+            mSubtitleView.hideImmediately();
         }
         clearMedia3Cues();
     }
