@@ -61,6 +61,15 @@ jobs:
           KEY_ALIAS="${APK_KEY_ALIAS:-smlieapp}"
           keytool -list -keystore app/smlieapp.jks -storepass "$STORE_PASS" -alias "$KEY_ALIAS" >/dev/null
 
+      - name: Prepare libmpv mavenrepo (local resolution for CI)
+        # libmpv-central 发布的 Central 坐标 io.github.706412584:libmpv 在 Central 上
+        # 只有 .aar 缺 .jar（AGP android-classes-jar transform 需要 jar 变体），
+        # CI 无本地 mavenrepo 会解析失败。此步生成带 jar 的 mavenrepo 供构建使用。
+        run: |
+          ./gradlew :libmpv-central:publishMavenPublicationToLocalRepository
+          mkdir -p orangeplayer-mpv/mavenrepo/io
+          cp -r libmpv-central/build/repo/io/github orangeplayer-mpv/mavenrepo/io/github
+
       - name: Build Release APK (${{ matrix.abi }})
         env:
           ORG_GRADLE_PROJECT_orangeAppReleaseAbis: ${{ matrix.abi }}

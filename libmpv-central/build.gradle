@@ -20,6 +20,60 @@ plugins {
 def upstreamAar = file("${projectDir}/libs/libmpv-1.0.0.aar")
 def libmpvVersion = '1.0.0'   // 跟随上游版本，非主仓 pomVersion
 
+// ===== 从 AAR 内提取 classes.jar 作为独立主 artifact =====
+// 背景：本模块仅再分发上游 AAR，但 AGP 从 Maven 坐标解析 AAR 时，
+// `android-classes-jar` transform 需要仓库同时存在 <artifactId>-<version>.jar
+// （Gradle 先匹配 jar 变体再提取 classes）。Central 上若只有 .aar 缺 .jar，
+// CI/无本地 mavenrepo 环境会报 "Could not find libmpv-<ver>.jar"。故从 AAR
+// 内抽出 classes.jar（dev.jdtech 绑定类）一并发布，补齐 jar artifact。
+
+def extractAarClassesJar = tasks.register('extractAarClassesJar') {
+    def aar = upstreamAar
+    def outDir = layout.buildDirectory.dir('classes-jar')
+    inputs.file(aar)
+    outputs.dir(outDir)
+    doLast {
+        def out = outDir.get().asFile
+        out.mkdirs()
+        // 用 zip 文件树解出 classes.jar（避免对上传物做字节级改动）
+        def zipFile = new java.util.zip.ZipFile(aar)
+        try {
+            def entry = zipFile.getEntry('classes.jar')
+            if (entry == null) throw new GradleException("AAR 内无 classes.jar: ${aar}")
+            def dest = new File(out, 'classes.jar')
+            dest.withOutputStream { outStream ->
+                def inp = zipFile.getInputStream(entry)
+                try {
+                    byte[] buf = new byte[8192]
+                    int n
+                    while ((n = inp.read(buf)) > 0) {
+                        outStream.write(buf, 0, n)
+                    }
+                } finally {
+                    inp.close()
+                }
+            }
+        } finally {
+            zipFile.close()
+        }
+    }
+}
+
+def classesJar = tasks.register('classesJar', Jar) {
+    dependsOn extractAarClassesJar
+    archiveFileName = "libmpv-${libmpvVersion}.jar"
+    destinationDirectory = layout.buildDirectory.dir('libs')
+    def classesJarFile = new File(extractAarClassesJar.get().outputs.files.singleFile, 'classes.jar')
+    inputs.file(classesJarFile)
+    from(zipTree(classesJarFile)) {
+        include '**/*.class'
+        // 剔除签名/清单，避免与 AAR 内清单冲突
+        exclude 'META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'
+    }
+    // 用 NOTICE 兜底 manifest
+    manifest { attributes 'Implementation-Title': 'libmpv classes', 'Implementation-Version': libmpvVersion }
+}
+
 // ===== 空 sources/javadoc（携带 NOTICE 说明第三方来源，满足 Central 组件要求） =====
 
 def noticeText = """libmpv ${libmpvVersion} (redistributed, unmodified)
@@ -55,6 +109,9 @@ publishing {
             version = libmpvVersion
             artifact(upstreamAar) {
                 extension = 'aar'
+            }
+            artifact(classesJar) {
+                extension = 'jar'
             }
             artifact sourcesJar
             artifact javadocJar
