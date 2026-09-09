@@ -88,13 +88,19 @@ jobs:
           APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
           APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
           APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
-          # libmpv AAR 的 classes.jar 为 Java 21 字节码（v65），orangeplayer-mpv
-          # 编译需 fork JDK 21。GitHub runner 预装 JDK 21（JAVA_HOME_21_X64）。
-          ORANGE_MPV_JDK21: ${{ env.JAVA_HOME_21_X64 }}
         run: |
           STORE_PASS="${APK_KEYSTORE_PASSWORD:-123123}"
           KEY_ALIAS="${APK_KEY_ALIAS:-smlieapp}"
           KEY_PASS="${APK_KEY_PASSWORD:-123123}"
+          # libmpv AAR 的 classes.jar 为 Java 21 字节码（v65），orangeplayer-mpv
+          # 编译需 fork JDK 21。runner 预装 JDK 21 路径在 shell 环境变量
+          # JAVA_HOME_21_X64（不是 Actions env 上下文），显式导出给 Gradle。
+          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export ORANGE_MPV_JDK21="$JAVA_HOME_21_X64"
+            echo "Using JDK21: $ORANGE_MPV_JDK21"
+          else
+            echo "WARN: JAVA_HOME_21_X64 not set, orangeplayer-mpv may fail to compile"
+          fi
           ./gradlew :app:assembleRelease \
             -PorangeFfmpegAbis="${{ matrix.abi }}" \
             -PappStorePassword="$STORE_PASS" \
