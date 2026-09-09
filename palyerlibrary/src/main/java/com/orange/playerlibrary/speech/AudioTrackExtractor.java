@@ -74,7 +74,10 @@ public class AudioTrackExtractor {
             try {
                 decoder.configure(format, null, null, 0);
                 decoder.start();
-                try (FileOutputStream out = new FileOutputStream(pcmFile)) {
+                // BufferedOutputStream：writeMonoPcm 逐 buffer 写盘，缓冲后避免数万次
+                // 小 syscall（长视频 4min+ 立体声解码性能关键）
+                try (java.io.BufferedOutputStream out =
+                             new java.io.BufferedOutputStream(new FileOutputStream(pcmFile), 256 * 1024)) {
                     decodeLoop(extractor, decoder, out, durationUs, listener);
                 } finally {
                     try {
@@ -103,7 +106,7 @@ public class AudioTrackExtractor {
     }
 
     private static void decodeLoop(MediaExtractor extractor, MediaCodec decoder,
-                                   FileOutputStream out, long durationUs,
+                                   java.io.OutputStream out, long durationUs,
                                    ExtractListener listener) throws IOException {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         boolean inputDone = false;
@@ -177,7 +180,7 @@ public class AudioTrackExtractor {
     }
 
     /** 交错 s16 PCM 混单声道写流（逐样本均值） */
-    private static void writeMonoPcm(ByteBuffer src, int channels, FileOutputStream out)
+    private static void writeMonoPcm(ByteBuffer src, int channels, java.io.OutputStream out)
             throws IOException {
         int frames = src.remaining() / 2 / Math.max(1, channels);
         byte[] mono = new byte[frames * 2];

@@ -32,11 +32,18 @@ public class AudioResampler {
             throw new IOException("音频过大（>1.5GB 输入）无法重采样");
         }
 
-        // 读入全部并混单声道
+        // 读入全部并混单声道（readAllBytes 是 Java9+，Android 10 没有——用循环读）
         int totalFrames;
         short[] mono;
         try (InputStream in = new FileInputStream(inFile)) {
-            byte[] all = in.readAllBytes();
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream(
+                    (int) Math.min(inFile.length(), Integer.MAX_VALUE - 8));
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                bos.write(buf, 0, n);
+            }
+            byte[] all = bos.toByteArray();
             totalFrames = all.length / (2 * inChannels);
             mono = new short[totalFrames];
             for (int i = 0; i < totalFrames; i++) {
