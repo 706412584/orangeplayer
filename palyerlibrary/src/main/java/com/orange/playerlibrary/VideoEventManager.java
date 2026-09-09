@@ -116,12 +116,54 @@ public class VideoEventManager {
      * 问题：TextureView 模式下全屏切换（屏幕旋转）会导致 MediaCodec 崩溃
     /**
      * 处理播放器状态变化（用于 OCR 全屏切换）
-     * 
+     *
      * 注意：由于 MediaCodecTexture 修复，OCR 现在可以在任何渲染模式下工作
      * 不再需要在全屏切换时暂停/恢复 OCR
      */
     private void handlePlayerStateChangedForOcr(int playerState) {
         // OCR 现在可以在全屏切换时正常工作，无需特殊处理
+    }
+
+    /**
+     * 【测试专用】直接触发播放器 UI 事件，绕过点击链路。
+     * 供自动化测试（adb broadcast 或宿主 app 调试入口）调用。
+     * 必须在主线程执行。
+     *
+     * 支持命令：
+     *  subtitle_dialog  打开字幕设置对话框
+     *  ai_settings      打开 AI 翻译设置对话框
+     *  ai_translate     立即执行 AI 批量翻译（需已加载字幕且已配置 Key）
+     *  ocr_settings     打开 OCR 翻译设置
+     *  speech_settings  打开语音识别设置
+     */
+    public void handleTestCommand(String command) {
+        if (command == null) {
+            return;
+        }
+        Log.d(TAG, "handleTestCommand: " + command);
+        try {
+            switch (command) {
+                case "subtitle_dialog":
+                    showSubtitleDialog(null);
+                    break;
+                case "ai_settings":
+                    showAiSettingsDialog();
+                    break;
+                case "ai_translate":
+                    startAiTranslate();
+                    break;
+                case "ocr_settings":
+                    showOcrTranslateSettings();
+                    break;
+                case "speech_settings":
+                    showSpeechTranslateSettings();
+                    break;
+                default:
+                    Log.w(TAG, "未知测试命令: " + command);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "handleTestCommand(" + command + ") 执行异常", e);
+        }
     }
     
     /**

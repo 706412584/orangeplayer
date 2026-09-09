@@ -64,9 +64,43 @@ public class MainActivity extends AppCompatActivity {
     private String mCurrentUrl = DEFAULT_VIDEO_URL;
     private String mCurrentTitle = DEFAULT_VIDEO_TITLE;
 
+    /**
+     * 【测试专用】adb 广播入口：直接触发播放器 UI 事件（绕过点击链路）。
+     * 用法：
+     *   adb shell am broadcast -a com.orange.player.TEST_CMD --es cmd subtitle_dialog
+     * 支持命令见 VideoEventManager.handleTestCommand()。
+     */
+    private static final String TEST_CMD_ACTION = "com.orange.player.TEST_CMD";
+    private final android.content.BroadcastReceiver mTestCmdReceiver =
+            new android.content.BroadcastReceiver() {
+        @Override
+        public void onReceive(android.content.Context context, android.content.Intent intent) {
+            final String cmd = intent.getStringExtra("cmd");
+            if (cmd == null) {
+                return;
+            }
+            // 必须在主线程执行（涉及 UI 弹窗）
+            runOnUiThread(() -> {
+                if (mController == null || mController.getVideoEventManager() == null) {
+                    android.util.Log.w("MainActivity", "TEST_CMD: 控制器未就绪, cmd=" + cmd);
+                    return;
+                }
+                mController.getVideoEventManager().handleTestCommand(cmd);
+            });
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // 【测试专用】注册测试命令广播（仅测试环境使用，无安全风险暴露面）
+        try {
+            android.content.IntentFilter filter = new android.content.IntentFilter(TEST_CMD_ACTION);
+            registerReceiver(mTestCmdReceiver, filter);
+        } catch (Exception e) {
+            android.util.Log.w("MainActivity", "注册测试广播失败", e);
+        }
 
         // M3U8 去广告状态改为从设置恢复（onCreate 后半段按偏好同步 M3U8AdManager，
         // 必须在 setContentView 之前先按设置初始化，避免首帧播放用错状态）
@@ -671,6 +705,10 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        try {
+            unregisterReceiver(mTestCmdReceiver);
+        } catch (Exception ignored) {
+        }
         if (mSessionHelper != null) {
             mSessionHelper.stop();
             mSessionHelper = null;
