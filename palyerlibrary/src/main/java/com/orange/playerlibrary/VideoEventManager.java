@@ -3362,11 +3362,242 @@ public class VideoEventManager {
                     });
                 }
             }
-            
+
+            // ===== AI 批量翻译字幕（LLM 分批翻译已加载的外挂字幕）=====
+            android.widget.TextView aiStatus = dialogView.findViewById(R.id.ai_status);
+            View btnAiTranslate = dialogView.findViewById(R.id.btn_ai_translate);
+            View btnAiSettings = dialogView.findViewById(R.id.btn_ai_settings);
+
+            boolean subtitleLoaded = mController != null
+                    && mController.getSubtitleManager() != null
+                    && mController.getSubtitleManager().getSubtitleCount() > 0;
+            boolean aiConfigured = mSettingsManager.isAiConfigured();
+
+            if (btnAiSettings != null) {
+                btnAiSettings.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    showAiSettingsDialog();
+                });
+            }
+
+            if (btnAiTranslate != null) {
+                if (!aiConfigured) {
+                    if (aiStatus != null) {
+                        aiStatus.setText("未配置 AI Key——点「AI 设置」填入接口地址与 Key");
+                        aiStatus.setTextColor(0xFFFF6B6B);
+                    }
+                    ((android.widget.Button) btnAiTranslate).setText("先配置 AI");
+                    btnAiTranslate.setOnClickListener(v -> {
+                        dialog.dismiss();
+                        showAiSettingsDialog();
+                    });
+                } else if (isAiTranslating()) {
+                    if (aiStatus != null) {
+                        aiStatus.setText("AI 翻译进行中，请稍候...");
+                        aiStatus.setTextColor(0xFF4CAF50);
+                    }
+                    ((android.widget.Button) btnAiTranslate).setText("翻译中");
+                    btnAiTranslate.setEnabled(false);
+                } else if (!subtitleLoaded) {
+                    if (aiStatus != null) {
+                        aiStatus.setText("请先加载字幕（本地/网络）再使用 AI 翻译");
+                        aiStatus.setTextColor(0xFFFF8F3F);
+                    }
+                    ((android.widget.Button) btnAiTranslate).setText("开始翻译");
+                    btnAiTranslate.setOnClickListener(v ->
+                            showToast("请先加载字幕再使用 AI 翻译"));
+                } else {
+                    if (aiStatus != null) {
+                        aiStatus.setText("将 " + mController.getSubtitleManager().getSubtitleCount()
+                                + " 条字幕翻译为「" + mSettingsManager.getAiTargetLang() + "」");
+                        aiStatus.setTextColor(0xFF4CAF50);
+                    }
+                    btnAiTranslate.setOnClickListener(v -> {
+                        dialog.dismiss();
+                        startAiTranslate();
+                    });
+                }
+            }
+
         } catch (Exception e) {
         }
     }
     
+    /**
+     * 显示 AI 翻译设置对话框（API Key / 地址 / 模型 / 目标语言）
+     */
+    private void showAiSettingsDialog() {
+        View dialogView = View.inflate(mActivity, R.layout.dialog_ai_settings, null);
+
+        final AlertDialog dialog = DialogUtils.showCustomDialog(mActivity, dialogView,
+                DialogUtils.DialogPosition.CENTER, null, null);
+
+        android.widget.EditText etKey = dialogView.findViewById(R.id.et_ai_api_key);
+        android.widget.EditText etBase = dialogView.findViewById(R.id.et_ai_base_url);
+        android.widget.EditText etModel = dialogView.findViewById(R.id.et_ai_model);
+        android.widget.EditText etTarget = dialogView.findViewById(R.id.et_ai_target_lang);
+
+        if (etKey != null) etKey.setText(mSettingsManager.getAiApiKey());
+        if (etBase != null) etBase.setText(mSettingsManager.getAiBaseUrl());
+        if (etModel != null) etModel.setText(mSettingsManager.getAiModel());
+        if (etTarget != null) etTarget.setText(mSettingsManager.getAiTargetLang());
+
+        View btnCancel = dialogView.findViewById(R.id.btn_ai_settings_cancel);
+        if (btnCancel != null) {
+            btnCancel.setOnClickListener(v -> dialog.dismiss());
+        }
+
+        View btnSave = dialogView.findViewById(R.id.btn_ai_settings_save);
+        if (btnSave != null) {
+            btnSave.setOnClickListener(v -> {
+                if (etKey != null) mSettingsManager.setAiApiKey(etKey.getText().toString());
+                if (etBase != null) mSettingsManager.setAiBaseUrl(etBase.getText().toString());
+                if (etModel != null) mSettingsManager.setAiModel(etModel.getText().toString());
+                if (etTarget != null) mSettingsManager.setAiTargetLang(etTarget.getText().toString());
+                dialog.dismiss();
+                if (mSettingsManager.isAiConfigured()) {
+                    showToast("AI 翻译已配置：" + mSettingsManager.getAiModel());
+                } else {
+                    showToast("未填写 API Key，AI 翻译不可用");
+                }
+            });
+        }
+    }
+
+    private volatile boolean mIsAiTranslating = false;
+
+    private boolean isAiTranslating() {
+        return mIsAiTranslating;
+    }
+
+    /**
+     * 开始 AI 批量翻译当前已加载字幕。
+     * 后台线程执行（网络 + LLM 分批），完成后主线程回写 SubtitleManager 并刷新显示。
+     */
+    private void startAiTranslate() {
+        final com.orange.playerlibrary.subtitle.SubtitleManager subtitleManager =
+                mController != null ? mController.getSubtitleManager() : null;
+        if (subtitleManager == null || subtitleManager.getSubtitleCount() == 0) {
+            showToast("没有已加载的字幕");
+            return;
+        }
+        if (!mSettingsManager.isAiConfigured()) {
+            showToast("请先在 AI 设置中填写 API Key");
+            showAiSettingsDialog();
+            return;
+        }
+        if (mIsAiTranslating) {
+            showToast("AI 翻译已在运行");
+            return;
+        }
+
+        // 快照字幕与视频标识（翻译过程中用户可能切换视频/字幕）
+        final java.util.List<com.orange.playerlibrary.subtitle.SubtitleEntry> snapshot =
+                subtitleManager.getSubtitles();
+        final String subtitlePath = subtitleManager.getCurrentSubtitlePath();
+        final String videoUrl = mVideoView.getUrl();
+        final String targetLang = mSettingsManager.getAiTargetLang();
+
+        // 目标语言占位为空时翻译结果不显示（防御）
+        if (targetLang == null || targetLang.trim().isEmpty()) {
+            showToast("请在 AI 设置中填写目标语言");
+            return;
+        }
+
+        mIsAiTranslating = true;
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(mActivity);
+        progress.setMessage("AI 翻译中 0%");
+        progress.setCancelable(false);
+        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        progress.setMax(100);
+        progress.show();
+
+        new Thread(() -> {
+            try {
+                final com.orange.playerlibrary.ai.TranslatorSettings settings =
+                        com.orange.playerlibrary.ai.TranslatorSettings.builder()
+                                .baseUrl(mSettingsManager.getAiBaseUrl())
+                                .apiKey(mSettingsManager.getAiApiKey())
+                                .model(mSettingsManager.getAiModel())
+                                .targetLanguage(targetLang)
+                                .build();
+
+                // SubtitleEntry -> SubtitleLine
+                java.util.List<com.orange.playerlibrary.ai.SubtitleLine> lines =
+                        new java.util.ArrayList<>();
+                for (int i = 0; i < snapshot.size(); i++) {
+                    String text = snapshot.get(i).getText();
+                    lines.add(new com.orange.playerlibrary.ai.SubtitleLine(i,
+                            text == null ? "" : text.trim()));
+                }
+
+                final int total = lines.size();
+                com.orange.playerlibrary.ai.AiTranslationEngine engine =
+                        new com.orange.playerlibrary.ai.AiTranslationEngine(
+                                new com.orange.playerlibrary.ai.OpenAiCompatibleProvider());
+
+                // 缓存目录：应用缓存目录下按视频/字幕区分
+                java.io.File cacheRoot = new java.io.File(
+                        mActivity.getCacheDir(), "ai_translation");
+                String cacheKey = "sub=" + (subtitlePath == null ? "" : subtitlePath)
+                        + "|url=" + (videoUrl == null ? "" : videoUrl)
+                        + "|to=" + targetLang;
+
+                com.orange.playerlibrary.ai.AiTranslationEngine.Result result =
+                        engine.translateAll(cacheRoot, cacheKey, lines, settings,
+                                (done, totalCount) -> {
+                                    int pct = totalCount > 0
+                                            ? (int) (done * 100L / totalCount) : 100;
+                                    mActivity.runOnUiThread(() -> {
+                                        if (progress.isShowing()) {
+                                            progress.setProgress(pct);
+                                            progress.setMessage("AI 翻译中 " + pct + "%"
+                                                    + "（" + done + "/" + totalCount + "）");
+                                        }
+                                    });
+                                });
+
+                // 主线程回写：校验字幕未被替换（路径/数量一致才回写）
+                mActivity.runOnUiThread(() -> {
+                    try {
+                        progress.dismiss();
+                    } catch (Exception ignored) {
+                    }
+                    if (subtitleManager.getSubtitleCount() == snapshot.size()
+                            && (subtitlePath == null
+                            || subtitlePath.equals(subtitleManager.getCurrentSubtitlePath()))) {
+                        String[] translated = new String[result.lines.size()];
+                        for (com.orange.playerlibrary.ai.SubtitleLine l : result.lines) {
+                            if (l.hasTranslation()) {
+                                translated[l.getIdx()] = l.getTranslated();
+                            }
+                        }
+                        int written = subtitleManager.applyAiTranslation(translated);
+                        if (result.untranslated == 0) {
+                            showToast("AI 翻译完成：" + written + "/" + total + " 条已替换");
+                        } else {
+                            showToast("AI 翻译部分完成：" + written + "/" + total
+                                    + " 条成功，" + result.untranslated + " 条失败可重试");
+                        }
+                    } else {
+                        showToast("字幕已切换，翻译结果未应用（已缓存，重新加载后可重试）");
+                    }
+                    mIsAiTranslating = false;
+                });
+            } catch (Throwable t) {
+                Log.e(TAG, "AI 翻译失败", t);
+                mActivity.runOnUiThread(() -> {
+                    try {
+                        progress.dismiss();
+                    } catch (Exception ignored) {
+                    }
+                    showToast("AI 翻译失败: " + t.getMessage());
+                    mIsAiTranslating = false;
+                });
+            }
+        }, "ai-subtitle-translate").start();
+    }
+
     /**
      * 显示字幕文件选择器
      */

@@ -847,11 +847,44 @@ public class SubtitleManager {
     public String getCurrentSubtitlePath() {
         return mCurrentSubtitlePath;
     }
-    
+
     public int getSubtitleCount() {
         return mSubtitles.size();
     }
-    
+
+    /**
+     * 只读访问字幕条目（AI 批翻译等场景需要整体读取/回写）。
+     * 返回视图副本，外部改动不影响内部列表结构，但可修改 SubtitleEntry 文本字段。
+     */
+    public java.util.List<SubtitleEntry> getSubtitles() {
+        return new java.util.ArrayList<>(mSubtitles);
+    }
+
+    /**
+     * AI 批翻译回写：把翻译结果写回字幕条目文本并刷新显示。
+     * @param translatedTexts 按字幕列表顺序的译文数组；null 元素表示该条保持原文
+     * @return 实际回写条数
+     */
+    public int applyAiTranslation(String[] translatedTexts) {
+        if (translatedTexts == null) {
+            return 0;
+        }
+        int written = 0;
+        int limit = Math.min(translatedTexts.length, mSubtitles.size());
+        for (int i = 0; i < limit; i++) {
+            String t = translatedTexts[i];
+            if (t != null && !t.trim().isEmpty()) {
+                mSubtitles.get(i).setText(t.trim());
+                written++;
+            }
+        }
+        // 刷新当前帧字幕显示
+        if (mProgressProvider != null && mSubtitleView != null) {
+            updateSubtitle();
+        }
+        return written;
+    }
+
     private int dpToPx(int dp) {
         return (int) (dp * mContext.getResources().getDisplayMetrics().density);
     }

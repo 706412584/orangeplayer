@@ -177,6 +177,60 @@
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="16dp" />
 
+            <!-- AI 批量翻译字幕 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="AI 批量翻译"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                android:id="@+id/ai_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="AI 翻译已加载的字幕（分批请求 LLM，一次译完）"
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_ai_translate"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="40dp"
+                    android:text="开始翻译"
+                    android:textColor="@color/op_text_primary"
+                    android:textSize="13sp"
+                    android:background="@drawable/btn_subtitle_bg"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_ai_settings"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="40dp"
+                    android:text="AI 设置"
+                    android:textColor="@color/op_text_primary"
+                    android:textSize="13sp"
+                    android:background="@drawable/btn_subtitle_bg" />
+            </LinearLayout>
+
+            <!-- 分隔线 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp" />
+
             <!-- 字幕大小 -->
             <TextView
                 android:id="@+id/subtitle_size_text"

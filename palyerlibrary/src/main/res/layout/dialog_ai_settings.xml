@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/setup_card_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <!-- 标题 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="AI 翻译设置"
+            android:textColor="@color/op_text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <!-- 说明 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="接入 OpenAI 兼容接口（DeepSeek / Qwen / 智谱 / agnes 等均可）。批量翻译字幕时使用，每批一次请求，术语全片一致。"
+            android:textColor="@color/op_text_secondary"
+            android:textSize="12sp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- API Key -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="API Key"
+            android:textColor="@color/op_text_primary"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/et_ai_api_key"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:background="@drawable/edit_text_bg"
+            android:hint="sk-..."
+            android:textColor="@color/op_text_primary"
+            android:textColorHint="@color/op_text_tertiary"
+            android:textSize="13sp"
+            android:paddingHorizontal="12dp"
+            android:singleLine="true"
+            android:inputType="textPassword"
+            android:imeOptions="actionNext"
+            android:layout_marginBottom="12dp" />
+
+        <!-- API 地址 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="API 地址（OpenAI 兼容 /v1）"
+            android:textColor="@color/op_text_primary"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/et_ai_base_url"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:background="@drawable/edit_text_bg"
+            android:hint="https://apihub.agnes-ai.com/v1"
+            android:textColor="@color/op_text_primary"
+            android:textColorHint="@color/op_text_tertiary"
+            android:textSize="13sp"
+            android:paddingHorizontal="12dp"
+            android:singleLine="true"
+            android:inputType="textUri"
+            android:imeOptions="actionNext"
+            android:layout_marginBottom="12dp" />
+
+        <!-- 模型 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="模型"
+            android:textColor="@color/op_text_primary"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/et_ai_model"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:background="@drawable/edit_text_bg"
+            android:hint="agnes-2.5-flash"
+            android:textColor="@color/op_text_primary"
+            android:textColorHint="@color/op_text_tertiary"
+            android:textSize="13sp"
+            android:paddingHorizontal="12dp"
+            android:singleLine="true"
+            android:imeOptions="actionNext"
+            android:layout_marginBottom="12dp" />
+
+        <!-- 目标语言 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="目标语言"
+            android:textColor="@color/op_text_primary"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/et_ai_target_lang"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:background="@drawable/edit_text_bg"
+            android:hint="简体中文"
+            android:textColor="@color/op_text_primary"
+            android:textColorHint="@color/op_text_tertiary"
+            android:textSize="13sp"
+            android:paddingHorizontal="12dp"
+            android:singleLine="true"
+            android:imeOptions="actionDone"
+            android:layout_marginBottom="20dp" />
+
+        <!-- 按钮区域 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end">
+
+            <Button
+                android:id="@+id/btn_ai_settings_cancel"
+                android:layout_width="80dp"
+                android:layout_height="36dp"
+                android:text="取消"
+                android:textColor="@color/op_text_secondary"
+                android:textSize="14sp"
+                android:background="@android:color/transparent" />
+
+            <Button
+                android:id="@+id/btn_ai_settings_save"
+                android:layout_width="80dp"
+                android:layout_height="36dp"
+                android:text="保存"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:background="@drawable/btn_subtitle_bg"
+                android:layout_marginStart="8dp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

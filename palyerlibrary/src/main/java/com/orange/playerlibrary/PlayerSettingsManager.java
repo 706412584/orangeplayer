@@ -558,7 +558,7 @@ public class PlayerSettingsManager {
     }
 
     // ===== 记忆播放设置 =====
-    
+
     /**
      * 设置是否启用记忆播放功能
      * @param enabled true 启用，false 禁用
@@ -566,12 +566,68 @@ public class PlayerSettingsManager {
     public void setMemoryPlayEnabled(boolean enabled) {
         mPreferences.edit().putBoolean(KEY_MEMORY_PLAY_ENABLED, enabled).apply();
     }
-    
+
     /**
      * 查询是否启用了记忆播放功能
      * @return true 启用，false 禁用（默认禁用）
      */
     public boolean isMemoryPlayEnabled() {
         return mPreferences.getBoolean(KEY_MEMORY_PLAY_ENABLED, false); // 默认关闭
+    }
+
+    // ===== AI 翻译设置（批量 LLM 字幕翻译）=====
+
+    private static final String KEY_AI_API_KEY = "ai_api_key";
+    private static final String KEY_AI_BASE_URL = "ai_base_url";
+    private static final String KEY_AI_MODEL = "ai_model";
+    private static final String KEY_AI_TARGET_LANG = "ai_target_lang";
+
+    /** 默认接入点（OpenAI 兼容协议；可在设置里改 Qwen/GLM 等任意端点） */
+    public static final String DEFAULT_AI_BASE_URL = "https://apihub.agnes-ai.com/v1";
+    public static final String DEFAULT_AI_MODEL = "agnes-2.5-flash";
+    public static final String DEFAULT_AI_TARGET_LANG = "简体中文";
+
+    /**
+     * 保存 AI API Key。
+     * 注意：明文存于 SharedPreferences（与播放器本地存储一致）；如需更高安全可改用
+     * Android Keystore 加密，但本应用为本地播放器场景，明文可接受。
+     */
+    public void setAiApiKey(String key) {
+        mPreferences.edit().putString(KEY_AI_API_KEY, key == null ? "" : key.trim()).apply();
+    }
+
+    public String getAiApiKey() {
+        return mPreferences.getString(KEY_AI_API_KEY, "");
+    }
+
+    public boolean isAiConfigured() {
+        return !getAiApiKey().trim().isEmpty();
+    }
+
+    public void setAiBaseUrl(String url) {
+        mPreferences.edit().putString(KEY_AI_BASE_URL,
+                url == null || url.trim().isEmpty() ? DEFAULT_AI_BASE_URL : url.trim()).apply();
+    }
+
+    public String getAiBaseUrl() {
+        return mPreferences.getString(KEY_AI_BASE_URL, DEFAULT_AI_BASE_URL);
+    }
+
+    public void setAiModel(String model) {
+        mPreferences.edit().putString(KEY_AI_MODEL,
+                model == null || model.trim().isEmpty() ? DEFAULT_AI_MODEL : model.trim()).apply();
+    }
+
+    public String getAiModel() {
+        return mPreferences.getString(KEY_AI_MODEL, DEFAULT_AI_MODEL);
+    }
+
+    public void setAiTargetLang(String lang) {
+        mPreferences.edit().putString(KEY_AI_TARGET_LANG,
+                lang == null || lang.trim().isEmpty() ? DEFAULT_AI_TARGET_LANG : lang.trim()).apply();
+    }
+
+    public String getAiTargetLang() {
+        return mPreferences.getString(KEY_AI_TARGET_LANG, DEFAULT_AI_TARGET_LANG);
     }
 }
