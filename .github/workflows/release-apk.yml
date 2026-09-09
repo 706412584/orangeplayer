@@ -64,11 +64,23 @@ jobs:
       - name: Prepare libmpv mavenrepo (local resolution for CI)
         # libmpv-central 发布的 Central 坐标 io.github.706412584:libmpv 在 Central 上
         # 只有 .aar 缺 .jar（AGP android-classes-jar transform 需要 jar 变体），
-        # CI 无本地 mavenrepo 会解析失败。此步生成带 jar 的 mavenrepo 供构建使用。
+        # CI 无本地 mavenrepo 会解析失败。此步从 Central 拉取 AAR 并解出 classes.jar，
+        # 生成带 jar 的 mavenrepo 供构建使用（不依赖 git 内的 AAR，AAR 47MB 不入库）。
         run: |
-          ./gradlew :libmpv-central:publishMavenPublicationToLocalRepository
-          mkdir -p orangeplayer-mpv/mavenrepo/io
-          cp -r libmpv-central/build/repo/io/github orangeplayer-mpv/mavenrepo/io/github
+          set -e
+          LMPV_DIR=orangeplayer-mpv/mavenrepo/io/github/706412584/libmpv/1.0.0
+          mkdir -p "$LMPV_DIR"
+          # 从 Central 拉取 aar（无法用 gradle 缓存时直接从官方仓库下载）
+          curl -sfL -o "$LMPV_DIR/libmpv-1.0.0.aar" \
+            https://repo1.maven.org/maven2/io/github/706412584/libmpv/1.0.0/libmpv-1.0.0.aar
+          # 解出 AAR 内 classes.jar 作为独立 jar（AGP transform 需要 jar 变体）
+          cd "$LMPV_DIR"
+          unzip -o -j libmpv-1.0.0.aar classes.jar >/dev/null
+          mv classes.jar libmpv-1.0.0.jar
+          # pom 与 checksum（Gradle 本地仓库解析需要 pom；checksum 可选但本地仓库通常要求）
+          curl -sfL -o libmpv-1.0.0.pom \
+            https://repo1.maven.org/maven2/io/github/706412584/libmpv/1.0.0/libmpv-1.0.0.pom
+          cd -
 
       - name: Build Release APK (${{ matrix.abi }})
         env:
