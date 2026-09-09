@@ -88,6 +88,9 @@ jobs:
           APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
           APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
           APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+          # libmpv AAR 的 classes.jar 为 Java 21 字节码（v65），orangeplayer-mpv
+          # 编译需 fork JDK 21。GitHub runner 预装 JDK 21（JAVA_HOME_21_X64）。
+          ORANGE_MPV_JDK21: ${{ env.JAVA_HOME_21_X64 }}
         run: |
           STORE_PASS="${APK_KEYSTORE_PASSWORD:-123123}"
           KEY_ALIAS="${APK_KEY_ALIAS:-smlieapp}"
