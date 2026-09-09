@@ -29,7 +29,7 @@ jobs:
       - name: Strip local Windows JDK path (if present)
         run: sed -i '/^org.gradle.java.home=/d' gradle.properties || true
 
-      - name: mpv prototype isolation check
+      - name: mpv integration architecture check
         run: bash scripts/check_mpv_isolation.sh
 
       - name: Run unit tests
