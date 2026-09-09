@@ -231,6 +231,42 @@
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="16dp" />
 
+            <!-- AI 语音生成字幕（离线 ASR：抽音轨→识别→字幕） -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="AI 语音生成字幕"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                android:id="@+id/asr_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="识别视频音轨自动生成字幕（支持中/英/日/韩）"
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btn_asr_generate"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="生成本视频字幕"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
+            <!-- 分隔线 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp" />
+
             <!-- 字幕大小 -->
             <TextView
                 android:id="@+id/subtitle_size_text"

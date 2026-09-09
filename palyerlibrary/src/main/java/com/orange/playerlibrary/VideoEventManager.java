@@ -31,6 +31,8 @@ public class VideoEventManager {
     
     // 字幕文件选择请求码
     public static final int REQUEST_CODE_SUBTITLE_FILE = 10086;
+    // ASR 视频文件选择请求码
+    public static final int REQUEST_CODE_ASR_VIDEO = 10087;
     
     private final Context mContext;
     private final OrangevideoView mVideoView;
@@ -162,9 +164,20 @@ public class VideoEventManager {
                 }
                 return;
             }
+            // 复合命令：asr_gen_path:<视频绝对路径> —— 直接对文件生成字幕（测试用）
+            if (command.startsWith("asr_gen_path:")) {
+                String p = command.substring("asr_gen_path:".length()).trim();
+                if (!p.isEmpty()) {
+                    startAsrGenerate(new java.io.File(p));
+                }
+                return;
+            }
             switch (command) {
                 case "subtitle_dialog":
                     showSubtitleDialog(null);
+                    break;
+                case "asr_gen_ui":
+                    startAsrGenerateUi();
                     break;
                 case "ai_settings":
                     showAiSettingsDialog();
@@ -3481,6 +3494,48 @@ public class VideoEventManager {
                 }
             }
 
+            // ===== AI 语音生成字幕（离线 ASR）=====
+            android.widget.TextView asrStatus = dialogView.findViewById(R.id.asr_status);
+            View btnAsrGenerate = dialogView.findViewById(R.id.btn_asr_generate);
+            if (btnAsrGenerate != null) {
+                boolean sherpaOk = com.orange.playerlibrary.speech.SherpaAvailabilityChecker
+                        .isSherpaAvailable();
+                boolean modelReady = com.orange.playerlibrary.speech.AsrSubtitleGenerator
+                        .isModelReady(mContext);
+                if (!sherpaOk) {
+                    if (asrStatus != null) {
+                        asrStatus.setText("未安装 ASR 引擎");
+                        asrStatus.setTextColor(0xFFFF6B6B);
+                    }
+                    btnAsrGenerate.setOnClickListener(v ->
+                            showToast("未安装 ASR 引擎模块"));
+                } else if (!modelReady) {
+                    if (asrStatus != null) {
+                        asrStatus.setText("ASR 模型未下载（约 240MB，支持中/英/日/韩）");
+                        asrStatus.setTextColor(0xFFFF8F3F);
+                    }
+                    ((android.widget.Button) btnAsrGenerate).setText("模型未下载");
+                    btnAsrGenerate.setOnClickListener(v ->
+                            showToast("请先把模型放入 " + com.orange.playerlibrary.speech
+                                    .AsrSubtitleGenerator.getModelDir(mContext).getAbsolutePath()));
+                } else if (mIsAsrGenerating) {
+                    if (asrStatus != null) {
+                        asrStatus.setText("语音字幕生成中...");
+                        asrStatus.setTextColor(0xFF4CAF50);
+                    }
+                    btnAsrGenerate.setEnabled(false);
+                } else {
+                    if (asrStatus != null) {
+                        asrStatus.setText("识别视频音轨生成字幕（选视频文件）");
+                        asrStatus.setTextColor(0xFF4CAF50);
+                    }
+                    btnAsrGenerate.setOnClickListener(v -> {
+                        dialog.dismiss();
+                        startAsrGenerateUi();
+                    });
+                }
+            }
+
         } catch (Exception e) {
         }
     }
@@ -3685,6 +3740,135 @@ public class VideoEventManager {
         }, "ai-subtitle-translate").start();
     }
 
+    // ===== AI 语音生成字幕（离线 ASR）=====
+
+    private volatile boolean mIsAsrGenerating = false;
+
+    /**
+     * 字幕面板"AI 语音生成字幕"入口。
+     * 无视频文件时弹系统文件选择器选视频。
+     */
+    private void startAsrGenerateUi() {
+        if (mIsAsrGenerating) {
+            showToast("语音字幕生成已在运行");
+            return;
+        }
+        if (!com.orange.playerlibrary.speech.SherpaAvailabilityChecker.isSherpaAvailable()) {
+            showToast("未安装 ASR 引擎模块");
+            return;
+        }
+        // 选视频文件
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("video/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"video/mp4", "video/mkv",
+                    "video/webm", "video/3gpp", "video/x-matroska", "video/quicktime"});
+            mActivity.startActivityForResult(intent, REQUEST_CODE_ASR_VIDEO);
+        } catch (Exception e) {
+            Log.e(TAG, "打开视频选择器失败", e);
+            showToast("无法打开视频选择器");
+        }
+    }
+
+    /**
+     * 对指定视频文件执行 ASR 字幕生成：模型检查 → 生成器 → 进度 → srt 注入。
+     */
+    private void startAsrGenerate(final java.io.File videoFile) {
+        if (mIsAsrGenerating) {
+            showToast("语音字幕生成已在运行");
+            return;
+        }
+        if (videoFile == null || !videoFile.exists()) {
+            showToast("视频文件不可用");
+            return;
+        }
+        if (!com.orange.playerlibrary.speech.AsrSubtitleGenerator.isModelReady(mContext)) {
+            showToast("ASR 模型未下载（需 model.int8.onnx 等，约 240MB）");
+            // TODO: M3 模型下载引导
+            return;
+        }
+
+        mIsAsrGenerating = true;
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(mActivity);
+        progress.setMessage("准备中...");
+        progress.setCancelable(true);
+        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        progress.setMax(100);
+        progress.setCanceledOnTouchOutside(false);
+        progress.setOnCancelListener(d -> mIsAsrGenerating = false);   // 取消仅停 UI，生成线程尽力完成
+        progress.show();
+
+        final com.orange.playerlibrary.speech.AsrSubtitleGenerator generator =
+                new com.orange.playerlibrary.speech.AsrSubtitleGenerator(mContext);
+        generator.generate(videoFile, "auto",
+                new com.orange.playerlibrary.speech.AsrSubtitleGenerator.GenerateCallback() {
+                    @Override
+                    public void onProgress(int percent, String stage) {
+                        mActivity.runOnUiThread(() -> {
+                            if (progress.isShowing()) {
+                                progress.setProgress(percent);
+                                progress.setMessage(stage + " " + percent + "%");
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onSuccess(java.io.File srtFile, int subtitleCount) {
+                        mActivity.runOnUiThread(() -> {
+                            try {
+                                progress.dismiss();
+                            } catch (Exception ignored) {
+                            }
+                            if (srtFile != null) {
+                                loadAsrSrtToController(srtFile, subtitleCount);
+                            }
+                            mIsAsrGenerating = false;
+                        });
+                    }
+
+                    @Override
+                    public void onError(int code, String message) {
+                        mActivity.runOnUiThread(() -> {
+                            try {
+                                progress.dismiss();
+                            } catch (Exception ignored) {
+                            }
+                            showToast("语音字幕失败: " + message);
+                            mIsAsrGenerating = false;
+                        });
+                    }
+                }, () -> false);
+    }
+
+    /** 把 ASR 生成的 srt 注入当前播放器 SubtitleManager 并启用显示 */
+    private void loadAsrSrtToController(java.io.File srtFile, int subtitleCount) {
+        if (mController == null || mController.getSubtitleManager() == null) {
+            showToast("播放器未就绪，字幕已保存到: " + srtFile.getAbsolutePath());
+            return;
+        }
+        final com.orange.playerlibrary.subtitle.SubtitleManager sm =
+                mController.getSubtitleManager();
+        sm.loadSubtitle(srtFile, new com.orange.playerlibrary.subtitle.SubtitleManager.OnSubtitleLoadListener() {
+            @Override
+            public void onLoadSuccess(int count) {
+                mActivity.runOnUiThread(() -> {
+                    sm.show();
+                    if (mController != null) {
+                        mController.startSubtitle();
+                    }
+                    mSettingsManager.setSubtitleEnabled(true);
+                    showToast("语音字幕已生成: " + count + " 条");
+                });
+            }
+
+            @Override
+            public void onLoadFailed(String error) {
+                mActivity.runOnUiThread(() -> showToast("字幕加载失败: " + error));
+            }
+        });
+    }
+
     /**
      * 显示字幕文件选择器
      */
@@ -3731,7 +3915,66 @@ public class VideoEventManager {
             }
             return true;
         }
+        if (requestCode == REQUEST_CODE_ASR_VIDEO) {
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                Uri uri = data.getData();
+                if (uri != null) {
+                    Log.d(TAG, "ASR 选择的视频: " + uri);
+                    generateSubtitleFromVideoUri(uri);
+                }
+            }
+            return true;
+        }
         return false;
+    }
+
+    /**
+     * ASR 视频选择：从 content Uri 拷贝到临时文件后生成字幕。
+     * content:// 不能直接给 MediaExtractor 用本地路径，需先落盘。
+     */
+    private void generateSubtitleFromVideoUri(Uri uri) {
+        try {
+            // 持久化读权限（供后续复用）
+            try {
+                mActivity.getContentResolver().takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {
+            }
+            String displayName = queryDisplayName(uri);
+            java.io.File tmp = new java.io.File(mContext.getCacheDir(),
+                    "asr_src_" + System.currentTimeMillis() + "_"
+                            + (displayName != null ? displayName : "video.mp4"));
+            try (java.io.InputStream in = mActivity.getContentResolver().openInputStream(uri);
+                 java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                }
+            }
+            startAsrGenerate(tmp);
+        } catch (Exception e) {
+            Log.e(TAG, "读取视频失败", e);
+            showToast("无法读取所选视频: " + e.getMessage());
+        }
+    }
+
+    private String queryDisplayName(Uri uri) {
+        try {
+            android.database.Cursor c = mActivity.getContentResolver().query(
+                    uri, new String[]{"_display_name"}, null, null, null);
+            if (c != null) {
+                try {
+                    if (c.moveToFirst()) {
+                        return c.getString(0);
+                    }
+                } finally {
+                    c.close();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
     
     /**
