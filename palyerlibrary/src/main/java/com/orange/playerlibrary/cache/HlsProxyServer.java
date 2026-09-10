@@ -6,7 +6,10 @@ import android.util.Log;
 import com.danikula.videocache.HttpProxyCacheServer;
 import com.orange.playerlibrary.M3U8AdRemover;
 
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -19,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -142,11 +146,24 @@ public final class HlsProxyServer {
         }
         try {
             String encoded = java.net.URLEncoder.encode(hlsUrl, "utf-8");
+            // 记录本代理接管过的 HLS：其分片缓存归 danikula（而非 media3）。
+            // 渐进 ASR 据此决定从哪里读分片，避免缓存错配导致重复下载。
+            mProxiedPlaylists.add(hlsUrl);
             return "http://127.0.0.1:" + mPort + "/" + PATH_HLS + encoded;
         } catch (Exception e) {
             Log.w(TAG, "proxyUrl encode failed", e);
             return hlsUrl;
         }
+    }
+
+    /** 本代理接管过的 playlist（分片写入 danikula 缓存，供 ASR 判断缓存归属） */
+    private final Set<String> mProxiedPlaylists = ConcurrentHashMap.newKeySet();
+
+    /** 该 HLS 是否由本代理接管（即播放器分片落在 danikula 缓存而非 media3） */
+    public static boolean isPlaylistProxied(Context context, String playlistUrl) {
+        HlsProxyServer server = sInstance;
+        return server != null && playlistUrl != null
+                && server.mProxiedPlaylists.contains(playlistUrl);
     }
 
     /** 是否为本代理（或 danikula 代理）的回环地址，防止套娃 */
@@ -307,6 +324,72 @@ public final class HlsProxyServer {
             }
         }
         return proxy;
+    }
+
+    // ===== 分片字节导出（渐进 ASR 复用播放器缓存，避免重复下载）=====
+
+    /**
+     * 分片是否已在本代理的磁盘缓存中。非 Exo 内核（ijk/mpv/ali）播放的 HLS
+     * 分片落在本代理，而渐进 ASR 原先只读 media3 缓存（cache/exo），两边错配
+     * 导致 ASR 把分片重新下载一遍（真机实测 25s 多下 62MB，块耗时 6~11s）。
+     */
+    public static boolean isSegmentCached(Context context, String segmentUrl) {
+        if (segmentUrl == null || segmentUrl.isEmpty()) {
+            return false;
+        }
+        try {
+            return getInstance(context).getSegmentProxy(context).isCached(segmentUrl);
+        } catch (Throwable t) {
+            Log.w(TAG, "isSegmentCached failed", t);
+            return false;
+        }
+    }
+
+    /**
+     * 导出分片字节到 target。命中缓存时 {@code getProxyUrl(url, true)} 直接返回
+     * {@code file://} 本地路径（零网络）；未命中返回代理 http 地址，由 danikula
+     * 下载并写回同一缓存，反向惠及播放器。
+     *
+     * @return 成功写出非空文件返回 true
+     */
+    public static boolean copySegment(Context context, String segmentUrl, File target) {
+        if (segmentUrl == null || segmentUrl.isEmpty() || target == null) {
+            return false;
+        }
+        InputStream in = null;
+        OutputStream out = null;
+        try {
+            HlsProxyServer server = getInstance(context);
+            if (!server.mRunning.get()) {
+                server.startIfNeeded();
+            }
+            // true = 允许返回 file://（完整缓存时）；未缓存则返回 http 代理地址
+            String url = server.getSegmentProxy(context).getProxyUrl(segmentUrl, true);
+            in = new URL(url).openStream();
+            out = new BufferedOutputStream(new FileOutputStream(target), 256 * 1024);
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
+            }
+            out.flush();
+            return target.exists() && target.length() > 0;
+        } catch (Throwable t) {
+            Log.w(TAG, "copySegment failed: " + segmentUrl, t);
+            return false;
+        } finally {
+            closeQuietly(out);
+            closeQuietly(in);
+        }
+    }
+
+    private static void closeQuietly(java.io.Closeable c) {
+        if (c != null) {
+            try {
+                c.close();
+            } catch (IOException ignored) {
+            }
+        }
     }
 
     /** 抓取结果：最终 URL（跟随重定向后）+ 文本 */

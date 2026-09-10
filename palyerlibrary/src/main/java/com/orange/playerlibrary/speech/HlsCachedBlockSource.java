@@ -119,10 +119,42 @@ public class HlsCachedBlockSource implements BlockAudioSource {
     }
 
     /**
-     * 取单个分片字节到 target：优先播放器 media3 缓存，未命中经 CacheDataSource
-     * 自动下载并写入同一缓存。export 为异步回调，这里转同步等待。
+     * 取单个分片字节到 target。播放器分片缓存随内核分家：
+     *  - 非 Exo 内核（ijk/mpv/ali）：HlsProxyServer 接管该 playlist，分片在 danikula 缓存
+     *  - Exo 内核：分片在 media3 缓存（cache/exo）
+     * 按缓存归属选择来源；未命中时下载并写回**同一份**缓存（反向惠及播放器）。
      */
     private boolean exportSegment(String segUrl, File target) throws InterruptedException {
+        if (isProxyCacheOwner()) {
+            // 非 Exo 内核：danikula 命中读本地（零网络），未命中下载并写回
+            // 同一缓存——播放器读到该分片时即为命中，不再重复下载
+            if (com.orange.playerlibrary.cache.HlsProxyServer.copySegment(mContext, segUrl, target)) {
+                return true;
+            }
+            return exportSegmentViaMedia3(segUrl, target);
+        }
+        // Exo 内核：media3 缓存
+        if (exportSegmentViaMedia3(segUrl, target)) {
+            return true;
+        }
+        return com.orange.playerlibrary.cache.HlsProxyServer.copySegment(mContext, segUrl, target);
+    }
+
+    /** 分片缓存归属：true=本 HLS 由 HlsProxyServer 接管（danikula），false=media3 */
+    private boolean isProxyCacheOwner() {
+        int owner = mCacheOwner;
+        if (owner < 0) {
+            owner = com.orange.playerlibrary.cache.HlsProxyServer
+                    .isPlaylistProxied(mContext, mM3u8Url) ? 1 : 0;
+            mCacheOwner = owner;
+        }
+        return owner == 1;
+    }
+
+    private volatile int mCacheOwner = -1;
+
+    /** media3 缓存导出（Exo 内核播放路径）；export 为异步回调，这里转同步等待 */
+    private boolean exportSegmentViaMedia3(String segUrl, File target) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<File> ok = new AtomicReference<>();
         tv.danmaku.ijk.media.exo2.Media3CacheExportUtils.export(mContext, segUrl, target,
