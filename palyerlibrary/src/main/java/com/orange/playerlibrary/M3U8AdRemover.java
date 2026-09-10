@@ -158,6 +158,7 @@ public class M3U8AdRemover {
      */
     public void processM3U8(String m3u8Url, Callback callback) {
         Log.d(TAG, "processM3U8 started: " + m3u8Url);
+        rememberStaticContext();
         final long startTime = System.currentTimeMillis();
             
         mExecutor.execute(() -> {
@@ -1663,5 +1664,78 @@ public class M3U8AdRemover {
         String cleanedContent;
         int adSegmentsRemoved;
         boolean hasPtsJump;       // 是否检测到 PTS 跳变
+    }
+
+    /**
+     * 供 HlsProxyServer 调用的静态入口：对一份已抓取的 playlist 文本做
+     * 去广告清洗。与 {@link #parseAndRemoveAds} 共用同一套解析/检测/重建逻辑，
+     * 广告段替换为 M3U8PlaceholderServer 占位片段，正常分片输出绝对 URL
+     * （后续由 HlsProxyServer 统一映射到 danikula 代理，共用磁盘缓存）。
+     *
+     * 注意：PTS 跳变检测需下载 TS 片段解析，此入口不做网络探测，
+     * 仅按 DISCONTINUITY/路径模式判定广告；hasPtsJump 恒为 false。
+     *
+     * @return 清洗后的 playlist 文本；未检出广告时返回 null（无需清洗）
+     */
+    public static String cleanPlaylist(String content, String baseUrl) {
+        if (content == null || content.isEmpty()) {
+            return null;
+        }
+        // master 清单不含分片，无法做广告判定，跳过清洗
+        if (content.contains("#EXT-X-STREAM-INF")) {
+            return null;
+        }
+        M3U8AdRemover instance = getSharedStaticInstance();
+        if (instance == null) {
+            return null;
+        }
+        try {
+            return instance.cleanPlaylistInternal(content, baseUrl);
+        } catch (Exception e) {
+            Log.w(TAG, "cleanPlaylist failed, fallback to raw playlist", e);
+            return null;
+        }
+    }
+
+    /** 供静态入口复用的实例（懒创建，仅使用其解析/占位片段能力） */
+    private static volatile M3U8AdRemover sSharedStaticInstance;
+
+    private static M3U8AdRemover getSharedStaticInstance() {
+        M3U8AdRemover instance = sSharedStaticInstance;
+        if (instance == null) {
+            synchronized (M3U8AdRemover.class) {
+                instance = sSharedStaticInstance;
+                if (instance == null) {
+                    instance = new M3U8AdRemover(sStaticAppContext);
+                    sSharedStaticInstance = instance;
+                }
+            }
+        }
+        return instance;
+    }
+
+    private static volatile android.content.Context sStaticAppContext;
+
+    /**
+     * 由 {@link #processM3U8} 首次调用时记录应用上下文，
+     * 供静态 cleanPlaylist 入口创建实例使用。
+     */
+    private void rememberStaticContext() {
+        if (sStaticAppContext == null) {
+            synchronized (M3U8AdRemover.class) {
+                if (sStaticAppContext == null) {
+                    sStaticAppContext = mContext;
+                }
+            }
+        }
+    }
+
+    /** 实例级清洗：解析→检测广告→重建 playlist，未检出广告时返回 null */
+    private String cleanPlaylistInternal(String content, String baseUrl) {
+        M3U8ParseResult result = parseAndRemoveAds(content, baseUrl);
+        if (result.adSegmentsRemoved == 0) {
+            return null;
+        }
+        return result.cleanedContent;
     }
 }

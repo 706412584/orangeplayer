@@ -4,6 +4,7 @@ import android.content.Context;
 import android.util.Log;
 
 import com.danikula.videocache.HttpProxyCacheServer;
+import com.orange.playerlibrary.M3U8AdRemover;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -28,14 +29,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * 数据流（播放器 ← /hls/{encodedUrl}）：
  *   playlist：抓取原 playlist（透传 Referer/UA，跟随重定向取最终 URL），
- *     用 {@link HlsPlaylistRewriter} 逐行重写——
+ *     先经 {@link M3U8AdRemover#cleanPlaylist} 去广告清洗（有广告时替换占位片段），
+ *     再用 {@link HlsPlaylistRewriter} 逐行重写——
  *     分片/密钥/init 直接映射为 danikula 代理 URL（磁盘 LRU + Range，
  *     二次播放零流量）；子 playlist 映射回本路由（按需重取，直播也对）。
  *
  * 复用说明：分片缓存与 Range 完全由 danikula HttpProxyCacheServer 承担，
- * 本类只做 playlist 文本重写；与去广告（内容级替换占位）管线正交，
- * 可在数据源层叠加。分片用「直接重写」而非 302 跳转——ffmpeg/ijk 对
- * 302 的跟随行为不保证，直接给出最终地址最稳。
+ * 本类只做 playlist 文本重写；去广告在重写前对同一份文本执行，
+ * 两者共用一次抓取，不会重复请求源站。分片用「直接重写」而非 302 跳转
+ * ——ffmpeg/ijk 对 302 的跟随行为不保证，直接给出最终地址最稳。
  */
 public final class HlsProxyServer {
 
@@ -257,6 +259,13 @@ public final class HlsProxyServer {
     /** 重写 playlist：分片→danikula 代理，子 playlist→本路由 */
     private String rewritePlaylist(String content, String finalUrl,
                                    Map<String, String> requestHeaders) {
+        // 先过去广告清洗：有广告/PTS 跳变时返回清洗后的文本（分片已绝对化），
+        // 广告段被替换为 M3U8PlaceholderServer 的占位片段；无广告时返回 null 走原文本。
+        String adCleaned = M3U8AdRemover.cleanPlaylist(content, finalUrl);
+        if (adCleaned != null) {
+            content = adCleaned;
+            Log.d(TAG, "Ad-removal applied for " + finalUrl);
+        }
         boolean master = HlsPlaylistRewriter.isMasterPlaylist(content);
         HttpProxyCacheServer segProxy = getSegmentProxy(mContext);
         HlsProxyServer self = this;
@@ -265,12 +274,19 @@ public final class HlsProxyServer {
         HlsPlaylistRewriter.UrlMapper playlistMapper = abs -> self.proxyUrl(abs);
         // 分片/密钥/init → danikula 代理（磁盘 LRU + Range）
         // allowCachedFileUri=false：返回 http 代理 URL 而非 file://，playlist 内必须是 http 地址
-        HlsPlaylistRewriter.UrlMapper segmentMapper = abs -> segProxy.getProxyUrl(abs, false);
+        HlsPlaylistRewriter.UrlMapper segmentMapper = abs -> {
+            // 已被去广告替换为本机占位片段 URL 的，保持原样不再映射
+            if (HlsProxyServer.isLocalProxyUrl(abs)) {
+                return abs;
+            }
+            return segProxy.getProxyUrl(abs, false);
+        };
 
         String rewritten = HlsPlaylistRewriter.rewrite(content, finalUrl, master,
                 playlistMapper, segmentMapper);
         Log.d(TAG, "Rewritten playlist " + finalUrl
-                + " master=" + master + " len=" + (rewritten != null ? rewritten.length() : 0));
+                + " master=" + master + " adCleaned=" + (adCleaned != null)
+                + " len=" + (rewritten != null ? rewritten.length() : 0));
         return rewritten != null ? rewritten : content;
     }
 
