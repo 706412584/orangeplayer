@@ -61,6 +61,36 @@ public class AsrSubtitleGenerator {
         return new File(context.getExternalFilesDir(null), MODEL_DIR_NAME);
     }
 
+    /** asr_work 孤儿临时文件的存活阈值（超过视为异常中断残留） */
+    private static final long ORPHAN_FILE_AGE_MS = 24L * 60 * 60 * 1000;
+
+    /**
+     * 清扫 asr_work 下的孤儿临时文件。正常流程的 pcm/wav 用完即删，
+     * 但崩溃/杀进程时 finally 清理不会执行，会残留大体积 _raw.pcm/
+     * _16k.pcm/_audio.wav（真机实测一次可残留 70MB+）。
+     * 判定标准：修改时间超过 {@link #ORPHAN_FILE_AGE_MS} 且正在生成中的
+     * 任务不可能仍在写它（单次生成最长约几小时）。srt 产物不受影响
+     * （同样按时间清理，播放器加载后已写入正式目录/内存）。
+     * 启动时调用一次即可，幂等且不阻塞（文件数通常为个位数）。
+     */
+    public static void cleanupOrphanWorkFiles(Context context) {
+        File workDir = new File(context.getCacheDir(), "asr_work");
+        File[] files = workDir.listFiles();
+        if (files == null || files.length == 0) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        int deleted = 0;
+        for (File f : files) {
+            if (now - f.lastModified() > ORPHAN_FILE_AGE_MS && f.delete()) {
+                deleted++;
+            }
+        }
+        if (deleted > 0) {
+            Log.d(TAG, "清扫 asr_work 孤儿临时文件: " + deleted + " 个");
+        }
+    }
+
     /**
      * 生成字幕。阻塞调用（后台线程），全程可取消。
      *

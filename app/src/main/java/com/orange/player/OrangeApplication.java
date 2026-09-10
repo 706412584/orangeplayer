@@ -39,7 +39,15 @@ public class OrangeApplication extends Application {
             // 配置边看边存缓存
             initPlayCache();
         }
-        
+
+        // 清扫 ASR 工作目录孤儿临时文件（崩溃/杀进程时 finally 清理未执行，
+        // 真机实测可残留 70MB+ 的 _raw.pcm）
+        try {
+            com.orange.playerlibrary.speech.AsrSubtitleGenerator.cleanupOrphanWorkFiles(this);
+        } catch (Throwable t) {
+            Log.w(TAG, "asr_work 孤儿文件清扫失败（忽略）", t);
+        }
+
         // 初始化 VideoDownloader（用于 M3U8、MP4 等视频下载）
         try {
             VideoDownloaderWrapper downloaderWrapper = VideoDownloaderWrapper.getInstance(this);
