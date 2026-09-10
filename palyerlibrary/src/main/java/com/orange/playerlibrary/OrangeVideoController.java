@@ -973,6 +973,12 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
                     public boolean isPlaying() {
                         return mVideoView != null && mVideoView.isPlaying();
                     }
+
+                    @Override
+                    public String getSourceUrl() {
+                        // 字幕归属校验：换视频后据此丢弃/隐藏旧字幕
+                        return mVideoView != null ? mVideoView.getUrl() : null;
+                    }
                 });
             }
         }

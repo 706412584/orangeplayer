@@ -70,6 +70,12 @@ public class SubtitleManager {
     public interface ProgressProvider {
         long getCurrentPosition();
         boolean isPlaying();
+
+        /**
+         * 当前播放源 URL，用于字幕归属校验：换视频后旧字幕的归属 URL 与新源
+         * 不符即隐藏/丢弃。返回 null 表示无法判定，此时跳过校验。
+         */
+        String getSourceUrl();
     }
     
     public interface OnSubtitleLoadListener {
@@ -285,6 +291,8 @@ public class SubtitleManager {
                 mHandler.post(() -> {
                     mSubtitles.clear();
                     mSubtitles.addAll(subtitles);
+                    // 归属当前播放源：换视频后该字幕不应继续显示
+                    mSourceUrl = currentSourceUrl();
                     mLoaded = true;
                     Log.d(TAG, "Loaded " + subtitles.size() + " subtitle entries");
                     if (listener != null) {
@@ -351,6 +359,8 @@ public class SubtitleManager {
                 mHandler.post(() -> {
                     mSubtitles.clear();
                     mSubtitles.addAll(subtitles);
+                    // 归属当前播放源：换视频后该字幕不应继续显示
+                    mSourceUrl = currentSourceUrl();
                     mLoaded = true;
                     Log.d(TAG, "Loaded " + subtitles.size() + " subtitle entries from Uri");
                     if (listener != null) {
@@ -618,32 +628,35 @@ public class SubtitleManager {
         long position = mProgressProvider.getCurrentPosition();
         // 应用字幕延迟：正值延后显示（查询更早的时间轴），负值提前
         long adjustedPosition = position - mSubtitleDelayMs;
-        SubtitleEntry current = findSubtitleAt(adjustedPosition);
+        // 归属校验：换视频后旧字幕的归属 URL 与当前源不符 → 直接隐藏
+        SubtitleEntry current = isSourceMatched()
+                ? findSubtitleAt(adjustedPosition) : null;
 
         if (current != null) {
-            String text = current.getText();
-            if (text == null) {
-                text = "";
-            }
-            if (text.equals(mLastShownText) && mSubtitleView.isSubtitleShowing()) {
-                // 内容未变且正在显示：跳过动画，防 100ms 轮询反复淡入导致闪烁
+            // 显示用清洗：去尾部标点（字幕惯例）。整条只有标点时清洗为空，
+            // 按未命中处理（隐藏），避免出现空白字幕条。
+            String text = SubtitleEntry.stripTrailingPunctuation(current.getText());
+            if (text != null && !text.isEmpty()) {
+                if (text.equals(mLastShownText) && mSubtitleView.isSubtitleShowing()) {
+                    // 内容未变且正在显示：跳过动画，防 100ms 轮询反复淡入导致闪烁
+                    return;
+                }
+                mLastShownText = text;
+                // 必须走 setSubtitleText（内部 showWithAnimation 把 alpha 置 1 并显示）：
+                // 直接 setText + setVisibility 时 SubtitleView 的 alpha 仍为 0（初始隐藏态），
+                // 文字"已设置但完全透明"——普通字幕循环此前永不显示、仅 OCR 的 showText
+                // 显式 setAlpha(1f) 才可见的根因。
+                mSubtitleView.setSubtitleText(text);
                 return;
             }
-            mLastShownText = text;
-            // 必须走 setSubtitleText（内部 showWithAnimation 把 alpha 置 1 并显示）：
-            // 直接 setText + setVisibility 时 SubtitleView 的 alpha 仍为 0（初始隐藏态），
-            // 文字"已设置但完全透明"——普通字幕循环此前永不显示、仅 OCR 的 showText
-            // 显式 setAlpha(1f) 才可见的根因。
-            mSubtitleView.setSubtitleText(text);
-        } else {
-            // 未命中：立即隐藏（文字+背景条一起消失）。
-            // 不用 clearSubtitle()——其 scheduleHide 有 2s 默认延迟（mHideDelay），
-            // 且淡出动画期间 mIsShowing 仍 true，100ms 轮询会反复重启动画导致
-            // 半透明背景条永久挂屏。hideImmediately() 同步复位视图状态。
-            if (mLastShownText != null || mSubtitleView.isSubtitleShowing()) {
-                mLastShownText = null;
-                mSubtitleView.hideImmediately();
-            }
+        }
+        // 未命中（或清洗后为空）：立即隐藏（文字+背景条一起消失）。
+        // 不用 clearSubtitle()——其 scheduleHide 有 2s 默认延迟（mHideDelay），
+        // 且淡出动画期间 mIsShowing 仍 true，100ms 轮询会反复重启动画导致
+        // 半透明背景条永久挂屏。hideImmediately() 同步复位视图状态。
+        if (mLastShownText != null || mSubtitleView.isSubtitleShowing()) {
+            mLastShownText = null;
+            mSubtitleView.hideImmediately();
         }
     }
 
@@ -844,7 +857,9 @@ public class SubtitleManager {
     }
     
     public void clear() {
+        mGeneration++;   // 作废在途的异步 append
         mSubtitles.clear();
+        mSourceUrl = null;
         mLoaded = false;
         mCurrentSubtitlePath = null;
         mLastShownText = null;
@@ -861,15 +876,74 @@ public class SubtitleManager {
      * 渲染为 100ms 全量线性扫描，追加顺序不影响命中。
      */
     public void appendSubtitles(final List<SubtitleEntry> entries) {
+        appendSubtitles(entries, null);
+    }
+
+    /**
+     * 增量追加字幕条目（渐进 ASR：边识别边注入）。
+     * 与 loadSubtitle 的整体替换不同，本方法保留同源已有条目。
+     *
+     * @param sourceUrl 这批字幕归属的播放源。传 null 时取当前源。
+     *                  必须由调用方传入「识别时所在的源」——换视频后在途的
+     *                  旧会话结果会带着旧 URL 到达，据此丢弃而不是污染新视频。
+     */
+    public void appendSubtitles(final List<SubtitleEntry> entries, final String sourceUrl) {
         if (entries == null || entries.isEmpty()) {
             return;
         }
+        final int generation = mGeneration;
         mHandler.post(() -> {
+            if (generation != mGeneration) {
+                return;
+            }
+            String owning = sourceUrl != null ? sourceUrl : currentSourceUrl();
+            String playing = currentSourceUrl();
+            // 归属校验①：这批字幕不属于当前播放源（换视频后在途的旧结果）→ 丢弃
+            if (owning != null && playing != null && !owning.equals(playing)) {
+                Log.d(TAG, "appendSubtitles: 丢弃非当前源的 " + entries.size() + " 条字幕");
+                return;
+            }
+            // 归属校验②：列表里存的是别的源的字幕（换视频后尚未清理）→ 先清空
+            if (owning != null && mSourceUrl != null && !owning.equals(mSourceUrl)) {
+                Log.d(TAG, "appendSubtitles: 源已切换，清空旧字幕 " + mSubtitles.size() + " 条");
+                mSubtitles.clear();
+                mLastShownText = null;
+                if (mSubtitleView != null) {
+                    mSubtitleView.hideImmediately();
+                }
+            }
+            if (owning != null) {
+                mSourceUrl = owning;
+            }
             mSubtitles.addAll(entries);
             mLoaded = true;
             Log.d(TAG, "Appended " + entries.size() + " subtitle entries, total=" + mSubtitles.size());
         });
     }
+
+    /** 字幕归属的播放源 URL；条目与当前源不符时不显示 */
+    private volatile String mSourceUrl;
+
+    /** 当前播放源 URL（无法判定时返回 null） */
+    private String currentSourceUrl() {
+        try {
+            return mProgressProvider != null ? mProgressProvider.getSourceUrl() : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 渲染前校验字幕归属：换视频后旧字幕立即隐藏，不等新源开始识别 */
+    private boolean isSourceMatched() {
+        String now = currentSourceUrl();
+        if (now == null || mSourceUrl == null) {
+            return true;   // 无法判定时不拦截（本地文件/异常路径）
+        }
+        return now.equals(mSourceUrl);
+    }
+
+    /** 字幕世代号：clear() 自增，用于丢弃在途的异步 append */
+    private volatile int mGeneration;
 
     public void release() {
         stop();

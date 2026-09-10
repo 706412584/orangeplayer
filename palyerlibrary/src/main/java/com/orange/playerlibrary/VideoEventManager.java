@@ -579,6 +579,16 @@ public class VideoEventManager {
 
             // 切换视频：渐进识别会话针对旧视频，立即结束
             stopProgressiveAsr();
+
+            // 清空旧视频的字幕（渐进 ASR 注入的条目留在列表里，新视频播到
+            // 相同时间段会把旧字幕显示出来）；sProgressiveSubtitleShown 同步复位，
+            // 否则新视频的字幕面板不会自动显示。
+            stopAsrProgressTicker();
+            sProgressiveSubtitleShown = false;
+            dismissAsrRing();
+            if (mController != null && mController.getSubtitleManager() != null) {
+                mController.getSubtitleManager().clear();
+            }
             
             // 片头尾、倍数设置：同一剧集内切换集数时保持，切换剧集时重置
             if (isSeriesChanged) {
@@ -4273,6 +4283,8 @@ public class VideoEventManager {
      */
     private void startProgressiveAsr(com.orange.playerlibrary.speech.BlockAudioSource source,
                                      final String label) {
+        // 本会话归属的视频源（启动时快照）：换视频后在途结果据此被丢弃
+        final String owningUrl = mVideoView != null ? mVideoView.getUrl() : null;
         if (mIsAsrGenerating) {
             showToast("语音字幕生成已在运行");
             return;
@@ -4295,7 +4307,7 @@ public class VideoEventManager {
                             }
                             com.orange.playerlibrary.subtitle.SubtitleManager sm =
                                     mController.getSubtitleManager();
-                            sm.appendSubtitles(entries);
+                            sm.appendSubtitles(entries, owningUrl);
                             if (!sProgressiveSubtitleShown) {
                                 sProgressiveSubtitleShown = true;
                                 sm.show();
