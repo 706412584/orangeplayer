@@ -127,3 +127,4 @@ logcat.txt
 # ASR 测试大文件（模型 240MB / 合成测试视频不入库）
 docs/asr_model/
 docs/asr_samples/test_video_*.mp4
+.codegraph/
