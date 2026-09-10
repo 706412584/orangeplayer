@@ -101,6 +101,15 @@ public class MainActivity extends AppCompatActivity {
                     }
                     return;
                 }
+                // play_url: 播放远程 URL（测试用）；格式 play_url:<url>
+                if (cmd.startsWith("play_url:")) {
+                    String url = cmd.substring("play_url:".length()).trim();
+                    if (mEtVideoUrl != null && !url.isEmpty()) {
+                        mEtVideoUrl.setText(url);
+                        playInputUrl(false);
+                    }
+                    return;
+                }
                 if (mController == null || mController.getVideoEventManager() == null) {
                     android.util.Log.w("MainActivity", "TEST_CMD: 控制器未就绪, cmd=" + cmd);
                     return;

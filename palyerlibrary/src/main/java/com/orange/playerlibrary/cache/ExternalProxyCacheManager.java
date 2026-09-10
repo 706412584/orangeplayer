@@ -89,12 +89,34 @@ public class ExternalProxyCacheManager extends ProxyCacheManager {
                 }
                 return;
             }
-            // 非 Exo 内核（ijk/system/mpv）无 media3 缓存，直连
-            Log.d(TAG, "HLS 非 Exo 内核，直连不缓存: " + url);
+            // 非 Exo 内核（ijk/system/mpv）：HLS 走本地 HlsProxyServer，
+            // playlist 重写后分片映射到 danikula 代理（磁盘 LRU），实现缓存复用。
+            // 代理启动失败/回环地址时回退直连。
+            String originalUrl = url;
+            String proxied = null;
+            if (HlsProxyServer.isLocalProxyUrl(url)) {
+                Log.d(TAG, "HLS 已是本地代理 URL，直连: " + url);
+            } else {
+                proxied = HlsProxyServer.getInstance(context).proxyUrl(url);
+                if (proxied != url) {
+                    Log.d(TAG, "HLS 走本地代理缓存: " + url + " -> " + proxied);
+                    url = proxied;
+                } else {
+                    Log.d(TAG, "HLS 代理不可用，直连不缓存: " + url);
+                }
+            }
             try {
-                mediaPlayer.setDataSource(url);
+                mediaPlayer.setDataSource(context, android.net.Uri.parse(url), header);
             } catch (Exception e) {
                 Log.e(TAG, "Failed to set HLS URL", e);
+                // 代理路径播放失败时回退原始 URL 直连
+                if (proxied != null && !proxied.equals(originalUrl)) {
+                    try {
+                        mediaPlayer.setDataSource(context,
+                                android.net.Uri.parse(originalUrl), header);
+                    } catch (Exception ignored) {
+                    }
+                }
             }
             return;
         }
