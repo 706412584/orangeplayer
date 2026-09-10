@@ -105,6 +105,9 @@ public class LanguagePackDialog {
     }
     
     private void downloadLanguage(LanguagePackManager.LanguagePack pack) {
+        // 点击即置下载态：不能等首个进度回调——首源连接/重定向可能耗时数秒，
+        // 期间没有任何回调，按钮会一直显示「下载」，用户以为点击无反应。
+        mAdapter.setDownloadProgress(pack.code, 0);
         mManager.downloadLanguage(pack.code, new LanguagePackManager.DownloadCallback() {
             @Override
             public void onProgress(int progress, long downloaded, long total) {

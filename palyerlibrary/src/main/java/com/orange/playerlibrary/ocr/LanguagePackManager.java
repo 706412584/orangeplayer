@@ -31,21 +31,30 @@ public class LanguagePackManager {
     private static final String TESSDATA_DIR = "tessdata";
     private static final String ASSETS_TESSDATA_DIR = "tessdata";
     
-    // GitHub 下载地址（使用 tessdata_fast 版本，文件更小）
-    private static final String DOWNLOAD_BASE_URL = 
+    // GitHub 原地址（最终兜底）
+    private static final String DOWNLOAD_BASE_URL =
         "https://github.com/tesseract-ocr/tessdata_fast/raw/main/";
-    
-    // 国内镜像地址（ghproxy 加速）
-    private static final String CHINA_MIRROR_URL = 
-        "https://ghproxy.com/https://github.com/tesseract-ocr/tessdata_fast/raw/main/";
-    
-    // 备用镜像地址
-    private static final String MIRROR_URL_2 = 
-        "https://mirror.ghproxy.com/https://github.com/tesseract-ocr/tessdata_fast/raw/main/";
-    
-    // jsdelivr CDN 镜像
-    private static final String JSDELIVR_URL = 
+
+    // 国内加速（2026-09 实测可用；返回真实文件与正确 Content-Length）
+    private static final String CHINA_MIRROR_URL =
+        "https://gh-proxy.com/https://github.com/tesseract-ocr/tessdata_fast/raw/main/";
+
+    private static final String CHINA_MIRROR_URL_2 =
+        "https://ghfast.top/https://github.com/tesseract-ocr/tessdata_fast/raw/main/";
+
+    // jsDelivr CDN（文件经过压缩，体积与 GitHub 原文件不同，校验按比例放宽）
+    private static final String JSDELIVR_URL =
         "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@main/";
+
+    /**
+     * 下载内容有效性的体积下限比例（相对 estimatedSize）。
+     * 用途：拒绝「HTTP 200 + 错误页正文」这类假成功——已失效的 ghproxy 会返回
+     * 200 和约 1.8KB 的 HTML 落地页，只检查状态码会把 HTML 存成 .traineddata。
+     */
+    private static final double MIN_SIZE_RATIO = 0.35;
+
+    /** 内容有效性的绝对体积下限（最小语言包约 600KB，1KB 级必为错误页） */
+    private static final long MIN_VALID_BYTES = 64 * 1024;
     
     private final Context mContext;
     private final ExecutorService mExecutor;
@@ -217,14 +226,17 @@ public class LanguagePackManager {
         File targetFile = new File(tessDataDir, fileName);
         File tempFile = new File(tessDataDir, fileName + ".tmp");
         
-        // 尝试多个下载源
+        // 尝试多个下载源（顺序：国内加速 → CDN → 原站）
         String[] urls = {
-            CHINA_MIRROR_URL + fileName,      // 国内镜像优先
-            JSDELIVR_URL + fileName,          // jsdelivr CDN
-            MIRROR_URL_2 + fileName,          // 备用镜像
+            CHINA_MIRROR_URL + fileName,      // 国内加速
+            CHINA_MIRROR_URL_2 + fileName,    // 国内加速（备用）
+            JSDELIVR_URL + fileName,          // jsDelivr CDN
             DOWNLOAD_BASE_URL + fileName      // GitHub 原地址
         };
-        
+
+        // 校验基准：预估体积（用于拒绝错误页/截断文件）
+        long expectedSize = findExpectedSize(languageCode);
+
         Exception lastError = null;
         
         for (String downloadUrl : urls) {
@@ -252,39 +264,68 @@ public class LanguagePackManager {
                 
                 long totalSize = connection.getContentLength();
                 Log.d(TAG, "File size: " + totalSize);
-                
+
+                // 服务器未给 Content-Length 时用预估体积做进度基准：否则整段下载
+                // 期间进度恒为 0（真机表现「点了没反应」）
+                final long progressBase = totalSize > 0 ? totalSize
+                        : (expectedSize > 0 ? expectedSize : 0);
+                // 立即上报一次起始进度：让 UI 马上进入「下载中」状态，
+                // 不必等第一个数据块（首源连接/重定向可能耗时数秒）
+                postProgress(callback, 0, 0, progressBase);
+
                 inputStream = connection.getInputStream();
                 outputStream = new FileOutputStream(tempFile);
-                
+
                 byte[] buffer = new byte[8192];
                 long downloaded = 0;
                 int bytesRead;
                 int lastProgress = 0;
-                
+                // 首块字节：用于识别错误页（HTML/JSON 正文）
+                byte[] head = null;
+
                 while ((bytesRead = inputStream.read(buffer)) != -1) {
+                    if (head == null) {
+                        head = new byte[Math.min(64, bytesRead)];
+                        System.arraycopy(buffer, 0, head, 0, head.length);
+                    }
                     outputStream.write(buffer, 0, bytesRead);
                     downloaded += bytesRead;
-                    
-                    if (totalSize > 0) {
-                        int progress = (int) (downloaded * 100 / totalSize);
+
+                    if (progressBase > 0) {
+                        int progress = (int) (downloaded * 100 / progressBase);
+                        if (progress > 99 && downloaded < progressBase) {
+                            progress = 99;   // 预估偏小时不虚报 100%
+                        }
                         if (progress != lastProgress) {
                             lastProgress = progress;
-                            final long finalDownloaded = downloaded;
-                            final long finalTotal = totalSize;
-                            postProgress(callback, progress, finalDownloaded, finalTotal);
+                            postProgress(callback, progress, downloaded, progressBase);
                         }
                     }
                 }
-                
+
                 outputStream.close();
                 outputStream = null;
-                
+
+                // 内容校验：拒绝错误页/截断文件（只查状态码会放过 200+HTML 的假成功）
+                String invalidReason = validateDownloaded(downloaded, expectedSize, head);
+                if (invalidReason != null) {
+                    Log.w(TAG, "Invalid content from " + downloadUrl + ": " + invalidReason
+                            + " (bytes=" + downloaded + ", expected~" + expectedSize + ")");
+                    lastError = new Exception(invalidReason);
+                    if (tempFile.exists()) {
+                        tempFile.delete();
+                    }
+                    continue;   // 换下一个源
+                }
+
                 // 重命名临时文件
                 if (targetFile.exists()) {
                     targetFile.delete();
                 }
                 if (tempFile.renameTo(targetFile)) {
-                    Log.d(TAG, "Download completed: " + targetFile.getAbsolutePath());
+                    Log.d(TAG, "Download completed: " + targetFile.getAbsolutePath()
+                            + " (" + downloaded + " bytes)");
+                    postProgress(callback, 100, downloaded, downloaded);
                     postSuccess(callback);
                     return; // 成功，退出
                 } else {
@@ -309,6 +350,42 @@ public class LanguagePackManager {
         // 所有源都失败
         String errorMsg = lastError != null ? lastError.getMessage() : "下载失败";
         postError(callback, errorMsg + "\n如无法下载，请尝试使用代理");
+    }
+
+    /** 按语言代码查预估体积（查不到返回 0，此时体积校验放宽） */
+    private long findExpectedSize(String languageCode) {
+        for (LanguagePack pack : getAvailableLanguages()) {
+            if (pack.code.equals(languageCode)) {
+                return pack.estimatedSize;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * 校验下载内容是否是可用的语言包。
+     *
+     * 关键场景：部分（已停止服务的）GitHub 加速站会对任意路径返回
+     * HTTP 200 + HTML 落地页，只检查状态码会把错误页存成 .traineddata，
+     * 用户看到「下载完成」但 OCR 直接失败。
+     *
+     * @return null 表示有效；否则返回失败原因
+     */
+    static String validateDownloaded(long bytes, long expectedSize, byte[] head) {
+        if (bytes < MIN_VALID_BYTES) {
+            return "文件过小（" + bytes + " 字节），疑似下载到错误页";
+        }
+        if (expectedSize > 0 && bytes < expectedSize * MIN_SIZE_RATIO) {
+            return "文件不完整（" + bytes + " / 约 " + expectedSize + " 字节）";
+        }
+        if (head != null && head.length > 0) {
+            char first = (char) (head[0] & 0xFF);
+            // HTML / XML / JSON 错误正文
+            if (first == '<' || first == '{') {
+                return "返回的是网页内容而非语言包（疑似镜像站失效）";
+            }
+        }
+        return null;
     }
     
     /**
