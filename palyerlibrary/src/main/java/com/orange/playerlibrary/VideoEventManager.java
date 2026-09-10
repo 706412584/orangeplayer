@@ -106,9 +106,82 @@ public class VideoEventManager {
                 
                 @Override
                 public void onPlayStateChanged(int playState) {
-                    // 不需要处理
+                    // 播放结束：渐进识别已覆盖全部观看内容，收尾
+                    if (playState == com.orange.playerlibrary.PlayerConstants.STATE_PLAYBACK_COMPLETED) {
+                        stopProgressiveAsr();
+                    }
+                    maybeAutoGenerateAsr(playState);
                 }
             });
+        }
+    }
+
+    /**
+     * 自动触发的 ASR 视频 URL（进程级去重）。
+     * 播放器存在多个 VideoEventManager 实例（controller / error view 各自注册状态监听），
+     * 实例字段无法跨实例去重，会让同一视频重复触发完整下载，故用静态集合。
+     */
+    private static final java.util.Set<String> sAutoAsrTriggeredUrls =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+
+    /**
+     * 播放状态变化时按「自动生成字幕」设置触发 ASR。
+     * 触发点：STATE_PLAYING（已缓存资源/本地文件即时生成）、
+     *        STATE_PLAYBACK_COMPLETED（网络视频缓存 100% 后生成）。
+     * 本地/已缓存 mp4 且开启「边看边识别」→ 渐进；否则完整版。
+     * 仅在实际发起时登记 URL；无法触发（未缓存等）时下次状态变化可重试。
+     */
+    private void maybeAutoGenerateAsr(int playState) {
+        try {
+            if (!mSettingsManager.isAsrAutoEnabled() || mIsAsrGenerating || sProgressiveAsr != null) {
+                return;
+            }
+            if (playState != com.orange.playerlibrary.PlayerConstants.STATE_PLAYING
+                    && playState != com.orange.playerlibrary.PlayerConstants.STATE_PLAYBACK_COMPLETED) {
+                return;
+            }
+            if (mVideoView == null || mVideoView.isLiveVideo()) {
+                return;   // 直播不自动生成（无终点，避免无限下载）
+            }
+            if (!com.orange.playerlibrary.speech.SherpaAvailabilityChecker.isSherpaAvailable()
+                    || !com.orange.playerlibrary.speech.AsrSubtitleGenerator.isModelReady(mContext)) {
+                return;
+            }
+            final String url = mVideoView.getUrl();
+            if (url == null || url.isEmpty() || !sAutoAsrTriggeredUrls.add(url)) {
+                return;
+            }
+
+            // 网络 m3u8
+            if (isM3u8Url(url)) {
+                if (mSettingsManager.isAsrLiveEnabled()
+                        && com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext)) {
+                    Log.d(TAG, "自动生成字幕（HLS 渐进）: " + url);
+                    startProgressiveAsrHls(url);
+                } else {
+                    Log.d(TAG, "自动生成字幕（HLS 后台下载）: " + url);
+                    downloadHlsAndGenerate(url, true);
+                }
+                return;
+            }
+
+            // 本地文件 / 已缓存 mp4
+            java.io.File local = resolveLocalVideoFileForAsr();
+            if (local == null) {
+                // 网络 mp4 未缓存完整：不登记，等播放完成后再触发
+                sAutoAsrTriggeredUrls.remove(url);
+                return;
+            }
+            if (mSettingsManager.isAsrLiveEnabled()
+                    && com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext)) {
+                Log.d(TAG, "自动生成字幕（渐进）: " + url);
+                startProgressiveAsr(local);
+            } else {
+                Log.d(TAG, "自动生成字幕（完整版）: " + url);
+                startAsrGenerate(local, false, true);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "自动生成字幕触发异常", e);
         }
     }
     
@@ -503,6 +576,9 @@ public class VideoEventManager {
         if (isNewVideo) {
             // 切换了视频，更新URL
             mCurrentVideoUrl = videoUrl;
+
+            // 切换视频：渐进识别会话针对旧视频，立即结束
+            stopProgressiveAsr();
             
             // 片头尾、倍数设置：同一剧集内切换集数时保持，切换剧集时重置
             if (isSeriesChanged) {
@@ -3511,6 +3587,12 @@ public class VideoEventManager {
                 asrLiveSwitch.setOnCheckedChangeListener((buttonView, isChecked) ->
                         mSettingsManager.setAsrLiveEnabled(isChecked));
             }
+            android.widget.Switch asrAutoSwitch = dialogView.findViewById(R.id.asr_auto_switch);
+            if (asrAutoSwitch != null) {
+                asrAutoSwitch.setChecked(mSettingsManager.isAsrAutoEnabled());
+                asrAutoSwitch.setOnCheckedChangeListener((buttonView, isChecked) ->
+                        mSettingsManager.setAsrAutoEnabled(isChecked));
+            }
             if (btnAsrGenerate != null) {
                 boolean sherpaOk = com.orange.playerlibrary.speech.SherpaAvailabilityChecker
                         .isSherpaAvailable();
@@ -3765,7 +3847,7 @@ public class VideoEventManager {
      * 无视频文件时弹系统文件选择器选视频。
      */
     private void startAsrGenerateUi() {
-        if (mIsAsrGenerating) {
+        if (mIsAsrGenerating || sProgressiveAsr != null) {
             showToast("语音字幕生成已在运行");
             return;
         }
@@ -3774,10 +3856,24 @@ public class VideoEventManager {
             return;
         }
         if (mSettingsManager.isAsrLiveEnabled()) {
-            // 渐进（边看边识别）：当前按完整版兜底，避免假功能。
-            // 后续接入播放进度钩子：已看区间逐段 ASR + 增量注入字幕。
-            showToast("边看边识别开发中，先用完整版生成");
-            // 继续走完整版逻辑（不 return，让功能可用）
+            // 渐进（边看边识别）：本地/已缓存 mp4 或 HLS 按播放进度逐块识别
+            final String url = mVideoView != null ? mVideoView.getUrl() : null;
+            if (url != null && !url.isEmpty()
+                    && com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext)) {
+                if (isM3u8Url(url)) {
+                    startProgressiveAsrHls(url);
+                    return;
+                }
+                java.io.File local = resolveLocalVideoFileForAsr();
+                if (local != null) {
+                    startProgressiveAsr(local);
+                    return;
+                }
+            }
+            if (url != null && isM3u8Url(url)) {
+                showToast("边看边识别暂不可用，改用完整版");
+            }
+            // 回退完整版（不 return，让功能可用）
         }
         // 优先解析当前播放视频源
         if (resolveCurrentVideoForAsr()) {
@@ -3798,6 +3894,32 @@ public class VideoEventManager {
     }
 
     /**
+     * 解析可随机 seek 的视频文件（渐进 ASR 用）：
+     * 本地路径 / file:// → 文件；网络 mp4 已完整缓存 → 缓存文件；
+     * m3u8/HLS 或未缓存网络视频 → null（不支持渐进）。
+     */
+    private java.io.File resolveLocalVideoFileForAsr() {
+        try {
+            String url = mVideoView != null ? mVideoView.getUrl() : null;
+            if (url == null || url.isEmpty() || isM3u8Url(url)) {
+                return null;
+            }
+            if (url.startsWith("file://")) {
+                java.io.File f = new java.io.File(android.net.Uri.parse(url).getPath());
+                return f.exists() ? f : null;
+            }
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                java.io.File f = new java.io.File(url);
+                return f.exists() ? f : null;
+            }
+            return getCachedVideoFile(url);
+        } catch (Exception e) {
+            Log.w(TAG, "解析渐进 ASR 视频源失败", e);
+            return null;
+        }
+    }
+
+    /**
      * 解析当前播放视频供 ASR 生成字幕。
      * 返回 true 表示已接管（开始 ASR 或提示）；false 表示当前视频不可用需选文件。
      * 规则：
@@ -3813,38 +3935,22 @@ public class VideoEventManager {
             }
             Log.d(TAG, "ASR 解析当前视频: " + url);
 
-            // 本地文件路径
-            if (url.startsWith("file://")) {
-                java.io.File f = new java.io.File(android.net.Uri.parse(url).getPath());
-                if (f.exists()) {
-                    startAsrGenerate(f);
-                    return true;
-                }
-                return false;
-            }
-            if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                java.io.File f = new java.io.File(url);
-                if (f.exists()) {
-                    startAsrGenerate(f);
-                    return true;
-                }
-                return false;
-            }
-
-            // 网络 mp4
+            // m3u8/HLS 走完整下载
             if (isM3u8Url(url)) {
                 downloadHlsAndGenerate(url);
                 return true;
             }
-
-            // mp4 → 尝试缓存文件
-            java.io.File cacheFile = getCachedVideoFile(url);
-            if (cacheFile != null) {
-                startAsrGenerate(cacheFile);
+            // 本地文件 / 已缓存 mp4
+            java.io.File local = resolveLocalVideoFileForAsr();
+            if (local != null) {
+                startAsrGenerate(local);
                 return true;
             }
-            showToast("网络视频需先完整缓存（完整播放一遍或下载）再生成字幕");
-            return true;   // 已提示，不回落文件选择器
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                showToast("网络视频需先完整缓存（完整播放一遍或下载）再生成字幕");
+                return true;   // 已提示，不回落文件选择器
+            }
+            return false;
         } catch (Exception e) {
             Log.e(TAG, "解析当前视频失败", e);
             return false;
@@ -3857,7 +3963,9 @@ public class VideoEventManager {
     }
 
     /**
-     * 取网络 mp4 的 danikula 缓存文件（完整缓存才有；md5 命名）。
+     * 取网络 mp4 的 danikula 缓存文件（完整缓存才有）。
+     * danikula 落盘名为 &lt;md5(url)&gt; + 扩展名（实测为 .mp4），
+     * 未下完的为 &lt;md5&gt;.mp4.download，需排除。
      */
     private java.io.File getCachedVideoFile(String url) {
         try {
@@ -3866,10 +3974,17 @@ public class VideoEventManager {
             if (cacheDirPath == null) {
                 return null;
             }
-            java.io.File cacheDir = new java.io.File(cacheDirPath);
-            String md5 = md5Hex(url);
+            final java.io.File cacheDir = new java.io.File(cacheDirPath);
+            final String md5 = md5Hex(url);
             java.io.File f = new java.io.File(cacheDir, md5);
-            // danikula 缓存完整后文件名即 md5（无 .download 后缀）
+            if (!f.exists() || f.length() == 0) {
+                // danikula 带扩展名落盘：按 md5 前缀匹配，排除未下完的 .download
+                java.io.File[] matches = cacheDir.listFiles((dir, name) ->
+                        name.startsWith(md5) && !name.endsWith(".download"));
+                if (matches != null && matches.length > 0) {
+                    f = matches[0];
+                }
+            }
             if (f.exists() && f.length() > 0) {
                 Log.d(TAG, "命中缓存文件: " + f.getAbsolutePath() + " (" + f.length() + "B)");
                 return f;
@@ -3894,16 +4009,32 @@ public class VideoEventManager {
      * HLS 下载完整后 ASR：M3U8Downloader 下载 → 合并 mp4 → AsrSubtitleGenerator。
      */
     private void downloadHlsAndGenerate(final String m3u8Url) {
-        if (mIsAsrGenerating) {
+        downloadHlsAndGenerate(m3u8Url, false);
+    }
+
+    /**
+     * HLS 下载完整后 ASR：M3U8Downloader 下载 → 合并 mp4 → AsrSubtitleGenerator。
+     *
+     * @param background true=自动触发的后台下载，用悬浮环展示进度（不弹对话框、不遮挡画面）
+     */
+    private void downloadHlsAndGenerate(final String m3u8Url, final boolean background) {
+        if (mIsAsrGenerating || sProgressiveAsr != null) {
             showToast("字幕生成已在运行");
             return;
         }
-        final android.app.ProgressDialog progress = new android.app.ProgressDialog(mActivity);
-        progress.setMessage("下载 HLS 中 0%");
-        progress.setCancelable(false);
-        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
-        progress.setMax(100);
-        progress.show();
+        final android.app.ProgressDialog progress;
+        if (background) {
+            progress = null;
+            showAsrRing();
+            updateAsrRing(0, "下载字幕素材");
+        } else {
+            progress = new android.app.ProgressDialog(mActivity);
+            progress.setMessage("下载 HLS 中 0%");
+            progress.setCancelable(false);
+            progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+            progress.setMax(100);
+            progress.show();
+        }
 
         com.orange.playerlibrary.download.M3U8Downloader downloader =
                 new com.orange.playerlibrary.download.M3U8Downloader(mContext);
@@ -3911,6 +4042,10 @@ public class VideoEventManager {
                 new com.orange.playerlibrary.download.M3U8Downloader.DownloadCallback() {
                     @Override
                     public void onProgress(int p, String msg) {
+                        if (progress == null) {
+                            mActivity.runOnUiThread(() -> updateAsrRing(p, "下载字幕素材"));
+                            return;
+                        }
                         mActivity.runOnUiThread(() -> {
                             if (progress.isShowing()) {
                                 progress.setProgress(p);
@@ -3922,21 +4057,29 @@ public class VideoEventManager {
                     @Override
                     public void onSuccess(String filePath) {
                         mActivity.runOnUiThread(() -> {
-                            try {
-                                progress.dismiss();
-                            } catch (Exception ignored) {
+                            if (progress != null) {
+                                try {
+                                    progress.dismiss();
+                                } catch (Exception ignored) {
+                                }
                             }
                             Log.d(TAG, "HLS 下载完成: " + filePath);
-                            startAsrGenerate(new java.io.File(filePath));
+                            // ASR 临时下载产物：识别完即删，避免堆积
+                            startAsrGenerate(new java.io.File(filePath), true, background);
                         });
                     }
 
                     @Override
                     public void onError(String error) {
                         mActivity.runOnUiThread(() -> {
-                            try {
-                                progress.dismiss();
-                            } catch (Exception ignored) {
+                            if (progress != null) {
+                                try {
+                                    progress.dismiss();
+                                } catch (Exception ignored) {
+                                }
+                            }
+                            if (background) {
+                                dismissAsrRing();
                             }
                             showToast("HLS 下载失败: " + error);
                         });
@@ -3948,8 +4091,30 @@ public class VideoEventManager {
      * 对指定视频文件执行 ASR 字幕生成：模型检查 → 生成器 → 进度 → srt 注入。
      */
     private void startAsrGenerate(final java.io.File videoFile) {
-        if (mIsAsrGenerating) {
+        startAsrGenerate(videoFile, false);
+    }
+
+    /**
+     * 对指定视频文件执行 ASR 字幕生成。
+     *
+     * @param deleteSourceAfter 完成后是否删除源文件（用于 ASR 临时下载的 HLS 产物清理；
+     *                          用户主动下载/本地文件传 false）
+     */
+    private void startAsrGenerate(final java.io.File videoFile, final boolean deleteSourceAfter) {
+        startAsrGenerate(videoFile, deleteSourceAfter, false);
+    }
+
+    /**
+     * 对指定视频文件执行 ASR 字幕生成。
+     *
+     * @param deleteSourceAfter 完成后是否删除源文件（ASR 临时下载的 HLS 产物清理）
+     * @param floating          true=自动触发的后台任务，用悬浮环展示进度（不弹对话框、不遮挡画面）
+     */
+    private void startAsrGenerate(final java.io.File videoFile, final boolean deleteSourceAfter,
+                                  final boolean floating) {
+        if (mIsAsrGenerating || sProgressiveAsr != null) {
             showToast("语音字幕生成已在运行");
+            cleanupAsrTempFile(videoFile, deleteSourceAfter);
             return;
         }
         if (videoFile == null || !videoFile.exists()) {
@@ -3959,18 +4124,29 @@ public class VideoEventManager {
         if (!com.orange.playerlibrary.speech.AsrSubtitleGenerator.isModelReady(mContext)) {
             showToast("ASR 模型未下载（需 model.int8.onnx 等，约 240MB）");
             // TODO: M3 模型下载引导
+            cleanupAsrTempFile(videoFile, deleteSourceAfter);
+            if (floating) {
+                dismissAsrRing();
+            }
             return;
         }
 
         mIsAsrGenerating = true;
-        final android.app.ProgressDialog progress = new android.app.ProgressDialog(mActivity);
-        progress.setMessage("准备中...");
-        progress.setCancelable(true);
-        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
-        progress.setMax(100);
-        progress.setCanceledOnTouchOutside(false);
-        progress.setOnCancelListener(d -> mIsAsrGenerating = false);   // 取消仅停 UI，生成线程尽力完成
-        progress.show();
+        final android.app.ProgressDialog progress;
+        if (floating) {
+            progress = null;
+            showAsrRing();
+            updateAsrRing(0, "准备中");
+        } else {
+            progress = new android.app.ProgressDialog(mActivity);
+            progress.setMessage("准备中...");
+            progress.setCancelable(true);
+            progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+            progress.setMax(100);
+            progress.setCanceledOnTouchOutside(false);
+            progress.setOnCancelListener(d -> mIsAsrGenerating = false);   // 取消仅停 UI，生成线程尽力完成
+            progress.show();
+        }
 
         final com.orange.playerlibrary.speech.AsrSubtitleGenerator generator =
                 new com.orange.playerlibrary.speech.AsrSubtitleGenerator(mContext);
@@ -3979,7 +4155,9 @@ public class VideoEventManager {
                     @Override
                     public void onProgress(int percent, String stage) {
                         mActivity.runOnUiThread(() -> {
-                            if (progress.isShowing()) {
+                            if (progress == null) {
+                                updateAsrRing(percent, stage);
+                            } else if (progress.isShowing()) {
                                 progress.setProgress(percent);
                                 progress.setMessage(stage + " " + percent + "%");
                             }
@@ -3989,13 +4167,18 @@ public class VideoEventManager {
                     @Override
                     public void onSuccess(java.io.File srtFile, int subtitleCount) {
                         mActivity.runOnUiThread(() -> {
-                            try {
-                                progress.dismiss();
-                            } catch (Exception ignored) {
+                            if (progress != null) {
+                                try {
+                                    progress.dismiss();
+                                } catch (Exception ignored) {
+                                }
+                            } else {
+                                dismissAsrRing();
                             }
                             if (srtFile != null) {
                                 loadAsrSrtToController(srtFile, subtitleCount);
                             }
+                            cleanupAsrTempFile(videoFile, deleteSourceAfter);
                             mIsAsrGenerating = false;
                         });
                     }
@@ -4003,15 +4186,201 @@ public class VideoEventManager {
                     @Override
                     public void onError(int code, String message) {
                         mActivity.runOnUiThread(() -> {
-                            try {
-                                progress.dismiss();
-                            } catch (Exception ignored) {
+                            if (progress != null) {
+                                try {
+                                    progress.dismiss();
+                                } catch (Exception ignored) {
+                                }
+                            } else {
+                                dismissAsrRing();
                             }
                             showToast("语音字幕失败: " + message);
+                            cleanupAsrTempFile(videoFile, deleteSourceAfter);
                             mIsAsrGenerating = false;
                         });
                     }
                 }, () -> false);
+    }
+
+    // ===== ASR 悬浮环形进度（自动触发的后台任务用）=====
+
+    /**
+     * 悬浮环（进程级）：播放器存在多个 VideoEventManager 实例（controller / error view），
+     * 实例字段会导致「A 启动的环 B 关不掉」。
+     */
+    private static com.orange.playerlibrary.FloatingRingProgress sAsrRing;
+
+    /** 挂载并显示悬浮环（重复调用安全） */
+    private void showAsrRing() {
+        if (mVideoView == null) {
+            return;
+        }
+        if (sAsrRing == null) {
+            sAsrRing = new com.orange.playerlibrary.FloatingRingProgress(mContext);
+        }
+        sAsrRing.attach(mVideoView);
+        sAsrRing.show();
+    }
+
+    private void updateAsrRing(int percent, String hint) {
+        if (sAsrRing != null) {
+            sAsrRing.setProgress(percent);
+            sAsrRing.setHint(hint);
+        }
+    }
+
+    private void dismissAsrRing() {
+        if (sAsrRing != null) {
+            sAsrRing.dismiss();
+            sAsrRing = null;
+        }
+    }
+
+    // ===== 渐进 ASR（边看边播）：按播放进度逐块识别 =====
+
+    /** 渐进会话（进程级）：多实例共享，避免同一视频被并发识别两次 */
+    private static com.orange.playerlibrary.speech.ProgressiveAsrSession sProgressiveAsr;
+    private static boolean sProgressiveSubtitleShown = false;
+    private final android.os.Handler mAsrTickHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable mAsrTickRunnable;
+
+    /** 启动本地/已缓存 mp4 的渐进识别 */
+    private void startProgressiveAsr(java.io.File videoFile) {
+        long durationMs = mVideoView != null ? mVideoView.getDuration() : 0;
+        startProgressiveAsr(
+                new com.orange.playerlibrary.speech.LocalFileBlockSource(videoFile, durationMs),
+                videoFile.getName());
+    }
+
+    /**
+     * 启动 HLS 渐进识别：按区间取 m3u8 分片，分片字节优先复用播放器
+     * media3 缓存（Media3CacheExportUtils），不重复下载。
+     */
+    private void startProgressiveAsrHls(String m3u8Url) {
+        java.io.File workDir = new java.io.File(mContext.getCacheDir(), "asr_work");
+        if (!workDir.exists()) {
+            workDir.mkdirs();
+        }
+        startProgressiveAsr(
+                new com.orange.playerlibrary.speech.HlsCachedBlockSource(mContext, m3u8Url, workDir),
+                "HLS");
+    }
+
+    /**
+     * 启动渐进识别会话（本地/已缓存 mp4 或 HLS），并挂 1s 播放位置驱动。
+     * HLS 的 duration 未知时由 source 首次解析清单后补齐。
+     */
+    private void startProgressiveAsr(com.orange.playerlibrary.speech.BlockAudioSource source,
+                                     final String label) {
+        if (mIsAsrGenerating) {
+            showToast("语音字幕生成已在运行");
+            return;
+        }
+        if (sProgressiveAsr != null && sProgressiveAsr.isRunning()) {
+            // 已在识别中，忽略重复启动（自动触发与手动入口可能同时命中）
+            Log.d(TAG, "渐进 ASR 已在运行，忽略重复启动: " + label);
+            return;
+        }
+        stopProgressiveAsr();
+        final long durationMs = mVideoView != null ? mVideoView.getDuration() : 0;
+        sProgressiveAsr = new com.orange.playerlibrary.speech.ProgressiveAsrSession(
+                mContext, source, "auto", durationMs,
+                new com.orange.playerlibrary.speech.ProgressiveAsrSession.Callback() {
+                    @Override
+                    public void onBlockReady(final java.util.List<com.orange.playerlibrary.subtitle.SubtitleEntry> entries) {
+                        mActivity.runOnUiThread(() -> {
+                            if (mController == null || mController.getSubtitleManager() == null) {
+                                return;
+                            }
+                            com.orange.playerlibrary.subtitle.SubtitleManager sm =
+                                    mController.getSubtitleManager();
+                            sm.appendSubtitles(entries);
+                            if (!sProgressiveSubtitleShown) {
+                                sProgressiveSubtitleShown = true;
+                                sm.show();
+                                mController.startSubtitle();
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onProgress(final long recognizedUntilMs, final long durationMs2) {
+                        mActivity.runOnUiThread(() -> {
+                            int pct = durationMs2 > 0
+                                    ? (int) (recognizedUntilMs * 100 / durationMs2) : 0;
+                            updateAsrRing(pct, "边看边识别");
+                        });
+                    }
+
+                    @Override
+                    public void onError(final int code, final String message) {
+                        mActivity.runOnUiThread(() -> {
+                            dismissAsrRing();
+                            showToast("边看边识别失败: " + message);
+                        });
+                    }
+                });
+        sProgressiveAsr.start();
+        // 用当前播放位置初始化，避免从 0 开始识别已播过的块
+        if (mVideoView != null) {
+            sProgressiveAsr.updatePlaybackPosition(mVideoView.getCurrentPosition());
+        }
+        showAsrRing();
+        updateAsrRing(0, "边看边识别");
+        startAsrProgressTicker();
+        Log.d(TAG, "渐进 ASR 已启动: " + label);
+    }
+
+    /** 每秒把播放位置喂给渐进会话（会话按位置决定下一块） */
+    private void startAsrProgressTicker() {
+        stopAsrProgressTicker();
+        mAsrTickRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (sProgressiveAsr == null || !sProgressiveAsr.isRunning()) {
+                    return;
+                }
+                // 视图已随 Activity 销毁：结束会话，避免静态引用与线程空转
+                if (mVideoView == null || !mVideoView.isAttachedToWindow()) {
+                    stopProgressiveAsr();
+                    return;
+                }
+                long pos = mVideoView.getCurrentPosition();
+                sProgressiveAsr.updatePlaybackPosition(pos);
+                mAsrTickHandler.postDelayed(this, 1000);
+            }
+        };
+        mAsrTickHandler.postDelayed(mAsrTickRunnable, 1000);
+    }
+
+    private void stopAsrProgressTicker() {
+        if (mAsrTickRunnable != null) {
+            mAsrTickHandler.removeCallbacks(mAsrTickRunnable);
+            mAsrTickRunnable = null;
+        }
+    }
+
+    /** 结束渐进会话（切换视频/播放结束/释放时调用） */
+    private void stopProgressiveAsr() {
+        stopAsrProgressTicker();
+        boolean wasRunning = sProgressiveAsr != null;
+        if (wasRunning) {
+            sProgressiveAsr.stop();
+            sProgressiveAsr = null;
+            Log.d(TAG, "渐进 ASR 已停止");
+        }
+        if (wasRunning) {
+            dismissAsrRing();
+        }
+        sProgressiveSubtitleShown = false;
+    }
+
+    /** 清理 ASR 临时下载产物（仅自动下载的 HLS 产物传 deleteSourceAfter=true） */
+    private void cleanupAsrTempFile(java.io.File videoFile, boolean deleteSourceAfter) {
+        if (deleteSourceAfter && videoFile != null && videoFile.exists()) {
+            videoFile.delete();
+        }
     }
 
     /** 把 ASR 生成的 srt 注入当前播放器 SubtitleManager 并启用显示 */

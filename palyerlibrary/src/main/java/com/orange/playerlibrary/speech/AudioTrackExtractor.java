@@ -46,6 +46,20 @@ public class AudioTrackExtractor {
      */
     public static int extractPcm(File videoFile, File pcmFile, long durationUs,
                                  ExtractListener listener) throws IOException {
+        return extractPcm(videoFile, pcmFile, durationUs, listener, 0, Long.MAX_VALUE);
+    }
+
+    /**
+     * 解码视频音轨的指定时间区间为裸 PCM（16k/单声道/s16le）。
+     * 渐进 ASR 用：按播放进度逐块抽取，避免全片解码。
+     *
+     * @param startUs 区间起点（微秒，0 表示从头）
+     * @param endUs   区间终点（微秒，Long.MAX_VALUE 表示到结尾）
+     * @return 实际输出采样率（若非 16k 单声道，调用方仍需重采样）
+     */
+    public static int extractPcm(File videoFile, File pcmFile, long durationUs,
+                                 ExtractListener listener, long startUs, long endUs)
+            throws IOException {
         MediaExtractor extractor = new MediaExtractor();
         try {
             extractor.setDataSource(videoFile.getAbsolutePath());
@@ -54,6 +68,10 @@ public class AudioTrackExtractor {
                 throw new IOException("视频无音轨");
             }
             extractor.selectTrack(trackIndex);
+            if (startUs > 0) {
+                // 关键帧对齐：音频轨 seekTo 到最近同步样本
+                extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+            }
             MediaFormat format = extractor.getTrackFormat(trackIndex);
             String mime = format.getString(MediaFormat.KEY_MIME);
             if (mime == null) {
@@ -65,7 +83,7 @@ public class AudioTrackExtractor {
                     ? format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) : 2;
 
             Log.d(TAG, "音轨: mime=" + mime + " rate=" + srcSampleRate
-                    + " ch=" + srcChannels + " duration=" + format.getLong(MediaFormat.KEY_DURATION) + "us");
+                    + " ch=" + srcChannels + " range=[" + startUs + "," + endUs + "]us");
 
             // 若已是 16k 单声道可跳过重采样；否则输出源格式，由调用方重采样
             boolean needResample = srcSampleRate != TARGET_SAMPLE_RATE || srcChannels != 1;
@@ -78,7 +96,7 @@ public class AudioTrackExtractor {
                 // 小 syscall（长视频 4min+ 立体声解码性能关键）
                 try (java.io.BufferedOutputStream out =
                              new java.io.BufferedOutputStream(new FileOutputStream(pcmFile), 256 * 1024)) {
-                    decodeLoop(extractor, decoder, out, durationUs, listener);
+                    decodeLoop(extractor, decoder, out, durationUs, listener, endUs);
                 } finally {
                     try {
                         decoder.stop();
@@ -107,7 +125,7 @@ public class AudioTrackExtractor {
 
     private static void decodeLoop(MediaExtractor extractor, MediaCodec decoder,
                                    java.io.OutputStream out, long durationUs,
-                                   ExtractListener listener) throws IOException {
+                                   ExtractListener listener, long endUs) throws IOException {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         boolean inputDone = false;
         boolean outputDone = false;
@@ -126,15 +144,23 @@ public class AudioTrackExtractor {
                 if (inIdx >= 0) {
                     ByteBuffer inBuf = decoder.getInputBuffer(inIdx);
                     if (inBuf != null) {
-                        int sampleSize = extractor.readSampleData(inBuf, 0);
-                        if (sampleSize < 0) {
+                        // 区间抽取：越过 endUs 的输入不再喂，触发解码器冲刷收尾
+                        long sampleUs = extractor.getSampleTime();
+                        if (endUs != Long.MAX_VALUE && sampleUs >= endUs) {
                             decoder.queueInputBuffer(inIdx, 0, 0, 0,
                                     MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                             inputDone = true;
                         } else {
-                            decoder.queueInputBuffer(inIdx, 0, sampleSize,
-                                    extractor.getSampleTime(), 0);
-                            extractor.advance();
+                            int sampleSize = extractor.readSampleData(inBuf, 0);
+                            if (sampleSize < 0) {
+                                decoder.queueInputBuffer(inIdx, 0, 0, 0,
+                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                                inputDone = true;
+                            } else {
+                                decoder.queueInputBuffer(inIdx, 0, sampleSize,
+                                        sampleUs, 0);
+                                extractor.advance();
+                            }
                         }
                     }
                 }
@@ -146,7 +172,10 @@ public class AudioTrackExtractor {
                 if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                     outputDone = true;
                 }
-                if (info.size > 0) {
+                // 区间抽取：越过 endUs 的输出不写
+                boolean inRange = endUs == Long.MAX_VALUE
+                        || info.presentationTimeUs < endUs;
+                if (info.size > 0 && inRange) {
                     ByteBuffer outBuf = decoder.getOutputBuffer(outIdx);
                     if (outBuf != null) {
                         outBuf.position(info.offset);

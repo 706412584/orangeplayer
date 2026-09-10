@@ -58,7 +58,10 @@ public class AudioResampler {
 
         double ratio = (double) inRate / 16000.0;   // 输入帧/输出样本
         long outCount = (long) Math.ceil(totalFrames / ratio);
-        try (OutputStream out = new FileOutputStream(outFile)) {
+        // BufferedOutputStream：逐样本 write 若不缓冲会产生数十万次 syscall
+        // （30s 音频 ≈ 96 万次），渐进 ASR 逐块重采样下是主要耗时
+        try (OutputStream out = new java.io.BufferedOutputStream(
+                new FileOutputStream(outFile), 256 * 1024)) {
             for (long n = 0; n < outCount; n++) {
                 double pos = n * ratio;
                 long i0 = (long) Math.floor(pos);

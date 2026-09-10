@@ -66,11 +66,31 @@ public class ExternalProxyCacheManager extends ProxyCacheManager {
     @Override
     public void doCacheLogic(Context context, IMediaPlayer mediaPlayer, String url, Map<String, String> header, File cachePath) {
         Log.d(TAG, "doCacheLogic: url=" + url);
-        
-        // M3U8/HLS流媒体不支持代理缓存（播放列表中的TS片段是相对路径）
-        // 直接使用原始URL播放
+
+        // HLS 分片是相对路径，danikula 代理无法处理；但 media3 的 CacheDataSource
+        // 以「每个分片 URL」为独立 cache key，可正常缓存 HLS。
+        // 故 HLS 走媒体3内部缓存（等价于框架自带的 ExoPlayerCacheManager 行为），
+        // 播放器与 ASR 共享同一份缓存，识别无需重复下载。
         if (isHlsUrl(url)) {
-            Log.d(TAG, "HLS/M3U8 URL detected, skip proxy cache: " + url);
+            if (mediaPlayer instanceof tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) {
+                tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer exo =
+                        (tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer) mediaPlayer;
+                try {
+                    exo.setCache(true);
+                    exo.setCacheDir(cachePath);
+                    exo.setDataSource(context, android.net.Uri.parse(url), header);
+                    Log.d(TAG, "HLS 启用 media3 内部缓存: " + url);
+                } catch (Exception e) {
+                    Log.e(TAG, "HLS 启用 media3 缓存失败，回退直连", e);
+                    try {
+                        mediaPlayer.setDataSource(url);
+                    } catch (Exception ignored) {
+                    }
+                }
+                return;
+            }
+            // 非 Exo 内核（ijk/system/mpv）无 media3 缓存，直连
+            Log.d(TAG, "HLS 非 Exo 内核，直连不缓存: " + url);
             try {
                 mediaPlayer.setDataSource(url);
             } catch (Exception e) {

@@ -643,4 +643,17 @@ public class PlayerSettingsManager {
     public boolean isAsrLiveEnabled() {
         return mPreferences.getBoolean(KEY_ASR_LIVE_ENABLED, false);
     }
+
+    // ===== 自动生成字幕开关 =====
+
+    private static final String KEY_ASR_AUTO_ENABLED = "asr_auto_enabled";
+
+    public void setAsrAutoEnabled(boolean enabled) {
+        mPreferences.edit().putBoolean(KEY_ASR_AUTO_ENABLED, enabled).apply();
+    }
+
+    /** 播放就绪自动生成字幕：默认关闭 */
+    public boolean isAsrAutoEnabled() {
+        return mPreferences.getBoolean(KEY_ASR_AUTO_ENABLED, false);
+    }
 }

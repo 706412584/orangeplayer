@@ -855,6 +855,22 @@ public class SubtitleManager {
         clearMedia3Cues();
     }
 
+    /**
+     * 增量追加字幕条目（渐进 ASR：边识别边注入）。
+     * 与 loadSubtitle 的整体替换不同，本方法保留已有条目。
+     * 渲染为 100ms 全量线性扫描，追加顺序不影响命中。
+     */
+    public void appendSubtitles(final List<SubtitleEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+        mHandler.post(() -> {
+            mSubtitles.addAll(entries);
+            mLoaded = true;
+            Log.d(TAG, "Appended " + entries.size() + " subtitle entries, total=" + mSubtitles.size());
+        });
+    }
+
     public void release() {
         stop();
         clear();

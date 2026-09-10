@@ -37,7 +37,22 @@ public class M3U8Downloader {
         void onSuccess(String filePath);
         void onError(String error);
     }
-    
+
+    /** HLS 分片（含时长与在时间轴上的累积起点） */
+    public static class Segment {
+        public final String url;
+        /** #EXTINF 时长（毫秒）；清单未声明时为 0 */
+        public final long durationMs;
+        /** 该分片在整条流时间轴上的起点（毫秒） */
+        public final long startMs;
+
+        public Segment(String url, long durationMs, long startMs) {
+            this.url = url;
+            this.durationMs = durationMs;
+            this.startMs = startMs;
+        }
+    }
+
     public M3U8Downloader(Context context) {
         mContext = context;
         mExecutor = Executors.newFixedThreadPool(3);
@@ -137,6 +152,18 @@ public class M3U8Downloader {
      */
     private List<String> parseM3U8(String m3u8Url) throws Exception {
         List<String> tsUrls = new ArrayList<>();
+        for (Segment s : parseSegments(m3u8Url)) {
+            tsUrls.add(s.url);
+        }
+        return tsUrls;
+    }
+
+    /**
+     * 解析 M3U8 为带时长的分片列表（供按区间定位/复用播放器缓存）。
+     * master（多码率变体）清单自动选最低码率变体递归——对 ASR 常命中纯音频变体。
+     * 分片 startMs 为按 #EXTINF 累积的时间轴起点。
+     */
+    public List<Segment> parseSegments(String m3u8Url) throws Exception {
         String content = fetchUrl(m3u8Url);
         if (content == null || content.isEmpty()) {
             throw new Exception("M3U8 清单为空");
@@ -144,8 +171,7 @@ public class M3U8Downloader {
         String baseUrl = getBaseUrl(m3u8Url);
 
         // master 清单：包含变体流声明 → 选最低码率视频变体递归
-        boolean isMaster = content.contains("#EXT-X-STREAM-INF:");
-        if (isMaster) {
+        if (content.contains("#EXT-X-STREAM-INF:")) {
             String chosenVariant = null;
             String chosenBandwidth = null;
             BufferedReader reader = new BufferedReader(new StringReader(content));
@@ -153,7 +179,6 @@ public class M3U8Downloader {
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 if (line.startsWith("#EXT-X-STREAM-INF:")) {
-                    // 提取 BANDWIDTH 作为码率（粗选最低）
                     String bw = null;
                     int idx = line.indexOf("BANDWIDTH=");
                     if (idx >= 0) {
@@ -161,7 +186,6 @@ public class M3U8Downloader {
                         bw = end > idx ? line.substring(idx + 10, end).trim()
                                 : line.substring(idx + 10).trim();
                     }
-                    // 下一行是变体 URL
                     String variantUrl = reader.readLine();
                     if (variantUrl != null) {
                         variantUrl = variantUrl.trim();
@@ -176,29 +200,42 @@ public class M3U8Downloader {
             if (chosenVariant != null) {
                 String abs = chosenVariant.startsWith("http")
                         ? chosenVariant : baseUrl + chosenVariant;
-                android.util.Log.d(TAG, "Master 清单选变体: " + abs + " (bw=" + chosenBandwidth + ")");
-                return parseM3U8(abs);   // 递归解析所选变体
+                Log.d(TAG, "Master 清单选变体: " + abs + " (bw=" + chosenBandwidth + ")");
+                return parseSegments(abs);   // 递归解析所选变体
             }
             throw new Exception("Master 清单无可用变体");
         }
 
-        // 普通清单：收集所有 TS 分片
+        // 普通清单：收集分片 + EXTINF 时长
+        List<Segment> segments = new ArrayList<>();
         BufferedReader reader = new BufferedReader(new StringReader(content));
         String line;
+        long pendingDurationMs = -1;
+        long accMs = 0;
         while ((line = reader.readLine()) != null) {
             line = line.trim();
+            if (line.startsWith("#EXTINF:")) {
+                int idx = line.indexOf(':');
+                int comma = line.indexOf(',', idx);
+                String num = comma > idx ? line.substring(idx + 1, comma) : line.substring(idx + 1);
+                try {
+                    pendingDurationMs = (long) (Double.parseDouble(num.trim()) * 1000);
+                } catch (NumberFormatException ignored) {
+                    pendingDurationMs = -1;
+                }
+                continue;
+            }
             if (line.isEmpty() || line.startsWith("#")) {
                 continue;
             }
-            String tsUrl;
-            if (line.startsWith("http://") || line.startsWith("https://")) {
-                tsUrl = line;
-            } else {
-                tsUrl = baseUrl + line;
-            }
-            tsUrls.add(tsUrl);
+            String tsUrl = (line.startsWith("http://") || line.startsWith("https://"))
+                    ? line : baseUrl + line;
+            long dur = pendingDurationMs > 0 ? pendingDurationMs : 0;
+            segments.add(new Segment(tsUrl, dur, accMs));
+            accMs += dur;
+            pendingDurationMs = -1;
         }
-        return tsUrls;
+        return segments;
     }
 
     /** 下载 URL 文本内容（跟随重定向） */
