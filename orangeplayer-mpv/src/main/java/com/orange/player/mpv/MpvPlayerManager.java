@@ -85,10 +85,18 @@ public class MpvPlayerManager extends BasePlayerManager {
             mediaPlayer.setLooping(gsyModel.isLooping());
 
             String url = gsyModel.getUrl();
-            // 代理缓存：mpv 无法播 proxy URL 时由宿主处理；直接用原 URL
+            // 代理缓存：doCacheLogic 可能已把数据源改写为本地代理 URL
+            // （HLS 缓存管线，见 ExternalProxyCacheManager）。以 player 实际
+            // 数据源为准再同步一次，避免下面的 setDataSource 用原始 URL
+            // 覆盖掉代理地址（真机实测：覆盖后 loadfile 直连源站，
+            // 代理缓存对 mpv 失效）。
             if (cacheManager != null && gsyModel.isCache()) {
                 cacheManager.doCacheLogic(context, mediaPlayer, url,
                         gsyModel.getMapHeadData(), gsyModel.getCachePath());
+                String playerUrl = mediaPlayer.getDataSource();
+                if (playerUrl != null && !playerUrl.isEmpty()) {
+                    url = playerUrl;
+                }
             }
             mediaPlayer.setDataSource(url);
 
