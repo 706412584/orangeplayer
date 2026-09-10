@@ -3652,13 +3652,12 @@ public class VideoEventManager {
                             showToast("未安装 ASR 引擎模块"));
                 } else if (!modelReady) {
                     if (asrStatus != null) {
-                        asrStatus.setText("ASR 模型未下载（约 240MB，支持中/英/日/韩）");
+                        asrStatus.setText("ASR 模型未下载（约 228MB，支持中/英/日/韩）");
                         asrStatus.setTextColor(0xFFFF8F3F);
                     }
-                    ((android.widget.Button) btnAsrGenerate).setText("模型未下载");
-                    btnAsrGenerate.setOnClickListener(v ->
-                            showToast("请先把模型放入 " + com.orange.playerlibrary.speech
-                                    .AsrSubtitleGenerator.getModelDir(mContext).getAbsolutePath()));
+                    ((android.widget.Button) btnAsrGenerate).setText("下载模型");
+                    btnAsrGenerate.setOnClickListener(v -> startAsrModelDownload(
+                            btnAsrGenerate, asrStatus));
                 } else if (mIsAsrGenerating) {
                     if (asrStatus != null) {
                         asrStatus.setText("语音字幕生成中...");
@@ -4289,6 +4288,75 @@ public class VideoEventManager {
     private final android.os.Handler mAsrTickHandler =
             new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable mAsrTickRunnable;
+
+    // ===== ASR 模型下载 =====
+
+    /** 下载器（进程级：多个 VideoEventManager 实例共享，避免并发下载同一份模型） */
+    private static com.orange.playerlibrary.speech.AsrModelDownloader sAsrModelDownloader;
+
+    /**
+     * 下载 ASR 模型并在对话框内展示进度（约 228MB，支持断点续传）。
+     * 完成后按钮恢复为「开始生成字幕」。
+     */
+    private void startAsrModelDownload(final android.view.View btn, final android.widget.TextView status) {
+        if (sAsrModelDownloader == null) {
+            sAsrModelDownloader = new com.orange.playerlibrary.speech.AsrModelDownloader(mContext);
+        }
+        if (sAsrModelDownloader.isDownloading()) {
+            showToast("模型正在下载中");
+            return;
+        }
+        if (btn != null) {
+            btn.setEnabled(false);
+        }
+        sAsrModelDownloader.download(new com.orange.playerlibrary.speech.AsrModelDownloader.DownloadCallback() {
+            @Override
+            public void onProgress(final int percent, final long downloaded, final long total,
+                                   final String stage) {
+                mActivity.runOnUiThread(() -> {
+                    String text = String.format(java.util.Locale.US,
+                            "下载模型 %d%%（%.0f/%.0f MB）",
+                            percent, downloaded / 1048576.0, total / 1048576.0);
+                    if (btn instanceof android.widget.Button) {
+                        ((android.widget.Button) btn).setText(percent + "%");
+                    }
+                    if (status != null) {
+                        status.setText(text);
+                        status.setTextColor(0xFF4CAF50);
+                    }
+                });
+            }
+
+            @Override
+            public void onSuccess() {
+                mActivity.runOnUiThread(() -> {
+                    if (status != null) {
+                        status.setText("模型已就绪，可开始生成字幕");
+                        status.setTextColor(0xFF4CAF50);
+                    }
+                    if (btn instanceof android.widget.Button) {
+                        ((android.widget.Button) btn).setText("生成字幕");
+                        btn.setEnabled(true);
+                    }
+                    showToast("ASR 模型下载完成");
+                });
+            }
+
+            @Override
+            public void onError(final String error) {
+                mActivity.runOnUiThread(() -> {
+                    if (status != null) {
+                        status.setText("模型下载失败：" + error + "（可重试，支持续传）");
+                        status.setTextColor(0xFFFF6B6B);
+                    }
+                    if (btn instanceof android.widget.Button) {
+                        ((android.widget.Button) btn).setText("重试下载");
+                        btn.setEnabled(true);
+                    }
+                });
+            }
+        });
+    }
 
     /** 启动本地/已缓存 mp4 的渐进识别 */
     private void startProgressiveAsr(java.io.File videoFile) {
