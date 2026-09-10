@@ -98,12 +98,18 @@ public class VideoEventManager {
      */
     private void registerPlayerStateListener() {
         if (mVideoView != null) {
-            mVideoView.addOnStateChangeListener(new com.orange.playerlibrary.interfaces.OnStateChangeListener() {
+            mVideoView.addOnStateChangeListener(mStateChangeListener);
+        }
+    }
+
+    /** 状态监听器引用（保留以便 release 时解绑） */
+    private final com.orange.playerlibrary.interfaces.OnStateChangeListener mStateChangeListener =
+            new com.orange.playerlibrary.interfaces.OnStateChangeListener() {
                 @Override
                 public void onPlayerStateChanged(int playerState) {
                     handlePlayerStateChangedForOcr(playerState);
                 }
-                
+
                 @Override
                 public void onPlayStateChanged(int playState) {
                     // 播放结束：渐进识别已覆盖全部观看内容，收尾
@@ -112,8 +118,37 @@ public class VideoEventManager {
                     }
                     maybeAutoGenerateAsr(playState);
                 }
-            });
+            };
+
+    /**
+     * 释放本事件管理器：解绑播放器状态监听、停止字幕相关后台任务。
+     *
+     * 调用场景：controller 被 {@code OrangevideoView.setVideoController} 替换时，
+     * 旧 controller 的本对象若继续监听，会抢到播放状态回调并触发 ASR 写入自己的
+     * SubtitleManager——宿主读到的却是新 controller 的空字幕（真机实测：AI 翻译报
+     * 「没有已加载的字幕」而字幕实际已生成 21 条）。释放后旧实例不再抢事件。
+     */
+    public void release() {
+        if (mVideoView != null) {
+            try {
+                mVideoView.removeOnStateChangeListener(mStateChangeListener);
+            } catch (Throwable t) {
+                Log.w(TAG, "release: 解绑状态监听失败", t);
+            }
         }
+        try {
+            stopProgressiveAsr();
+        } catch (Throwable ignored) {
+        }
+        try {
+            stopOcrTranslate();
+        } catch (Throwable ignored) {
+        }
+        try {
+            stopSpeechTranslate();
+        } catch (Throwable ignored) {
+        }
+        // mVideoView/mController 为 final 且构造注入，不置空；解绑监听已使其失去事件源
     }
 
     /**

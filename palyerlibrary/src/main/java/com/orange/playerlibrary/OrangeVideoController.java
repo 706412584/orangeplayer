@@ -110,8 +110,39 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
     }
     
     /**
+     * 释放本控制器：解绑事件管理器、释放字幕管理器。
+     *
+     * 调用场景：被 {@link OrangevideoView#setVideoController} 替换下来的旧 controller。
+     * 旧实例的 VideoEventManager 若继续监听播放状态，会抢到 ASR 触发并把字幕写入
+     * 自己的 SubtitleManager，而宿主操作的是新 controller——表现为「字幕能显示但
+     * 翻译/设置读不到」（真机实测）。释放后旧实例不再抢事件、不再重复渲染字幕。
+     *
+     * 注意：这是「被替换」的清理，不是销毁。调用后仍可通过 getSubtitleManager()
+     * 拿到新的空实例；本对象不应再作为视图控制器使用。
+     */
+    public void releaseOnReplaced() {
+        if (mVideoEventManager != null) {
+            try {
+                mVideoEventManager.release();
+            } catch (Throwable t) {
+                debug("releaseOnReplaced: 事件管理器释放失败 " + t);
+            }
+            mVideoEventManager = null;
+        }
+        if (mSubtitleManager != null) {
+            try {
+                mSubtitleManager.release();
+            } catch (Throwable t) {
+                debug("releaseOnReplaced: 字幕管理器释放失败 " + t);
+            }
+            mSubtitleManager = null;
+        }
+        mVideoView = null;
+    }
+
+    /**
      * 获取事件管理器
-     * 
+     *
      * @return 事件管理器
      */
     public VideoEventManager getVideoEventManager() {

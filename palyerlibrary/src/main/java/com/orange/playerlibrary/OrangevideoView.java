@@ -3278,6 +3278,18 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     public void setVideoController(OrangeVideoController controller) {
+        // 替换旧控制器时释放其监听与字幕：否则被换下的实例仍监听播放状态，
+        // 会抢到 ASR 触发把字幕写进自己的 SubtitleManager，而宿主操作的是新
+        // controller（真机实测：字幕能显示但 AI 翻译读为空）。传入同一实例
+        // 或 null 时不释放，保持既有调用语义不变。
+        OrangeVideoController previous = this.mOrangeController;
+        if (previous != null && controller != null && previous != controller) {
+            try {
+                previous.releaseOnReplaced();
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "setVideoController: 旧控制器释放失败", t);
+            }
+        }
         this.mOrangeController = controller;
 
         if (controller != null) {

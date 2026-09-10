@@ -558,8 +558,15 @@ public class MainActivity extends AppCompatActivity {
             .setSniffingAutoPlayEnabled(false);
         
         // 创建控制器
-        mController = new OrangeVideoController(this);
-        mVideoView.setVideoController(mController);
+        // 复用播放器自带的控制器（SDK 在组件初始化时已创建），避免再 new 一个：
+        // 两个 controller 会让「被换下的那个」仍监听播放状态，抢到 ASR 触发把字幕
+        // 写进自己的 SubtitleManager，而宿主操作的是另一个实例（真机实测：字幕能
+        // 显示但 AI 翻译报「没有已加载的字幕」）。SDK 未创建时兜底自建。
+        mController = mVideoView.getVideoController();
+        if (mController == null) {
+            mController = new OrangeVideoController(this);
+            mVideoView.setVideoController(mController);
+        }
 
         // 设置加载动画（默认已是 LINE_SCALE_PULSE_OUT）
         mController.setLoading(OrangeVideoController.IndicatorType.LINE_SCALE_PULSE_OUT);

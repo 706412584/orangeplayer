@@ -90,8 +90,13 @@ public class OpenWithActivity extends AppCompatActivity {
     }
 
     private void initPlayer() {
-        mController = new OrangeVideoController(this);
-        mVideoView.setVideoController(mController);
+        // 复用播放器自带的控制器（SDK 已创建），避免再 new 一个导致旧实例继续
+        // 监听播放状态、抢占 ASR 触发（详见 MainActivity.initPlayer 的说明）
+        mController = mVideoView.getVideoController();
+        if (mController == null) {
+            mController = new OrangeVideoController(this);
+            mVideoView.setVideoController(mController);
+        }
         mController.setLoading(OrangeVideoController.IndicatorType.LINE_SCALE_PULSE_OUT);
         mController.addDefaultControlComponent("外部打开", false);
         mSessionHelper = new OrangePlayerSessionHelper(this, mVideoView);
