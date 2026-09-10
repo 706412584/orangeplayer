@@ -2,60 +2,78 @@
 <!--
   ASR 悬浮环形进度：绿色圆环 + 百分比，浮在播放器上。
   圆环 drawable 复用 progress_circle_bg / progress_circle_fg（与下载进度同一套）。
+
+  贴边隐藏时不裁切本 UI，而是把 content 整体隐藏、显示一个纯色把手（handle），
+  点把手恢复完整 UI（见 FloatingRingProgress）。
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/asr_ring_root"
     android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:background="@drawable/top_layout_round"
-    android:gravity="center"
-    android:orientation="vertical"
-    android:padding="10dp">
+    android:layout_height="wrap_content">
 
-    <FrameLayout
-        android:layout_width="52dp"
-        android:layout_height="52dp">
-
-        <!-- 背景圆环 -->
-        <ProgressBar
-            android:id="@+id/asr_ring_bg"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:indeterminate="false"
-            android:max="100"
-            android:progress="100"
-            android:progressDrawable="@drawable/progress_circle_bg" />
-
-        <!-- 前景进度圆环（绿） -->
-        <ProgressBar
-            android:id="@+id/asr_ring_fg"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:indeterminate="false"
-            android:max="100"
-            android:progress="0"
-            android:progressDrawable="@drawable/progress_circle_fg" />
-
-        <TextView
-            android:id="@+id/asr_ring_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="0%"
-            android:textColor="@color/op_success"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-    </FrameLayout>
-
-    <TextView
-        android:id="@+id/asr_ring_hint"
+    <LinearLayout
+        android:id="@+id/asr_ring_content"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="字幕识别"
-        android:textColor="@color/op_text_secondary"
-        android:textSize="10sp" />
+        android:background="@drawable/top_layout_round"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="10dp">
 
-</LinearLayout>
+        <FrameLayout
+            android:layout_width="52dp"
+            android:layout_height="52dp">
+
+            <!-- 背景圆环 -->
+            <ProgressBar
+                android:id="@+id/asr_ring_bg"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:indeterminate="false"
+                android:max="100"
+                android:progress="100"
+                android:progressDrawable="@drawable/progress_circle_bg" />
+
+            <!-- 前景进度圆环（绿） -->
+            <ProgressBar
+                android:id="@+id/asr_ring_fg"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:indeterminate="false"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/progress_circle_fg" />
+
+            <TextView
+                android:id="@+id/asr_ring_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="0%"
+                android:textColor="@color/op_success"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/asr_ring_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="字幕识别"
+            android:textColor="@color/op_text_secondary"
+            android:textSize="10sp" />
+
+    </LinearLayout>
+
+    <!-- 贴边隐藏态：纯色把手，宽=完整 UI 宽的 10%，点按恢复完整 UI -->
+    <View
+        android:id="@+id/asr_ring_handle"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@drawable/orange_shape_asr_ring_handle"
+        android:visibility="gone" />
+
+</FrameLayout>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 贴边隐藏时的纯色把手（不是把进度 UI 裁切露一角） -->
+<shape android:shape="rectangle"
+       xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/op_success"/>
+    <corners
+        android:topLeftRadius="4dp"
+        android:bottomLeftRadius="4dp"
+        android:topRightRadius="4dp"
+        android:bottomRightRadius="4dp"/>
+</shape>
