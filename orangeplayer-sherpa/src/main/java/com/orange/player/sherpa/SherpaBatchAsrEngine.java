@@ -13,7 +13,9 @@ import com.k2fsa.sherpa.onnx.SileroVadModelConfig;
 import com.k2fsa.sherpa.onnx.SpeechSegment;
 import com.k2fsa.sherpa.onnx.Vad;
 import com.k2fsa.sherpa.onnx.VadModelConfig;
+import com.orange.playerlibrary.speech.AsrSegmentSplitter;
 import com.orange.playerlibrary.speech.BatchAsrEngine;
+import com.orange.playerlibrary.subtitle.SubtitleEntry;
 
 import java.io.File;
 import java.io.IOException;
@@ -232,7 +234,12 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
                 long startMs = Math.round(segment.getStart() / 16.0);  // samples@16k → ms
                 long endMs = startMs + Math.round(segment.getSamples().length / 16.0);
                 if (!text.isEmpty()) {
-                    callback.onSegment(text, startMs, endMs);
+                    // SenseVoice 无词级时间戳，VAD 段内最长可达 5s：整段作为一条字幕
+                    // 会「好几秒一大段」。按标点/字数切分并用字数比例插值段内时间，
+                    // 段首尾仍与 VAD 边界严格对齐（不累积漂移）。
+                    for (SubtitleEntry entry : AsrSegmentSplitter.split(text, startMs, endMs)) {
+                        callback.onSegment(entry.getText(), entry.getStartTime(), entry.getEndTime());
+                    }
                 }
                 stream.release();
                 done++;
