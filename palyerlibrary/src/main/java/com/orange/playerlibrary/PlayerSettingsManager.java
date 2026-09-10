@@ -630,4 +630,17 @@ public class PlayerSettingsManager {
     public String getAiTargetLang() {
         return mPreferences.getString(KEY_AI_TARGET_LANG, DEFAULT_AI_TARGET_LANG);
     }
+
+    // ===== 边看边识别（渐进 ASR）开关 =====
+
+    private static final String KEY_ASR_LIVE_ENABLED = "asr_live_enabled";
+
+    public void setAsrLiveEnabled(boolean enabled) {
+        mPreferences.edit().putBoolean(KEY_ASR_LIVE_ENABLED, enabled).apply();
+    }
+
+    /** 边看边识别：默认关闭（完整下载版为默认） */
+    public boolean isAsrLiveEnabled() {
+        return mPreferences.getBoolean(KEY_ASR_LIVE_ENABLED, false);
+    }
 }

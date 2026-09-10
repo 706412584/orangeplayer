@@ -3505,6 +3505,12 @@ public class VideoEventManager {
             // ===== AI 语音生成字幕（离线 ASR）=====
             android.widget.TextView asrStatus = dialogView.findViewById(R.id.asr_status);
             View btnAsrGenerate = dialogView.findViewById(R.id.btn_asr_generate);
+            android.widget.Switch asrLiveSwitch = dialogView.findViewById(R.id.asr_live_switch);
+            if (asrLiveSwitch != null) {
+                asrLiveSwitch.setChecked(mSettingsManager.isAsrLiveEnabled());
+                asrLiveSwitch.setOnCheckedChangeListener((buttonView, isChecked) ->
+                        mSettingsManager.setAsrLiveEnabled(isChecked));
+            }
             if (btnAsrGenerate != null) {
                 boolean sherpaOk = com.orange.playerlibrary.speech.SherpaAvailabilityChecker
                         .isSherpaAvailable();
@@ -3534,7 +3540,9 @@ public class VideoEventManager {
                     btnAsrGenerate.setEnabled(false);
                 } else {
                     if (asrStatus != null) {
-                        asrStatus.setText("识别视频音轨生成字幕（选视频文件）");
+                        asrStatus.setText(mSettingsManager.isAsrLiveEnabled()
+                                ? "边看边识别：播到哪识别到哪，字幕渐进出现"
+                                : "完整下载后一次识别全部字幕");
                         asrStatus.setTextColor(0xFF4CAF50);
                     }
                     btnAsrGenerate.setOnClickListener(v -> {
@@ -3764,6 +3772,12 @@ public class VideoEventManager {
         if (!com.orange.playerlibrary.speech.SherpaAvailabilityChecker.isSherpaAvailable()) {
             showToast("未安装 ASR 引擎模块");
             return;
+        }
+        if (mSettingsManager.isAsrLiveEnabled()) {
+            // 渐进（边看边识别）：当前按完整版兜底，避免假功能。
+            // 后续接入播放进度钩子：已看区间逐段 ASR + 增量注入字幕。
+            showToast("边看边识别开发中，先用完整版生成");
+            // 继续走完整版逻辑（不 return，让功能可用）
         }
         // 优先解析当前播放视频源
         if (resolveCurrentVideoForAsr()) {
