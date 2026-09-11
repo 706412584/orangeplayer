@@ -119,6 +119,13 @@ public class AsrModelDownloader {
     private final AtomicBoolean mDownloading = new AtomicBoolean(false);
     private volatile boolean mCancelled;
 
+    /**
+     * 当前下载的回调。存为字段（而非仅传参）是为了能在宿主销毁时解绑：
+     * 回调通常捕获了 Activity 与其 View，228MB 下载可能持续数分钟，
+     * 不解绑会让已销毁的 Activity 一直被静态下载器持有。
+     */
+    private volatile DownloadCallback mCallback;
+
     public AsrModelDownloader(Context context) {
         mContext = context.getApplicationContext();
     }
@@ -126,6 +133,15 @@ public class AsrModelDownloader {
     /** 是否正在下载（防止重复触发） */
     public boolean isDownloading() {
         return mDownloading.get();
+    }
+
+    /**
+     * 解绑回调但**不中断下载**：宿主（Activity/面板）销毁时调用，
+     * 释放对 Activity 与 View 的引用；下载在后台继续，完成后仍会落盘，
+     * 下次进入设置面板会看到「模型已就绪」。
+     */
+    public void detachCallback() {
+        mCallback = null;
     }
 
     /** 取消当前下载（已下字节保留，下次可续传） */
@@ -139,26 +155,27 @@ public class AsrModelDownloader {
      */
     public void download(DownloadCallback callback) {
         if (!mDownloading.compareAndSet(false, true)) {
-            notifyError(callback, "下载已在进行中");
+            notifyError(mCallback, "下载已在进行中");
             return;
         }
         mCancelled = false;
+        mCallback = callback;
         mExecutor.execute(() -> {
             try {
-                runDownload(callback);
+                runDownload();
             } catch (Exception e) {
                 Log.e(TAG, "下载失败", e);
-                notifyError(callback, e.getMessage() != null ? e.getMessage() : "下载失败");
+                notifyError(mCallback, e.getMessage() != null ? e.getMessage() : "下载失败");
             } finally {
                 mDownloading.set(false);
             }
         });
     }
 
-    private void runDownload(DownloadCallback callback) {
+    private void runDownload() {
         File modelDir = AsrSubtitleGenerator.getModelDir(mContext);
         if (!modelDir.exists() && !modelDir.mkdirs()) {
-            notifyError(callback, "无法创建模型目录");
+            notifyError(mCallback, "无法创建模型目录");
             return;
         }
 
@@ -171,25 +188,32 @@ public class AsrModelDownloader {
         long doneBytes = 0;   // 已完成文件（含已完整存在者）的字节
         for (ModelFile file : files) {
             if (mCancelled) {
-                notifyError(callback, "已取消");
+                notifyError(mCallback, "已取消");
                 return;
             }
             File target = new File(modelDir, file.name);
 
-            // 已完整存在（按体积判断）→ 跳过
+            // 已完整存在 → 跳过。除体积外还验哈希：同尺寸的损坏文件（下载期拼接
+            // 错误、磁盘错误）若只比体积会被永久跳过，模型一直不可用且无修复路径。
+            // 用户点「下载模型」本身就是修复意图，此处多花约 1~2 秒（239MB）可接受。
             if (file.expectedSize > 0 && target.exists()
-                    && target.length() == file.expectedSize) {
+                    && target.length() == file.expectedSize
+                    && verifyHash(target, file.sha256)) {
                 Log.d(TAG, "跳过已存在: " + file.name + " (" + target.length() + " bytes)");
                 doneBytes += file.expectedSize;
-                notifyProgress(callback, doneBytes, totalBytes, "已完成 " + file.name);
+                notifyProgress(mCallback, doneBytes, totalBytes, "校验通过 " + file.name);
                 continue;
             }
+            if (target.exists()) {
+                Log.w(TAG, "已存在文件校验不通过，重新下载: " + file.name
+                        + " (" + target.length() + " bytes)");
+            }
 
-            if (!downloadFile(file, target, doneBytes, totalBytes, callback)) {
+            if (!downloadFile(file, target, doneBytes, totalBytes)) {
                 if (mCancelled) {
-                    notifyError(callback, "已取消");
+                    notifyError(mCallback, "已取消");
                 } else {
-                    notifyError(callback, "下载失败: " + file.name);
+                    notifyError(mCallback, "下载失败: " + file.name);
                 }
                 return;
             }
@@ -198,13 +222,14 @@ public class AsrModelDownloader {
 
         // 最终校验（三文件齐全）
         if (!AsrSubtitleGenerator.isModelReady(mContext)) {
-            notifyError(callback, "下载完成但模型文件不完整，请重试");
+            notifyError(mCallback, "下载完成但模型文件不完整，请重试");
             return;
         }
         Log.d(TAG, "模型下载完成: " + modelDir.getAbsolutePath());
-        notifyProgress(callback, totalBytes, totalBytes, "完成");
-        if (callback != null) {
-            callback.onSuccess();
+        notifyProgress(mCallback, totalBytes, totalBytes, "完成");
+        DownloadCallback cb = mCallback;
+        if (cb != null) {
+            cb.onSuccess();
         }
     }
 
@@ -214,8 +239,7 @@ public class AsrModelDownloader {
      * @return 成功返回 true；取消/失败返回 false
      */
     private boolean downloadFile(ModelFile file, File target,
-                                 long doneBytes, long totalBytes,
-                                 DownloadCallback callback) {
+                                 long doneBytes, long totalBytes) {
         // 先试主源，失败换备用源
         String[] sources = file.fallbackUrl != null
                 ? new String[]{file.url, file.fallbackUrl}
@@ -227,7 +251,7 @@ public class AsrModelDownloader {
             }
             String source = sources[i];
             try {
-                if (fetchWithResume(file, target, source, doneBytes, totalBytes, callback)) {
+                if (fetchWithResume(file, target, source, doneBytes, totalBytes, true)) {
                     return true;
                 }
                 Log.w(TAG, "源下载未完成，尝试下一个: " + source);
@@ -241,19 +265,13 @@ public class AsrModelDownloader {
         return false;
     }
 
-    /** 单源下载（含续传与体积/哈希校验） */
-    private boolean fetchWithResume(ModelFile file, File target, String source,
-                                    long doneBytes, long totalBytes,
-                                    DownloadCallback callback) throws IOException {
-        return fetchWithResume(file, target, source, doneBytes, totalBytes, callback, true);
-    }
-
     /**
+     * 单源下载（含续传与体积/哈希校验）。
+     *
      * @param allowRetry 416（Range 越界）时是否允许清掉 .part 后重试一次
      */
     private boolean fetchWithResume(ModelFile file, File target, String source,
-                                    long doneBytes, long totalBytes,
-                                    DownloadCallback callback, boolean allowRetry)
+                                    long doneBytes, long totalBytes, boolean allowRetry)
             throws IOException {
         File temp = new File(target.getParentFile(), target.getName() + ".part");
         long existing = temp.exists() ? temp.length() : 0;
@@ -292,8 +310,7 @@ public class AsrModelDownloader {
                 Log.w(TAG, "服务端 416（.part 与服务端不一致），丢弃后重下: " + file.name);
                 conn.disconnect();
                 temp.delete();
-                return fetchWithResume(file, target, source, doneBytes, totalBytes,
-                        callback, false);
+                return fetchWithResume(file, target, source, doneBytes, totalBytes, false);
             }
             boolean resumed = (code == HttpURLConnection.HTTP_PARTIAL);   // 206
             if (code != HttpURLConnection.HTTP_OK && !resumed) {
@@ -315,7 +332,7 @@ public class AsrModelDownloader {
             long downloaded = existing;
             Log.d(TAG, "开始下载 " + file.name + "（" + (existing > 0 ? "续传自 " + existing : "全新")
                     + "，目标 " + fileTotal + " 字节，源=" + source + "）");
-            notifyProgress(callback, doneBytes + downloaded, totalBytes,
+            notifyProgress(mCallback, doneBytes + downloaded, totalBytes,
                     "下载 " + file.name + (existing > 0 ? "（续传）" : ""));
 
             byte[] buffer = new byte[BUFFER_SIZE];
@@ -334,7 +351,7 @@ public class AsrModelDownloader {
                         int percent = (int) ((doneBytes + downloaded) * 100 / totalBytes);
                         if (percent != lastPercent) {
                             lastPercent = percent;
-                            notifyProgress(callback, doneBytes + downloaded, totalBytes,
+                            notifyProgress(mCallback, doneBytes + downloaded, totalBytes,
                                     "下载 " + file.name);
                         }
                     }
