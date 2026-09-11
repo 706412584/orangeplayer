@@ -982,15 +982,26 @@ public class SubtitleManager {
      * @return 实际回写条数
      */
     public int applyAiTranslation(String[] translatedTexts) {
-        if (translatedTexts == null) {
+        return applyAiTranslationFrom(0, translatedTexts);
+    }
+
+    /**
+     * 增量回写译文（渐进 ASR 边识别边翻译：每批译文只覆盖对应的新条目）。
+     *
+     * @param startIdx          起始条目下标（含）；对齐渐进会话提交的批次起点
+     * @param translatedTexts   译文数组，translatedTexts[0] 对应 mSubtitles[startIdx]
+     * @return 实际写入条数
+     */
+    public int applyAiTranslationFrom(int startIdx, String[] translatedTexts) {
+        if (translatedTexts == null || startIdx < 0 || startIdx >= mSubtitles.size()) {
             return 0;
         }
         int written = 0;
-        int limit = Math.min(translatedTexts.length, mSubtitles.size());
+        int limit = Math.min(translatedTexts.length, mSubtitles.size() - startIdx);
         for (int i = 0; i < limit; i++) {
             String t = translatedTexts[i];
             if (t != null && !t.trim().isEmpty()) {
-                mSubtitles.get(i).setText(t.trim());
+                mSubtitles.get(startIdx + i).setText(t.trim());
                 written++;
             }
         }

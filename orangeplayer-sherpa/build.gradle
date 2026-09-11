@@ -21,6 +21,12 @@ android {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
+
+    testOptions {
+        unitTests {
+            returnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -31,6 +37,8 @@ dependencies {
     // 经 settings.gradle 的 flatDir 仓库解析。49MB 全 4 架构；
     // 打包时随 app 的 orangeAppReleaseAbis 裁到目标 ABI。
     api(name: 'sherpa-onnx-1.13.7', ext: 'aar')
+
+    testImplementation 'junit:junit:4.13.2'
 }
 
 // ===== Maven Central 发布（随主仓 pomVersion；与 orangeplayer-mpv 同模式） =====

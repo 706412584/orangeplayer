@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -38,6 +39,9 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
 
     // SenseVoice 事件/情感标记：<|xxx|> 全部剥除
     private static final Pattern EVENT_TAG = Pattern.compile("<\\|[^|]*\\|>");
+
+    // 语种标记：<|zh|> → 提取内部语种（与文本清洗相反，这里是取值）
+    private static final Pattern LANG_TAG = Pattern.compile("<\\|([^|]*)\\|>");
 
     private final Object mLock = new Object();
     private OfflineRecognizer mRecognizer;
@@ -238,7 +242,8 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
                     // 会「好几秒一大段」。按标点/字数切分并用字数比例插值段内时间，
                     // 段首尾仍与 VAD 边界严格对齐（不累积漂移）。
                     for (SubtitleEntry entry : AsrSegmentSplitter.split(text, startMs, endMs)) {
-                        callback.onSegment(entry.getText(), entry.getStartTime(), entry.getEndTime());
+                        callback.onSegmentWithLang(entry.getText(), entry.getStartTime(),
+                                entry.getEndTime(), sanitizeLang(result.getLang()));
                     }
                 }
                 stream.release();
@@ -258,6 +263,40 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
             return "";
         }
         return EVENT_TAG.matcher(raw).replaceAll("").trim();
+    }
+
+    /**
+     * 语种字段清洗：SenseVoice 的 lang 形如 {@code <|zh|>}——语种在标记**内部**，
+     * 需提取而非删除（{@link #clean} 是删标记，用于文本）。兼容 "en-US"/"EN" 等写法，
+     * 取主语言子标签；无法识别时返回 null。
+     */
+    static String sanitizeLang(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String s = raw.trim();
+        Matcher m = LANG_TAG.matcher(s);
+        if (m.find()) {
+            s = m.group(1);
+        }
+        s = s.trim().toLowerCase();
+        // 取主语言子标签（en-US / zh_CN → en / zh）
+        int cut = s.length();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '-' || c == '_' || c == ' ') {
+                cut = i;
+                break;
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cut; i++) {
+            char c = s.charAt(i);
+            if (c >= 'a' && c <= 'z') {
+                sb.append(c);
+            }
+        }
+        return sb.length() == 0 ? null : sb.toString();
     }
 
     /** 读取 16k 单声道 pcm_s16le wav → float[-1,1] */

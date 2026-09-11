@@ -41,6 +41,13 @@ public class ProgressiveAsrSession {
 
         /** 失败（主线程）；会话随即结束 */
         void onError(int code, String message);
+
+        /**
+         * 引擎检测到的语种（如 "zh"/"en"，auto 模式下有效；识别不到则不回调）。
+         * 供本地翻译兜底确定源语言；默认空实现，未使用的调用方无需改动。
+         */
+        default void onLanguageDetected(String lang) {
+        }
     }
 
     private final Context mContext;
@@ -205,6 +212,17 @@ public class ProgressiveAsrSession {
                         }
 
                         @Override
+                        public void onSegmentWithLang(String text, long startMs, long endMs,
+                                                      String lang) {
+                            onSegment(text, startMs, endMs);
+                            // 语种只在变化时上报（本地翻译兜底据此确定源语言）
+                            if (lang != null && !lang.isEmpty() && !lang.equals(mDetectedLang)) {
+                                mDetectedLang = lang;
+                                postLanguageDetected(lang);
+                            }
+                        }
+
+                        @Override
                         public void onProgress(int percent, String stage) {
                         }
 
@@ -260,6 +278,15 @@ public class ProgressiveAsrSession {
     private void postProgress(final long recognizedUntilMs, final long durationMs) {
         if (mCallback != null) {
             mCallback.onProgress(recognizedUntilMs, durationMs);
+        }
+    }
+
+    /** 引擎检测到的语种（回调线程写，仅用于去重上报） */
+    private volatile String mDetectedLang;
+
+    private void postLanguageDetected(String lang) {
+        if (mCallback != null) {
+            mCallback.onLanguageDetected(lang);
         }
     }
 

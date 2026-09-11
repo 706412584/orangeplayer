@@ -3638,6 +3638,21 @@ public class VideoEventManager {
                 asrAutoSwitch.setOnCheckedChangeListener((buttonView, isChecked) ->
                         mSettingsManager.setAsrAutoEnabled(isChecked));
             }
+            android.widget.Switch asrTranslateSwitch =
+                    dialogView.findViewById(R.id.asr_translate_switch);
+            if (asrTranslateSwitch != null) {
+                asrTranslateSwitch.setChecked(mSettingsManager.isAsrAutoTranslateEnabled());
+                asrTranslateSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    mSettingsManager.setAsrAutoTranslateEnabled(isChecked);
+                    if (isChecked) {
+                        // 提示走的是哪条翻译链路（AI 未配置时自动本地兜底）
+                        String target = mSettingsManager.getAiTargetLang();
+                        boolean aiReady = mSettingsManager.isAiConfigured();
+                        showToast("识别后自动翻译为「" + (target == null ? "" : target) + "」"
+                                + (aiReady ? "（AI 翻译）" : "（未配 AI Key，用本地翻译兜底）"));
+                    }
+                });
+            }
             if (btnAsrGenerate != null) {
                 boolean sherpaOk = com.orange.playerlibrary.speech.SherpaAvailabilityChecker
                         .isSherpaAvailable();
@@ -3880,6 +3895,65 @@ public class VideoEventManager {
                 });
             }
         }, "ai-subtitle-translate").start();
+    }
+
+    // ===== 边识别边翻译（ASR → 翻译）=====
+
+    /** 渐进翻译会话（进程级：与渐进 ASR 同生命周期） */
+    private static com.orange.playerlibrary.ai.ProgressiveTranslator sProgressiveTranslator;
+
+    /**
+     * 按设置启用渐进翻译：识别出的字幕逐批翻成 AI 设置中的目标语言。
+     * 未配置 API Key 时传 null 配置 → 调度器走本地 MLKit 兜底。
+     */
+    private void startProgressiveTranslationIfEnabled(String owningUrl) {
+        if (!mSettingsManager.isAsrAutoTranslateEnabled()) {
+            stopProgressiveTranslation();
+            return;
+        }
+        final String targetLang = mSettingsManager.getAiTargetLang();
+        if (targetLang == null || targetLang.trim().isEmpty()) {
+            showToast("已开启识别后翻译，但未设置目标语言（AI 设置）");
+            return;
+        }
+        if (sProgressiveTranslator == null) {
+            sProgressiveTranslator = new com.orange.playerlibrary.ai.ProgressiveTranslator(mContext);
+        }
+        com.orange.playerlibrary.ai.TranslatorSettings aiSettings = null;
+        if (mSettingsManager.isAiConfigured()) {
+            aiSettings = com.orange.playerlibrary.ai.TranslatorSettings.builder()
+                    .baseUrl(mSettingsManager.getAiBaseUrl())
+                    .apiKey(mSettingsManager.getAiApiKey())
+                    .model(mSettingsManager.getAiModel())
+                    .targetLanguage(targetLang)
+                    .build();
+        } else {
+            Log.d(TAG, "未配置 AI Key，识别后翻译使用本地兜底");
+        }
+        sProgressiveTranslator.configure(owningUrl, "auto", targetLang, aiSettings,
+                new com.orange.playerlibrary.ai.ProgressiveTranslator.Callback() {
+                    @Override
+                    public void onTranslated(final int startIdx, final String[] translated) {
+                        mActivity.runOnUiThread(() -> {
+                            if (mController == null || mController.getSubtitleManager() == null) {
+                                return;
+                            }
+                            mController.getSubtitleManager()
+                                    .applyAiTranslationFrom(startIdx, translated);
+                        });
+                    }
+
+                    @Override
+                    public void onStatus(String message) {
+                        Log.d(TAG, "渐进翻译: " + message);
+                    }
+                });
+    }
+
+    private void stopProgressiveTranslation() {
+        if (sProgressiveTranslator != null) {
+            sProgressiveTranslator.reset();
+        }
     }
 
     // ===== AI 语音生成字幕（离线 ASR）=====
@@ -4399,6 +4473,7 @@ public class VideoEventManager {
         }
         stopProgressiveAsr();
         final long durationMs = mVideoView != null ? mVideoView.getDuration() : 0;
+        startProgressiveTranslationIfEnabled(owningUrl);
         sProgressiveAsr = new com.orange.playerlibrary.speech.ProgressiveAsrSession(
                 mContext, source, "auto", durationMs,
                 new com.orange.playerlibrary.speech.ProgressiveAsrSession.Callback() {
@@ -4416,7 +4491,19 @@ public class VideoEventManager {
                                 sm.show();
                                 mController.startSubtitle();
                             }
+                            // 边识别边翻译：提交本批（下标与刚追加的区间一致）
+                            if (sProgressiveTranslator != null) {
+                                sProgressiveTranslator.submit(entries);
+                            }
                         });
+                    }
+
+                    @Override
+                    public void onLanguageDetected(final String lang) {
+                        // 本地翻译兜底需要具体源语言（ASR 为 auto 模式）
+                        if (sProgressiveTranslator != null) {
+                            sProgressiveTranslator.onLanguageDetected(lang);
+                        }
                     }
 
                     @Override
@@ -4479,6 +4566,7 @@ public class VideoEventManager {
     /** 结束渐进会话（切换视频/播放结束/释放时调用） */
     private void stopProgressiveAsr() {
         stopAsrProgressTicker();
+        stopProgressiveTranslation();
         boolean wasRunning = sProgressiveAsr != null;
         if (wasRunning) {
             sProgressiveAsr.stop();

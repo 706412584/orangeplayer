@@ -656,4 +656,20 @@ public class PlayerSettingsManager {
     public boolean isAsrAutoEnabled() {
         return mPreferences.getBoolean(KEY_ASR_AUTO_ENABLED, false);
     }
+
+    // ===== 识别后自动翻译开关 =====
+
+    private static final String KEY_ASR_AUTO_TRANSLATE = "asr_auto_translate";
+
+    public void setAsrAutoTranslateEnabled(boolean enabled) {
+        mPreferences.edit().putBoolean(KEY_ASR_AUTO_TRANSLATE, enabled).apply();
+    }
+
+    /**
+     * 识别后自动翻译（边识别边翻译；未配 AI Key 时用本地 MLKit 兜底）：默认关闭。
+     * 目标语言沿用 AI 设置中的 getAiTargetLang()。
+     */
+    public boolean isAsrAutoTranslateEnabled() {
+        return mPreferences.getBoolean(KEY_ASR_AUTO_TRANSLATE, false);
+    }
 }

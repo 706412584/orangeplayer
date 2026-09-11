@@ -20,6 +20,15 @@ public interface BatchAsrEngine {
         void onSegment(String text, long startMs, long endMs);
 
         /**
+         * 每识别完一个语音段（含引擎检测到的语种，可为 null）。
+         * SenseVoice 在 auto 模式下会回报语种（如 "zh"/"en"），本地翻译兜底
+         * 需要它作为源语言。默认实现退化为 {@link #onSegment}，未实现的引擎不受影响。
+         */
+        default void onSegmentWithLang(String text, long startMs, long endMs, String lang) {
+            onSegment(text, startMs, endMs);
+        }
+
+        /**
          * 进度（0-100）。VAD 预扫阶段与解码阶段合并口径：
          * 预扫阶段按已扫/总时长估算，解码阶段按已处理段数估算。
          */
