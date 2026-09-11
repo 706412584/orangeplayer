@@ -47,6 +47,10 @@
             android:textSize="13sp"
             android:layout_marginBottom="6dp" />
 
+        <!-- 注意：不用 inputType="textPassword"、也不在代码里设
+             PasswordTransformationMethod——两者都会让系统把字段判定为「密码类型」，
+             OPPO 等机型据此强制切到系统安全键盘，第三方输入法与粘贴全部不可用。
+             这里保持普通文本类型，明文显示。 -->
         <EditText
             android:id="@+id/et_ai_api_key"
             android:layout_width="match_parent"
@@ -58,7 +62,8 @@
             android:textSize="13sp"
             android:paddingHorizontal="12dp"
             android:singleLine="true"
-            android:inputType="textPassword"
+            android:inputType="textNoSuggestions"
+            android:importantForAutofill="no"
             android:imeOptions="actionNext"
             android:layout_marginBottom="12dp" />
 

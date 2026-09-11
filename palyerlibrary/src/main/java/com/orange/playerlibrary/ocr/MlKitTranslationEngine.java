@@ -71,6 +71,16 @@ public class MlKitTranslationEngine implements TranslationEngine {
     }
     
     private String getLanguageCode(Class<?> translateLanguageClass, String language) {
+        // 先按语言码取常量名：MLKit 里非中日韩语种只有全称常量
+        // （"fr" → FRENCH，而非 FR），靠 toUpperCase 猜字段名会失败，
+        // 导致选法语等目标语言时本地兜底与预装静默跳过。
+        try {
+            java.lang.reflect.Field field = translateLanguageClass.getField(
+                    mlKitFieldName(language));
+            return (String) field.get(null);
+        } catch (Exception ignored) {
+            // 非语言码（用户填的显示名等）：走下面的别名匹配
+        }
         try {
             String fieldName;
             switch (language.toLowerCase()) {
@@ -340,5 +350,114 @@ public class MlKitTranslationEngine implements TranslationEngine {
             Log.w(TAG, "读取已装本地翻译模型失败", t);
         }
         return installed;
+    }
+
+    /**
+     * 语言码 → MLKit 常量名。
+     *
+     * 与 {@link com.orange.playerlibrary.ai.ProgressiveTranslator#mapToMlKitCode}
+     * 的支持范围保持一致：非中文/日/韩的语种（法/德/西/俄/阿/泰/越）在 MLKit 里
+     * 只有全称常量（FRENCH 而非 FR），靠「语言码转大写」猜字段名会全部失败。
+     */
+    static String mlKitFieldName(String code) {
+        switch (code) {
+            case "zh": return "CHINESE";
+            case "en": return "ENGLISH";
+            case "ja": return "JAPANESE";
+            case "ko": return "KOREAN";
+            case "fr": return "FRENCH";
+            case "de": return "GERMAN";
+            case "es": return "SPANISH";
+            case "ru": return "RUSSIAN";
+            case "ar": return "ARABIC";
+            case "th": return "THAI";
+            case "vi": return "VIETNAMESE";
+            default: return code.toUpperCase();
+        }
+    }
+
+    /** 单个语言模型的典型体积（实测 en_zh 43MB / en_ko 51MB / en_ja 61MB），用于进度分母估算 */
+    public static final long TYPICAL_MODEL_BYTES = 50L * 1024 * 1024;
+
+    /**
+     * 模型目录当前占用的真实字节数。
+     *
+     * 每份模型下载完成后落入该目录，故本值随下载推进阶梯式增长（在途的那份不计入，
+     * 需叠加 {@link #getInFlightDownloadBytes}）。配合 {@link #TYPICAL_MODEL_BYTES}
+     * 估算的分母，即可得到「基于真实字节」的进度，而非编造的百分比。
+     */
+    public static long getModelsDirSize(Context context) {
+        if (context == null) {
+            return 0;
+        }
+        try {
+            return dirSize(new java.io.File(context.getNoBackupFilesDir(), MODELS_DIR_NAME));
+        } catch (Throwable t) {
+            Log.w(TAG, "读取模型目录大小失败", t);
+            return 0;
+        }
+    }
+
+    /**
+     * 本应用经系统 DownloadManager 正在下载的字节数。
+     *
+     * MLKit 的模型下载走系统 DownloadManager：完成前字节落在它的缓存目录，
+     * 整份文件下载完才移入 {@link #getModelsDirSize} 统计的模型目录。因此只看
+     * 模型目录会在下载的头十几秒恒为 0，看起来像进度卡死——把在途字节一并计入
+     * 才能从第 0 秒起反映真实下载量。
+     */
+    public static long getInFlightDownloadBytes(Context context) {
+        if (context == null) {
+            return 0;
+        }
+        try {
+            android.app.DownloadManager dm = (android.app.DownloadManager)
+                    context.getSystemService(Context.DOWNLOAD_SERVICE);
+            if (dm == null) {
+                return 0;
+            }
+            android.app.DownloadManager.Query query = new android.app.DownloadManager.Query();
+            query.setFilterByStatus(android.app.DownloadManager.STATUS_RUNNING
+                    | android.app.DownloadManager.STATUS_PENDING);
+            android.database.Cursor cursor = dm.query(query);
+            if (cursor == null) {
+                return 0;
+            }
+            try {
+                int idx = cursor.getColumnIndex(
+                        android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
+                if (idx < 0) {
+                    return 0;
+                }
+                long total = 0;
+                while (cursor.moveToNext()) {
+                    total += cursor.getLong(idx);
+                }
+                return total;
+            } finally {
+                cursor.close();
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "读取下载中字节失败", t);
+            return 0;
+        }
+    }
+
+    private static long dirSize(java.io.File dir) {
+        if (dir == null) {
+            return 0;
+        }
+        java.io.File[] children = dir.listFiles();
+        if (children == null) {
+            return 0;
+        }
+        long total = 0;
+        for (java.io.File child : children) {
+            if (child == null) {
+                continue;
+            }
+            total += child.isDirectory() ? dirSize(child) : child.length();
+        }
+        return total;
     }
 }

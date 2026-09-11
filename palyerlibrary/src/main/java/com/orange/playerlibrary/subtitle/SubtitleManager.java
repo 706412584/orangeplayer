@@ -290,6 +290,7 @@ public class SubtitleManager {
 
                 mHandler.post(() -> {
                     mSubtitles.clear();
+                    mAppendedFrom = -1;   // 整体替换后原 ASR 追加区间失效
                     mSubtitles.addAll(subtitles);
                     // 归属当前播放源：换视频后该字幕不应继续显示
                     mSourceUrl = currentSourceUrl();
@@ -358,6 +359,7 @@ public class SubtitleManager {
 
                 mHandler.post(() -> {
                     mSubtitles.clear();
+                    mAppendedFrom = -1;   // 整体替换后原 ASR 追加区间失效
                     mSubtitles.addAll(subtitles);
                     // 归属当前播放源：换视频后该字幕不应继续显示
                     mSourceUrl = currentSourceUrl();
@@ -859,6 +861,7 @@ public class SubtitleManager {
     public void clear() {
         mGeneration++;   // 作废在途的异步 append
         mSubtitles.clear();
+        mAppendedFrom = -1;
         mSourceUrl = null;
         mLoaded = false;
         mCurrentSubtitlePath = null;
@@ -945,6 +948,7 @@ public class SubtitleManager {
             if (owning != null && mSourceUrl != null && !owning.equals(mSourceUrl)) {
                 Log.d(TAG, "appendSubtitles: 源已切换，清空旧字幕 " + mSubtitles.size() + " 条");
                 mSubtitles.clear();
+                mAppendedFrom = -1;   // 清空后由下方按新起点重新记录
                 mLastShownText = null;
                 if (mSubtitleView != null) {
                     mSubtitleView.hideImmediately();
@@ -956,6 +960,9 @@ public class SubtitleManager {
             final int startIdx = mSubtitles.size();   // 实际写入位置
             mSubtitles.addAll(entries);
             mLoaded = true;
+            if (mAppendedFrom < 0) {
+                mAppendedFrom = startIdx;   // 本视频首批 ASR 字幕的位置
+            }
             Log.d(TAG, "Appended " + entries.size() + " subtitle entries, total="
                     + mSubtitles.size() + " (from idx " + startIdx + ")");
             if (callback != null) {
@@ -966,6 +973,41 @@ public class SubtitleManager {
 
     /** 字幕归属的播放源 URL；条目与当前源不符时不显示 */
     private volatile String mSourceUrl;
+
+    /**
+     * 渐进 ASR 追加字幕的起始下标（首次 append 的位置）；-1 表示当前没有 ASR 字幕。
+     * 关闭「边看边识别」时据此回收识别产物，同时保留用户已加载的外挂字幕。
+     */
+    private int mAppendedFrom = -1;
+
+    /**
+     * 回收渐进 ASR 追加的字幕（关闭「边看边识别」时调用）。
+     * 只清 {@link #appendSubtitles} 注入的部分——用户此前加载的外挂字幕（位于
+     * 追加起点之前）保留，避免关识别连带动用户自己的字幕。
+     */
+    public void clearAppended() {
+        mHandler.post(() -> {
+            if (mAppendedFrom < 0) {
+                return;
+            }
+            int removed = 0;
+            if (mAppendedFrom < mSubtitles.size()) {
+                removed = mSubtitles.size() - mAppendedFrom;
+                mSubtitles.subList(mAppendedFrom, mSubtitles.size()).clear();
+            }
+            mAppendedFrom = -1;
+            mLastShownText = null;
+            if (mSubtitleView != null) {
+                mSubtitleView.hideImmediately();
+                if (mSubtitles.isEmpty()) {
+                    mSubtitleView.setText("");
+                }
+            }
+            clearMedia3Cues();
+            Log.d(TAG, "clearAppended: 回收 ASR 字幕 " + removed + " 条，剩余 "
+                    + mSubtitles.size() + " 条");
+        });
+    }
 
     /** 当前播放源 URL（无法判定时返回 null） */
     private String currentSourceUrl() {

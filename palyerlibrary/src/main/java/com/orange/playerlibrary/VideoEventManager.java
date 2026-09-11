@@ -3584,8 +3584,13 @@ public class VideoEventManager {
                 asrLiveSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
                     mSettingsManager.setAsrLiveEnabled(isChecked);
                     if (!isChecked) {
-                        // 关闭「边看边识别」：结束在途渐进会话并摘掉悬浮环
+                        // 关闭「边看边识别」：结束在途渐进会话、摘掉悬浮环，
+                        // 并回收已注入的识别字幕——否则关掉后旧字幕仍在屏幕上
+                        // 滚动（用户不知来源，且不会再更新）
                         stopProgressiveAsr();
+                        if (mController != null && mController.getSubtitleManager() != null) {
+                            mController.getSubtitleManager().clearAppended();
+                        }
                     } else {
                         // 重新开启：对当前视频重启渐进识别。自动触发不会再启动
                         // （URL 已在 sAutoAsrTriggeredUrls 去重集合中），必须在此显式重启
@@ -3693,7 +3698,12 @@ public class VideoEventManager {
         String savedSource = mSettingsManager.getAiSourceLang();
         final String savedSourceTrimmed = savedSource == null ? "" : savedSource.trim();
 
-        if (etKey != null) etKey.setText(mSettingsManager.getAiApiKey());
+        if (etKey != null) {
+            // 明文显示，且不设任何密码标记：OPPO 等机型只要字段被判定为
+            // 「密码类型」（inputType=textPassword 或 PasswordTransformationMethod）
+            // 就强制切到系统安全键盘，第三方输入法与粘贴全部不可用
+            etKey.setText(mSettingsManager.getAiApiKey());
+        }
         if (etBase != null) etBase.setText(mSettingsManager.getAiBaseUrl());
         if (etModel != null) etModel.setText(mSettingsManager.getAiModel());
 
@@ -3958,8 +3968,9 @@ public class VideoEventManager {
         }
 
         final DownloadProgressDialog progressDialog = new DownloadProgressDialog(mActivity);
-        // MLKit 不回调下载进度，百分比由对话框模拟（与 OCR 启动路径一致）
-        progressDialog.show("正在下载本地翻译模型");
+        progressDialog.showWithRealProgress("正在下载本地翻译模型", srcName + " ↔ " + tgtName);
+        final Runnable stopPolling = startMlKitDownloadProgressPolling(
+                progressDialog, srcCode, tgtCode);
         if (statusView != null) {
             statusView.setText("正在下载：" + srcName + " ↔ " + tgtName);
         }
@@ -3971,6 +3982,7 @@ public class VideoEventManager {
             @Override
             public void onSuccess() {
                 mActivity.runOnUiThread(() -> {
+                    stopPolling.run();
                     progressDialog.complete();
                     showToast("本地翻译已就绪：" + srcName + " ↔ " + tgtName);
                     engine.release();
@@ -3988,6 +4000,7 @@ public class VideoEventManager {
             @Override
             public void onError(String error) {
                 mActivity.runOnUiThread(() -> {
+                    stopPolling.run();
                     progressDialog.fail(error);
                     showToast("本地翻译模型下载失败: " + error);
                     if (statusView != null) {
@@ -3998,6 +4011,62 @@ public class VideoEventManager {
                 });
             }
         });
+    }
+
+    /** MLKit 下载进度轮询间隔（毫秒） */
+    private static final long MLKIT_PROGRESS_POLL_MS = 500;
+
+    /** 进度上限：分母是估算值，留 5% 余量，完成时才由 complete() 跳到 100% */
+    private static final int MLKIT_PROGRESS_CAP = 95;
+
+    /**
+     * 让进度对话框显示 MLKit 模型下载的**真实字节进度**。
+     *
+     * MLKit 的 downloadModelIfNeeded 只有成功/失败回调、不报进度，但字节数可观测：
+     * 模型目录（no_backup/com.google.mlkit.translate.models/）随每份模型下载完成而增长，
+     * 下载中的那份则计入系统 DownloadManager 的在途字节。两者相加即基于真实下载量的进度。
+     *
+     * 分母按「本次尚缺的语言数 × 单语言典型体积」估算（MLKit 按语言↔英语存储、
+     * 经英语中转，故已装的语言不会再下），因此进度会收敛到
+     * {@link #MLKIT_PROGRESS_CAP}%，由调用方在成功回调里 complete() 补到 100%。
+     *
+     * @return 停止轮询的句柄；调用方在 onSuccess/onError 里必须先调用它，
+     *         否则 complete() 的 100% 会被后续轮询结果覆盖
+     */
+    private Runnable startMlKitDownloadProgressPolling(
+            final DownloadProgressDialog dialog, final String srcCode, final String tgtCode) {
+        final java.util.Set<String> installed =
+                com.orange.playerlibrary.ocr.MlKitTranslationEngine
+                        .getInstalledLanguageCodes(mContext);
+        int missing = 0;
+        if (!"en".equals(srcCode) && !installed.contains(srcCode)) {
+            missing++;
+        }
+        if (!"en".equals(tgtCode) && !installed.contains(tgtCode)) {
+            missing++;
+        }
+        final long estimate = Math.max(1, missing)
+                * com.orange.playerlibrary.ocr.MlKitTranslationEngine.TYPICAL_MODEL_BYTES;
+        final long baseline =
+                com.orange.playerlibrary.ocr.MlKitTranslationEngine.getModelsDirSize(mContext);
+        final boolean[] stopped = {false};
+        final Runnable[] tick = new Runnable[1];
+        tick[0] = () -> {
+            if (stopped[0] || !dialog.isShowing()) {
+                return;
+            }
+            // 模型目录增长 + DownloadManager 在途字节：MLKit 下载完成前字节只在
+            // 系统下载缓存里，只算目录会长时间停在 0
+            long grown = com.orange.playerlibrary.ocr.MlKitTranslationEngine
+                    .getModelsDirSize(mContext) - baseline
+                    + com.orange.playerlibrary.ocr.MlKitTranslationEngine
+                            .getInFlightDownloadBytes(mContext);
+            int pct = (int) Math.min(MLKIT_PROGRESS_CAP, Math.max(0, grown * 100 / estimate));
+            dialog.setProgress(pct, "已下载 " + (grown / (1024 * 1024)) + "MB");
+            mMainHandler.postDelayed(tick[0], MLKIT_PROGRESS_POLL_MS);
+        };
+        mMainHandler.postDelayed(tick[0], MLKIT_PROGRESS_POLL_MS);
+        return () -> stopped[0] = true;
     }
 
     private volatile boolean mIsAiTranslating = false;
@@ -5669,10 +5738,15 @@ public class VideoEventManager {
         // 延迟显示下载进度对话框（如果模型已下载，会在延迟前完成，不会显示对话框）
         final DownloadProgressDialog progressDialog = new DownloadProgressDialog(mActivity);
         final boolean[] downloadCompleted = {false};
-        
+        final Runnable[] stopPolling = {null};
+
         mMainHandler.postDelayed(() -> {
             if (!downloadCompleted[0]) {
-                progressDialog.show("正在下载翻译模型");
+                // MLKit 不报进度：显示基于「模型目录真实字节增长」的进度
+                progressDialog.showWithRealProgress("正在下载翻译模型");
+                stopPolling[0] = startMlKitDownloadProgressPolling(progressDialog,
+                        com.orange.playerlibrary.ai.ProgressiveTranslator.mapToMlKitCode(sourceLang),
+                        com.orange.playerlibrary.ai.ProgressiveTranslator.mapToMlKitCode(targetLang));
             }
         }, 500); // 500ms 后如果还没完成才显示对话框
         
@@ -5689,21 +5763,27 @@ public class VideoEventManager {
             public void onSuccess() {
                 downloadCompleted[0] = true;
                 mActivity.runOnUiThread(() -> {
+                    if (stopPolling[0] != null) {
+                        stopPolling[0].run();
+                    }
                     if (progressDialog.isShowing()) {
                         progressDialog.complete();
                     }
                     showToast("OCR 翻译已启动");
                     ocrManager.start();
-                    
+
                     // 保存引用以便后续停止
                     mOcrSubtitleManager = ocrManager;
                 });
             }
-            
+
             @Override
             public void onError(String error) {
                 downloadCompleted[0] = true;
                 mActivity.runOnUiThread(() -> {
+                    if (stopPolling[0] != null) {
+                        stopPolling[0].run();
+                    }
                     if (progressDialog.isShowing()) {
                         progressDialog.fail(error);
                     }
