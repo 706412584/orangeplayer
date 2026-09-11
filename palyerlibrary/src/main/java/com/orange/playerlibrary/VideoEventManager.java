@@ -168,6 +168,10 @@ public class VideoEventManager {
      */
     private void maybeAutoGenerateAsr(int playState) {
         try {
+            // 字幕被用户关闭：识别结果无处显示，不再自动触发
+            if (!mSettingsManager.isSubtitleEnabled()) {
+                return;
+            }
             if (!mSettingsManager.isAsrAutoEnabled() || mIsAsrGenerating || sProgressiveAsr != null) {
                 return;
             }
@@ -3383,8 +3387,11 @@ public class VideoEventManager {
                     } else {
                         mController.getSubtitleManager().hide();
                         mController.stopSubtitle();
-                        // 同时停止 OCR 翻译
+                        // 字幕关闭 = 识别/翻译全部停止（OCR 翻译、渐进 ASR、
+                        // 悬浮环、渐进翻译），否则识别结果无处显示、
+                        // 悬浮进度环残留（真机实测）
                         stopOcrTranslate();
+                        stopProgressiveAsr();
                     }
                     // 更新按钮状态
                     if (actualVodControlView != null) {
@@ -3629,8 +3636,13 @@ public class VideoEventManager {
             android.widget.Switch asrLiveSwitch = dialogView.findViewById(R.id.asr_live_switch);
             if (asrLiveSwitch != null) {
                 asrLiveSwitch.setChecked(mSettingsManager.isAsrLiveEnabled());
-                asrLiveSwitch.setOnCheckedChangeListener((buttonView, isChecked) ->
-                        mSettingsManager.setAsrLiveEnabled(isChecked));
+                asrLiveSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    mSettingsManager.setAsrLiveEnabled(isChecked);
+                    if (!isChecked) {
+                        // 关闭「边看边识别」：结束在途渐进会话并摘掉悬浮环
+                        stopProgressiveAsr();
+                    }
+                });
             }
             android.widget.Switch asrAutoSwitch = dialogView.findViewById(R.id.asr_auto_switch);
             if (asrAutoSwitch != null) {

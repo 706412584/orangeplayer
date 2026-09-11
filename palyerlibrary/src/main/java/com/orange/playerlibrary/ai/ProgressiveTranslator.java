@@ -61,7 +61,6 @@ public class ProgressiveTranslator {
     /** 世代号：reset 后作废在途任务 */
     private volatile int mGeneration;
 
-    private volatile String mVideoUrl;
     private volatile String mTargetLang;
     /** 源语言：ASR 为 auto 时由检测结果动态更新 */
     private volatile String mSourceLang;
@@ -92,7 +91,6 @@ public class ProgressiveTranslator {
     public void configure(String videoUrl, String sourceLang, String targetLang,
                           TranslatorSettings aiSettings, Callback callback) {
         reset();
-        mVideoUrl = videoUrl;
         mSourceLang = normalizeSourceLang(sourceLang);
         mTargetLang = targetLang;
         mAiSettings = aiSettings;
@@ -291,6 +289,9 @@ public class ProgressiveTranslator {
         String[] out = new String[count];
         int ok = 0;
         int translatedNow = 0;
+        // 失败连击按批重置（M3）：跨批累积会让一次网络抖动后的第 3 条
+        // 直接放弃整批及后续所有批，与单条翻译故障无关
+        mLocalFailStreak.set(0);
         for (int i = 0; i < count; i++) {
             if (generation != mGeneration) {
                 return null;
@@ -333,7 +334,7 @@ public class ProgressiveTranslator {
         return ok == 0 && count > 0 ? null : out;
     }
 
-    /** 把本批译文并入缓存文件（idx 对齐） */
+    /** 把本批译文并入缓存文件（idx 对齐）；glossary 原样保留（M1：null 会抹掉既有 G: 行） */
     private void saveLocalCache(String[] batch, int startIdx) {
         try {
             TranslationCacheStore store = new TranslationCacheStore(mCacheRoot, mCacheKey);
@@ -351,7 +352,7 @@ public class ProgressiveTranslator {
                     merged[startIdx + i] = batch[i];
                 }
             }
-            store.save(merged, null);
+            store.save(merged, store.loadGlossary());
         } catch (Throwable t) {
             Log.w(TAG, "本地译文缓存写入失败（不影响显示）", t);
         }
@@ -368,7 +369,13 @@ public class ProgressiveTranslator {
         String key = src + "->" + tgtCode;
         MlKitTranslationEngine engine = mLocalEngine;
         if (engine != null && key.equals(mLocalEngineKey) && engine.isInitialized()) {
-            return true;
+            // 引擎初始化过但「模型未下载」状态可能已过期（后台下载成功后
+            // 标志才翻转；此前下载失败/超时的批次会一直被挡在这里）——
+            // 重新查询一次，成功则本批立即可译（M2 修复：下载失败可重试）
+            if (!engine.isModelDownloaded()) {
+                engine.downloadModel(null);
+            }
+            return engine.isModelDownloaded();
         }
         if (!com.orange.playerlibrary.ocr.OcrAvailabilityChecker.isMlKitTranslateAvailable()) {
             Log.d(TAG, "本地兜底不可用：MLKit 未接入");
@@ -384,7 +391,8 @@ public class ProgressiveTranslator {
         engine.init(mAppContext, src, tgtCode);
         mLocalEngine = engine;
         mLocalEngineKey = key;
-        // 模型未下载：触发后台下载，本批跳过（下批可用）
+        // 模型未下载：触发后台下载（失败时下批经上方 isModelDownloaded 重查再触发），
+        // 本批跳过
         if (!engine.isModelDownloaded()) {
             Log.d(TAG, "本地翻译模型未下载，触发下载");
             notifyStatus("正在下载本地翻译模型…");
