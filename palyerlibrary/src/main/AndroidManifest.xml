@@ -1,21 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 前台服务权限（音频捕获需要） -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    
     <!-- 磁力下载前台服务权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application>
-        <!-- 音频捕获服务 -->
-        <service
-            android:name=".speech.AudioCaptureService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
-        
         <!-- 磁力下载前台服务 -->
         <service
             android:name=".torrent.TorrentDownloadService"

@@ -86,6 +86,70 @@ public class OpenAiCompatibleProvider implements AiProvider {
         return root.toString();
     }
 
+    @Override
+    public List<String> listModels(TranslatorSettings settings) throws AiException {
+        if (settings.getApiKey() == null || settings.getApiKey().trim().isEmpty()) {
+            throw new AiException("未配置 API Key", false);
+        }
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(settings.getModelsUrl());
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(settings.getTimeoutMs());
+            conn.setReadTimeout(settings.getTimeoutMs());
+            conn.setRequestProperty("Authorization", "Bearer " + settings.getApiKey());
+
+            int code = conn.getResponseCode();
+            if (code != 200) {
+                String err = readBody(conn.getErrorStream());
+                // 404 常见于端点未实现 /models：归为永久错误，提示手输模型名
+                boolean retryable = code == 429 || code >= 500;
+                throw new AiException("获取模型列表失败 HTTP " + code + ": " + truncate(err, 200),
+                        retryable, code, null);
+            }
+            return extractModelIds(readBody(conn.getInputStream()));
+        } catch (AiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AiException("网络错误: " + e.getMessage(), true, 0, e);
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    /** 从 /models 响应中提取 data[].id，去重后按字母序（解析逻辑独立便于单测） */
+    static List<String> extractModelIds(String responseBody) throws AiException {
+        List<String> ids = new java.util.ArrayList<>();
+        try {
+            JSONObject root = new JSONObject(responseBody);
+            JSONArray data = root.optJSONArray("data");
+            if (data == null) {
+                throw new AiException("响应无 data 字段（端点可能不兼容 /models）: "
+                        + truncate(responseBody, 150), false);
+            }
+            for (int i = 0; i < data.length(); i++) {
+                JSONObject item = data.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                String id = item.optString("id", "").trim();
+                if (!id.isEmpty() && !ids.contains(id)) {
+                    ids.add(id);
+                }
+            }
+        } catch (JSONException e) {
+            throw new AiException("响应 JSON 解析失败: " + truncate(responseBody, 150), false, 0, e);
+        }
+        if (ids.isEmpty()) {
+            throw new AiException("该端点未返回任何模型", false);
+        }
+        java.util.Collections.sort(ids);
+        return ids;
+    }
+
     /** 从 /chat/completions 响应中提取 choices[0].message.content */
     private String extractContent(String responseBody) throws AiException {
         try {
@@ -122,7 +186,7 @@ public class OpenAiCompatibleProvider implements AiProvider {
         return sb.toString();
     }
 
-    private String truncate(String s, int max) {
+    private static String truncate(String s, int max) {
         if (s == null) {
             return "";
         }

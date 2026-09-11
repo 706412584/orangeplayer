@@ -13,4 +13,12 @@ public interface AiProvider {
      * @throws AiException 调用失败（retryable 区分瞬时/永久）
      */
     String chat(List<ChatMessage> messages, TranslatorSettings settings) throws AiException;
+
+    /**
+     * 拉取服务端可用模型 id 列表（OpenAI 兼容 GET /models）。
+     * 供设置界面「获取模型」下拉选择，避免手输模型名出错。
+     *
+     * @throws AiException 调用失败（key 无效 / 端点不支持 / 网络问题）
+     */
+    List<String> listModels(TranslatorSettings settings) throws AiException;
 }

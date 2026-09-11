@@ -3,7 +3,7 @@ package com.orange.playerlibrary.speech;
 import android.util.Log;
 
 /**
- * sherpa-onnx 批量 ASR 可用性检查（与 OcrAvailabilityChecker/VoskAvailabilityChecker 同模式）。
+ * sherpa-onnx 批量 ASR 可用性检查（与 OcrAvailabilityChecker 同模式）。
  * 宿主 app 未依赖 orangeplayer-sherpa 模块时返回 false，功能入口自动隐藏。
  */
 public class SherpaAvailabilityChecker {

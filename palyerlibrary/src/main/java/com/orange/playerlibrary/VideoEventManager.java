@@ -144,10 +144,6 @@ public class VideoEventManager {
             stopOcrTranslate();
         } catch (Throwable ignored) {
         }
-        try {
-            stopSpeechTranslate();
-        } catch (Throwable ignored) {
-        }
         // mVideoView/mController 为 final 且构造注入，不置空；解绑监听已使其失去事件源
     }
 
@@ -248,7 +244,6 @@ public class VideoEventManager {
      *  ai_settings      打开 AI 翻译设置对话框
      *  ai_translate     立即执行 AI 批量翻译（需已加载字幕且已配置 Key）
      *  ocr_settings     打开 OCR 翻译设置
-     *  speech_settings  打开语音识别设置
      */
     public void handleTestCommand(String command) {
         if (command == null) {
@@ -307,9 +302,6 @@ public class VideoEventManager {
                     break;
                 case "ocr_settings":
                     showOcrTranslateSettings();
-                    break;
-                case "speech_settings":
-                    showSpeechTranslateSettings();
                     break;
                 default:
                     Log.w(TAG, "未知测试命令: " + command);
@@ -3526,53 +3518,6 @@ public class VideoEventManager {
                     });
                 }
             }
-            
-            // 语音识别翻译按钮
-            View btnSpeechTranslate = dialogView.findViewById(R.id.btn_speech_translate);
-            android.widget.TextView speechStatus = dialogView.findViewById(R.id.speech_status);
-            if (btnSpeechTranslate != null) {
-                // 安全检查 Vosk SDK 是否可用（避免调用不存在的类）
-                boolean voskAvailable = false;
-                try {
-                    voskAvailable = com.orange.playerlibrary.speech.VoskAvailabilityChecker.isVoskAvailable();
-                } catch (Throwable e) {
-                    Log.e(TAG, "Error checking Vosk availability", e);
-                }
-                
-                if (!voskAvailable) {
-                    // Vosk SDK 不可用，显示安装提示
-                    if (speechStatus != null) {
-                        speechStatus.setText("需要安装 Vosk SDK");
-                        speechStatus.setTextColor(0xFFFF6B6B);
-                    }
-                    ((android.widget.Button) btnSpeechTranslate).setText("查看安装说明");
-                    btnSpeechTranslate.setOnClickListener(v -> {
-                        dialog.dismiss();
-                        showVoskInstallGuide();
-                    });
-                } else if (isSpeechRunning()) {
-                    // 正在运行，显示停止按钮
-                    if (speechStatus != null) {
-                        speechStatus.setText("语音识别正在运行中");
-                        speechStatus.setTextColor(0xFF4CAF50);
-                    }
-                    ((android.widget.Button) btnSpeechTranslate).setText("停止语音识别");
-                    btnSpeechTranslate.setOnClickListener(v -> {
-                        stopSpeechTranslate();
-                        dialog.dismiss();
-                        showToast("语音识别已停止");
-                    });
-                } else {
-                    // 功能可用，显示正常状态
-                    if (speechStatus != null) {
-                        speechStatus.setText("识别视频音频并翻译为字幕");
-                    }
-                    btnSpeechTranslate.setOnClickListener(v -> {
-                        dialog.dismiss();
-                        showSpeechTranslateSettings();
-                    });
-                }
-            }
 
             // ===== AI 批量翻译字幕（LLM 分批翻译已加载的外挂字幕）=====
             android.widget.TextView aiStatus = dialogView.findViewById(R.id.ai_status);
@@ -3724,33 +3669,102 @@ public class VideoEventManager {
         View dialogView = View.inflate(mActivity, R.layout.dialog_ai_settings, null);
 
         final AlertDialog dialog = DialogUtils.showCustomDialog(mActivity, dialogView,
-                DialogUtils.DialogPosition.CENTER, null, null);
+                DialogUtils.DialogPosition.RIGHT, null, null);
 
         android.widget.EditText etKey = dialogView.findViewById(R.id.et_ai_api_key);
         android.widget.EditText etBase = dialogView.findViewById(R.id.et_ai_base_url);
         android.widget.EditText etModel = dialogView.findViewById(R.id.et_ai_model);
         android.widget.Spinner spinnerTarget =
                 dialogView.findViewById(R.id.spinner_ai_target_lang);
+        android.widget.Spinner spinnerSource =
+                dialogView.findViewById(R.id.spinner_ai_source_lang);
+        android.widget.TextView tvPreinstallStatus =
+                dialogView.findViewById(R.id.tv_ai_preinstall_status);
+        View btnPreinstall = dialogView.findViewById(R.id.btn_ai_preinstall_model);
+
+        final java.util.List<String> langs = new java.util.ArrayList<>(java.util.Arrays.asList(
+                com.orange.playerlibrary.ai.ProgressiveTranslator.TARGET_LANGUAGES));
+        String savedTarget = mSettingsManager.getAiTargetLang();
+        String savedTargetTrimmed = savedTarget == null ? "" : savedTarget.trim();
+        // 旧版本手输过的语言可能不在列表内：保留为额外项，避免保存时被静默改写
+        if (!savedTargetTrimmed.isEmpty() && !langs.contains(savedTargetTrimmed)) {
+            langs.add(savedTargetTrimmed);
+        }
+        String savedSource = mSettingsManager.getAiSourceLang();
+        final String savedSourceTrimmed = savedSource == null ? "" : savedSource.trim();
 
         if (etKey != null) etKey.setText(mSettingsManager.getAiApiKey());
         if (etBase != null) etBase.setText(mSettingsManager.getAiBaseUrl());
         if (etModel != null) etModel.setText(mSettingsManager.getAiModel());
-        if (spinnerTarget != null) {
-            java.util.List<String> langs = new java.util.ArrayList<>(java.util.Arrays.asList(
-                    com.orange.playerlibrary.ai.ProgressiveTranslator.TARGET_LANGUAGES));
-            String current = mSettingsManager.getAiTargetLang();
-            // 旧版本手输过的语言可能不在列表内：保留为额外项，避免保存时被静默改写
-            if (current != null && !current.trim().isEmpty() && !langs.contains(current.trim())) {
-                langs.add(current.trim());
+
+        // 语言下拉：显示名带「已装/未装」标注，选中值取纯语言名（下标与 langs 对齐）
+        final Runnable[] refreshLangs = new Runnable[1];
+        refreshLangs[0] = () -> {
+            java.util.Set<String> installed =
+                    com.orange.playerlibrary.ocr.MlKitTranslationEngine
+                            .getInstalledLanguageCodes(mContext);
+            java.util.List<String> display = new java.util.ArrayList<>(langs.size());
+            for (String name : langs) {
+                String code = com.orange.playerlibrary.ai.ProgressiveTranslator
+                        .mapToMlKitCode(name);
+                String mark;
+                if (code == null) {
+                    mark = "（无本地模型）";
+                } else {
+                    mark = installed.contains(code) ? "（已装）" : "（未装）";
+                }
+                display.add(name + mark);
             }
-            android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
-                    mActivity, R.layout.spinner_item, langs);
-            adapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
-            spinnerTarget.setAdapter(adapter);
-            int idx = langs.indexOf(current == null ? "" : current.trim());
-            if (idx >= 0) {
-                spinnerTarget.setSelection(idx);
+            bindLangSpinner(spinnerSource, display,
+                    firstNonEmpty(selectedLangName(spinnerSource, langs), savedSource));
+            bindLangSpinner(spinnerTarget, display,
+                    firstNonEmpty(selectedLangName(spinnerTarget, langs), savedTargetTrimmed));
+        };
+        refreshLangs[0].run();
+
+        // 预装本地翻译模型（MLKit）：模型按「语言↔英语」存储、翻译经英语中转，
+        // 与 OCR 翻译共用同一份——预装一次两条链路都免去首次使用的下载等待
+        if (btnPreinstall != null) {
+            final Runnable updateStatus = () -> {
+                if (tvPreinstallStatus == null) {
+                    return;
+                }
+                String src = selectedLangName(spinnerSource, langs);
+                String tgt = selectedLangName(spinnerTarget, langs);
+                if (src.isEmpty() || tgt.isEmpty()) {
+                    tvPreinstallStatus.setText("");
+                } else {
+                    tvPreinstallStatus.setText("当前选择：" + src + " ↔ " + tgt);
+                }
+            };
+            updateStatus.run();
+            android.widget.AdapterView.OnItemSelectedListener refresh =
+                    new android.widget.AdapterView.OnItemSelectedListener() {
+                        @Override
+                        public void onItemSelected(android.widget.AdapterView<?> parent,
+                                                   android.view.View view, int position, long id) {
+                            updateStatus.run();
+                        }
+
+                        @Override
+                        public void onNothingSelected(android.widget.AdapterView<?> parent) {
+                        }
+                    };
+            if (spinnerSource != null) {
+                spinnerSource.setOnItemSelectedListener(refresh);
             }
+            if (spinnerTarget != null) {
+                spinnerTarget.setOnItemSelectedListener(refresh);
+            }
+            btnPreinstall.setOnClickListener(v -> preinstallLocalTranslationModel(
+                    spinnerSource, spinnerTarget, tvPreinstallStatus, langs,
+                    () -> refreshLangs[0].run()));
+        }
+
+        // 获取模型：调 OpenAI 兼容 GET /models，下拉选择后填入模型输入框
+        View btnFetchModels = dialogView.findViewById(R.id.btn_ai_fetch_models);
+        if (btnFetchModels != null) {
+            btnFetchModels.setOnClickListener(v -> fetchAiModelList(etBase, etKey, etModel));
         }
 
         View btnCancel = dialogView.findViewById(R.id.btn_ai_settings_cancel);
@@ -3764,17 +3778,226 @@ public class VideoEventManager {
                 if (etKey != null) mSettingsManager.setAiApiKey(etKey.getText().toString());
                 if (etBase != null) mSettingsManager.setAiBaseUrl(etBase.getText().toString());
                 if (etModel != null) mSettingsManager.setAiModel(etModel.getText().toString());
-                if (spinnerTarget != null && spinnerTarget.getSelectedItem() != null) {
-                    mSettingsManager.setAiTargetLang(spinnerTarget.getSelectedItem().toString());
+                String target = selectedLangName(spinnerTarget, langs);
+                String previousTarget = mSettingsManager.getAiTargetLang();
+                if (!target.isEmpty()) {
+                    mSettingsManager.setAiTargetLang(target);
+                }
+                String source = selectedLangName(spinnerSource, langs);
+                if (!source.isEmpty()) {
+                    mSettingsManager.setAiSourceLang(source);
                 }
                 dialog.dismiss();
+                // 目标语言变了：让在途的识别会话改用新语言（重译已识别字幕），
+                // 否则要等下次重开会话才生效
+                boolean langChanged = !target.isEmpty()
+                        && !target.equals(previousTarget == null ? "" : previousTarget.trim());
+                if (langChanged) {
+                    retargetProgressiveTranslation(target);
+                }
+                // 先明确「已保存」，再分别说明两条翻译链路的可用性——
+                // 旧文案只提 AI 未配置，用户会误以为设置没保存成功
                 if (mSettingsManager.isAiConfigured()) {
-                    showToast("AI 翻译已配置：" + mSettingsManager.getAiModel());
+                    showToast("已保存：AI 翻译可用（" + mSettingsManager.getAiModel() + "）；"
+                            + "识别后自动翻译「" + mSettingsManager.getAiTargetLang() + "」");
                 } else {
-                    showToast("未填写 API Key，AI 翻译不可用");
+                    showToast("已保存：目标语言「" + mSettingsManager.getAiTargetLang()
+                            + "」；未填 API Key，翻译走本地模型");
                 }
             });
         }
+    }
+
+    /**
+     * 从下拉框取当前选中的纯语言名（显示名带「已装/未装」标注，须按位取原值）。
+     * 返回 "" 表示未选中。
+     */
+    private static String selectedLangName(android.widget.Spinner spinner,
+                                           java.util.List<String> langs) {
+        if (spinner == null) {
+            return "";
+        }
+        int pos = spinner.getSelectedItemPosition();
+        return pos >= 0 && pos < langs.size() ? langs.get(pos) : "";
+    }
+
+    /** 取第一个非空值（下拉首次填充时用已保存值兜底） */
+    private static String firstNonEmpty(String first, String fallback) {
+        if (first != null && !first.isEmpty()) {
+            return first;
+        }
+        return fallback == null ? "" : fallback;
+    }
+
+    /** 填充语言下拉（显示名与 langs 同序，回调里按位取纯语言名） */
+    private void bindLangSpinner(android.widget.Spinner spinner,
+                                 java.util.List<String> display, String selectName) {
+        if (spinner == null) {
+            return;
+        }
+        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
+                mActivity, R.layout.spinner_item, display);
+        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        if (selectName != null && !selectName.isEmpty()) {
+            int idx = -1;
+            for (int i = 0; i < display.size(); i++) {
+                if (display.get(i).startsWith(selectName + "（")) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx >= 0) {
+                spinner.setSelection(idx);
+            }
+        }
+    }
+
+    /**
+     * 拉取 AI 服务的可用模型列表（OpenAI 兼容 GET /models）供选择。
+     * 用输入框里的地址与 Key（可能尚未保存），成功后就地填入模型输入框。
+     */
+    private void fetchAiModelList(final android.widget.EditText etBase,
+                                  final android.widget.EditText etKey,
+                                  final android.widget.EditText etModel) {
+        final String base = etBase != null ? etBase.getText().toString().trim() : "";
+        final String key = etKey != null ? etKey.getText().toString().trim() : "";
+        if (key.isEmpty()) {
+            showToast("请先填写 API Key");
+            return;
+        }
+        if (base.isEmpty()) {
+            showToast("请先填写 API 地址");
+            return;
+        }
+        final com.orange.playerlibrary.ai.TranslatorSettings settings =
+                com.orange.playerlibrary.ai.TranslatorSettings.builder()
+                        .baseUrl(base)
+                        .apiKey(key)
+                        .model(etModel != null ? etModel.getText().toString() : "")
+                        .build();
+        showToast("正在获取模型列表…");
+        new Thread(() -> {
+            try {
+                java.util.List<String> models =
+                        new com.orange.playerlibrary.ai.OpenAiCompatibleProvider()
+                                .listModels(settings);
+                mActivity.runOnUiThread(() -> showModelPicker(models, etModel));
+            } catch (com.orange.playerlibrary.ai.AiException e) {
+                mActivity.runOnUiThread(() -> showToast("获取模型失败: " + e.getMessage()));
+            } catch (Throwable t) {
+                mActivity.runOnUiThread(() -> showToast("获取模型失败: " + t.getMessage()));
+            }
+        }, "ai-list-models").start();
+    }
+
+    /** 模型列表单选弹窗：选中即填入模型输入框 */
+    private void showModelPicker(final java.util.List<String> models,
+                                 final android.widget.EditText etModel) {
+        if (models == null || models.isEmpty()) {
+            showToast("该服务未返回可用模型");
+            return;
+        }
+        String current = etModel != null ? etModel.getText().toString().trim() : "";
+        int checked = models.indexOf(current);
+        final String[] items = models.toArray(new String[0]);
+        new AlertDialog.Builder(mActivity)
+                .setTitle("选择模型（" + items.length + " 个）")
+                .setSingleChoiceItems(items, checked, (d, which) -> {
+                    if (etModel != null) {
+                        etModel.setText(items[which]);
+                    }
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /**
+     * 预装本地翻译模型（MLKit）：按当前选定的语言对触发下载。
+     *
+     * 实测 MLKit 按「语言↔英语」存模型（no_backup/com.google.mlkit.translate.models/
+     * en_&lt;语言&gt;，每份 40-60MB），翻译时经英语中转——因此装过 en_zh + en_ja 后
+     * 日→中直接可用、不产生新下载。downloadModelIfNeeded 只取缺失的语言模型，
+     * 已装过的语言立即完成、不发网络请求；OCR 翻译与语音识别渐进翻译共用同一份。
+     */
+    private void preinstallLocalTranslationModel(final android.widget.Spinner spinnerSource,
+                                                 final android.widget.Spinner spinnerTarget,
+                                                 final android.widget.TextView statusView,
+                                                 final java.util.List<String> langs,
+                                                 final Runnable onFinished) {
+        final String srcName = selectedLangName(spinnerSource, langs);
+        final String tgtName = selectedLangName(spinnerTarget, langs);
+        if (srcName.isEmpty() || tgtName.isEmpty()) {
+            return;
+        }
+        final String srcCode =
+                com.orange.playerlibrary.ai.ProgressiveTranslator.mapToMlKitCode(srcName);
+        final String tgtCode =
+                com.orange.playerlibrary.ai.ProgressiveTranslator.mapToMlKitCode(tgtName);
+        if (srcCode == null || tgtCode == null) {
+            showToast("该语言无本地模型，请改用 AI 翻译");
+            return;
+        }
+        if (srcCode.equals(tgtCode)) {
+            showToast("源语言与目标语言相同，无需预装");
+            return;
+        }
+        if (!com.orange.playerlibrary.ocr.OcrAvailabilityChecker.isMlKitTranslateAvailable()) {
+            showToast("未集成 MLKit 翻译模块");
+            return;
+        }
+
+        final com.orange.playerlibrary.ocr.MlKitTranslationEngine engine =
+                new com.orange.playerlibrary.ocr.MlKitTranslationEngine();
+        engine.init(mContext, srcCode, tgtCode);
+        if (!engine.isInitialized()) {
+            engine.release();
+            showToast("本地翻译引擎初始化失败");
+            return;
+        }
+
+        final DownloadProgressDialog progressDialog = new DownloadProgressDialog(mActivity);
+        // MLKit 不回调下载进度，百分比由对话框模拟（与 OCR 启动路径一致）
+        progressDialog.show("正在下载本地翻译模型");
+        if (statusView != null) {
+            statusView.setText("正在下载：" + srcName + " ↔ " + tgtName);
+        }
+        engine.downloadModel(new com.orange.playerlibrary.ocr.TranslationEngine.ModelDownloadCallback() {
+            @Override
+            public void onProgress(int progress) {
+            }
+
+            @Override
+            public void onSuccess() {
+                mActivity.runOnUiThread(() -> {
+                    progressDialog.complete();
+                    showToast("本地翻译已就绪：" + srcName + " ↔ " + tgtName);
+                    engine.release();
+                    // 重新扫描已装语言，刷新下拉框的「已装/未装」标注
+                    if (onFinished != null) {
+                        onFinished.run();
+                    }
+                    if (statusView != null) {
+                        statusView.setText("已就绪：" + srcName + " ↔ " + tgtName
+                                + "（可再选其他语言预装）");
+                    }
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                mActivity.runOnUiThread(() -> {
+                    progressDialog.fail(error);
+                    showToast("本地翻译模型下载失败: " + error);
+                    if (statusView != null) {
+                        statusView.setText("预装失败：" + srcName + "、"
+                                + tgtName + " 可重试");
+                    }
+                    engine.release();
+                });
+            }
+        });
     }
 
     private volatile boolean mIsAiTranslating = false;
@@ -3958,15 +4181,8 @@ public class VideoEventManager {
         if (sProgressiveTranslator == null) {
             sProgressiveTranslator = new com.orange.playerlibrary.ai.ProgressiveTranslator(mContext);
         }
-        com.orange.playerlibrary.ai.TranslatorSettings aiSettings = null;
-        if (mSettingsManager.isAiConfigured()) {
-            aiSettings = com.orange.playerlibrary.ai.TranslatorSettings.builder()
-                    .baseUrl(mSettingsManager.getAiBaseUrl())
-                    .apiKey(mSettingsManager.getAiApiKey())
-                    .model(mSettingsManager.getAiModel())
-                    .targetLanguage(targetLang)
-                    .build();
-        } else {
+        com.orange.playerlibrary.ai.TranslatorSettings aiSettings = buildAiSettings(targetLang);
+        if (aiSettings == null) {
             Log.d(TAG, "未配置 AI Key，识别后翻译使用本地兜底");
         }
         sProgressiveTranslator.configure(owningUrl, "auto", targetLang, aiSettings,
@@ -3993,6 +4209,33 @@ public class VideoEventManager {
         if (sProgressiveTranslator != null) {
             sProgressiveTranslator.reset();
         }
+    }
+
+    /** AI 接入配置；未填 API Key 返回 null（调用方走本地 MLKit 兜底） */
+    private com.orange.playerlibrary.ai.TranslatorSettings buildAiSettings(String targetLang) {
+        if (!mSettingsManager.isAiConfigured()) {
+            return null;
+        }
+        return com.orange.playerlibrary.ai.TranslatorSettings.builder()
+                .baseUrl(mSettingsManager.getAiBaseUrl())
+                .apiKey(mSettingsManager.getAiApiKey())
+                .model(mSettingsManager.getAiModel())
+                .targetLanguage(targetLang)
+                .build();
+    }
+
+    /**
+     * 目标语言变更后让在途会话改用新语言：重配翻译并重译已识别的字幕。
+     * 识别会话本身不受影响（源语言始终以 ASR 检测为准）。
+     */
+    private void retargetProgressiveTranslation(String newTargetLang) {
+        if (sProgressiveTranslator == null
+                || sProgressiveAsr == null || !sProgressiveAsr.isRunning()) {
+            return;
+        }
+        sProgressiveTranslator.retarget(
+                mVideoView != null ? mVideoView.getUrl() : null,
+                newTargetLang, buildAiSettings(newTargetLang));
     }
 
     // ===== AI 语音生成字幕（离线 ASR）=====
@@ -5115,19 +5358,6 @@ public class VideoEventManager {
     }
     
     /**
-     * 显示 Vosk 语音识别安装指南
-     */
-    private void showVoskInstallGuide() {
-        String message = com.orange.playerlibrary.speech.VoskAvailabilityChecker.getMissingDependenciesMessage();
-        
-        new AlertDialog.Builder(mActivity)
-            .setTitle("安装语音识别功能")
-            .setMessage(message)
-            .setPositiveButton("知道了", null)
-            .show();
-    }
-    
-    /**
      * 显示 OCR 翻译设置弹窗
      */
     private void showOcrTranslateSettings() {
@@ -5691,683 +5921,5 @@ public class VideoEventManager {
         }
     }
     
-    // ==================== 语音识别翻译功能 ====================
-    
-    // 语音字幕管理器引用
-    private com.orange.playerlibrary.speech.SpeechSubtitleManager mSpeechSubtitleManager;
-    
-    // 语音字幕自动隐藏相关
-    private Runnable mSpeechSubtitleHideRunnable;
-    private Runnable mSpeechSubtitleRefreshRunnable;
-    private static final long SPEECH_SUBTITLE_PARTIAL_DURATION = 1500; // partial 结果显示 1.5 秒
-    private static final long SPEECH_SUBTITLE_FINAL_DURATION = 3000;   // final 结果显示 3 秒
-    private static final long SPEECH_SUBTITLE_REFRESH_INTERVAL = 1000; // 每秒刷新一次
-    
-    // 当前显示的语音字幕
-    private String mCurrentSpeechSubtitle = "";
-    private long mLastSpeechSubtitleUpdateTime = 0;
-    private long mLastSpeechSubtitleClearTime = 0; // 上次清空字幕的时间
-    
-    /**
-     * 显示语音识别字幕（超过10个字符自动清空）
-     * @param text 字幕文本
-     * @param isFinal 是否是最终结果
-     */
-    private void showSpeechSubtitle(String text, boolean isFinal) {
-        // 直接使用 mController，因为全屏时播放器本身被移动，controller 也跟着移动
-        if (mController == null || mController.getSubtitleManager() == null) {
-            Log.w(TAG, "showSpeechSubtitle: controller or subtitleManager is null");
-            return;
-        }
-        
-        // 清理文本：去除多余空格
-        text = cleanSpeechText(text);
-        
-        // 检查是否需要清空（当前字幕超过10个字符，且新文本也超过10个字符）
-        if (mCurrentSpeechSubtitle.length() >= 10 && text.length() >= 10) {
-            // 清空字幕
-            mController.getSubtitleManager().showText("");
-            mCurrentSpeechSubtitle = "";
-            Log.d(TAG, "========== Auto CLEAR subtitle (>10 chars) ==========");
-        }
-        
-        // 限制字幕最大长度：只显示最后 15 个字符
-        final int MAX_SUBTITLE_LENGTH = 15;
-        if (text.length() > MAX_SUBTITLE_LENGTH) {
-            // 超过最大长度，只保留最后的部分
-            text = "..." + text.substring(text.length() - MAX_SUBTITLE_LENGTH);
-        }
-        
-        // 只有文本变化时才更新显示（避免频繁刷新）
-        if (!text.equals(mCurrentSpeechSubtitle)) {
-            mController.getSubtitleManager().showText(text);
-            mCurrentSpeechSubtitle = text;
-            Log.v(TAG, "Update subtitle: [" + text + "]");
-        }
-    }
-    
-    /**
-     * 清理语音识别文本
-     * 1. 去除首尾空格
-     * 2. 将多个连续空格替换为单个空格（去除流式输出的空格问题）
-     * 3. 去除换行符前后的空格
-     */
-    private String cleanSpeechText(String text) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        
-        // 去除首尾空格
-        text = text.trim();
-        
-        // 将多个连续空格替换为单个空格（解决 "11 22 33 33 555" 的问题）
-        text = text.replaceAll("\\s+", " ");
-        
-        // 如果包含换行符（翻译字幕），去除换行符前后的空格
-        if (text.contains("\n")) {
-            text = text.replaceAll("\\s*\\n\\s*", "\n");
-        }
-        
-        return text;
-    }
-    
-    /**
-     * 格式化语音字幕（类似 OCR 的双层显示）
-     * @param originalText 原文
-     * @param translatedText 译文
-     * @param translationEnabled 是否启用翻译
-     * @return 格式化后的字幕文本
-     */
-    private String formatSpeechSubtitle(String originalText, String translatedText, boolean translationEnabled) {
-        // 清理文本
-        originalText = cleanSpeechText(originalText);
-        if (translatedText != null) {
-            translatedText = cleanSpeechText(translatedText);
-        }
-        
-        if (!translationEnabled || translatedText == null || translatedText.isEmpty()) {
-            // 未启用翻译或翻译失败，只显示原文
-            return originalText;
-        }
-        
-        // 启用翻译，显示双层字幕（原文 + 译文）
-        return originalText + "\n" + translatedText;
-    }
-    
-    /**
-     * 检查语音识别是否正在运行
-     */
-    public boolean isSpeechRunning() {
-        return mSpeechSubtitleManager != null && mSpeechSubtitleManager.isRunning();
-    }
-    
-    // SharedPreferences 键
-    private static final String PREF_SPEECH_SETTINGS = "speech_settings";
-    private static final String PREF_TRANSLATION_ENABLED = "speech_translation_enabled";
-    private static final String PREF_SOURCE_LANGUAGE = "speech_source_language";
-    private static final String PREF_TARGET_LANGUAGE = "speech_target_language";
-    
-    /**
-     * 显示语音识别设置对话框
-     */
-    private void showSpeechTranslateSettings() {
-        try {
-            View dialogView = View.inflate(mActivity, R.layout.speech_translate_dialog, null);
-            
-            // 使用 DialogUtils 创建对话框，从右侧滑出
-            final AlertDialog dialog = DialogUtils.showCustomDialog(mActivity, dialogView,
-                    DialogUtils.DialogPosition.RIGHT, null, null);
-            
-            // 点击左侧空白区域关闭
-            View layout = dialogView.findViewById(R.id.layout);
-            if (layout != null) {
-                layout.setOnClickListener(v -> {
-                    Log.d(TAG, "layout clicked, dismissing dialog");
-                    dialog.dismiss();
-                });
-            }
-            // 阻止 ScrollView 的点击事件传递到父布局
-            View scrollContent = dialogView.findViewById(R.id.scroll_content);
-            if (scrollContent != null) {
-                scrollContent.setOnClickListener(v -> {
-                    // 不做任何事，只是阻止事件传递
-                });
-            }
-            
-            // 获取 SharedPreferences
-            android.content.SharedPreferences prefs = mActivity.getSharedPreferences(PREF_SPEECH_SETTINGS, android.content.Context.MODE_PRIVATE);
-            
-            // 源语言下拉框
-            android.widget.Spinner spinnerSource = dialogView.findViewById(R.id.spinner_speech_source);
-            // 目标语言下拉框
-            android.widget.Spinner spinnerTarget = dialogView.findViewById(R.id.spinner_speech_target);
-            // 翻译开关
-            android.widget.Switch translateSwitch = dialogView.findViewById(R.id.switch_translate);
-            // 目标语言标签
-            View tvTargetLabel = dialogView.findViewById(R.id.tv_target_label);
-            // 无语言提示
-            android.widget.TextView tvNoLanguageHint = dialogView.findViewById(R.id.tv_no_language_hint);
-            // 已安装数量
-            android.widget.TextView tvInstalledCount = dialogView.findViewById(R.id.tv_installed_count);
-            // 管理语言包按钮
-            View btnManageLanguagePack = dialogView.findViewById(R.id.btn_manage_language_pack);
-            // 开始按钮
-            View btnStart = dialogView.findViewById(R.id.btn_start_speech);
-            
-            // 创建 VoskModelManager 获取已安装语言
-            com.orange.playerlibrary.speech.VoskModelManager modelManager = 
-                new com.orange.playerlibrary.speech.VoskModelManager(mActivity);
-            
-            // 获取已安装的语言列表
-            final java.util.List<String> sourceLangNames = new java.util.ArrayList<>();
-            final java.util.List<String> sourceLangCodes = new java.util.ArrayList<>();
-            
-            // 动态加载已安装的语言
-            java.util.List<com.orange.playerlibrary.speech.VoskModelManager.LanguageModel> allLanguages = 
-                modelManager.getSupportedLanguages();
-            for (com.orange.playerlibrary.speech.VoskModelManager.LanguageModel lang : allLanguages) {
-                if (lang.isInstalled) {
-                    sourceLangNames.add(lang.displayName);
-                    sourceLangCodes.add(lang.languageCode);
-                }
-            }
-            
-            // 更新已安装数量显示
-            if (tvInstalledCount != null) {
-                tvInstalledCount.setText("已安装 " + sourceLangCodes.size() + " 个");
-            }
-            
-            // 检查是否有已安装的语言
-            boolean hasInstalledLanguages = !sourceLangCodes.isEmpty();
-            
-            // 显示/隐藏无语言提示
-            if (tvNoLanguageHint != null) {
-                tvNoLanguageHint.setVisibility(hasInstalledLanguages ? View.GONE : View.VISIBLE);
-            }
-            
-            // 禁用/启用开始按钮
-            if (btnStart != null) {
-                btnStart.setEnabled(hasInstalledLanguages);
-                btnStart.setAlpha(hasInstalledLanguages ? 1.0f : 0.5f);
-            }
-            
-            // 禁用/启用源语言下拉框
-            if (spinnerSource != null) {
-                spinnerSource.setEnabled(hasInstalledLanguages);
-                spinnerSource.setAlpha(hasInstalledLanguages ? 1.0f : 0.5f);
-            }
-            
-            // 目标语言列表（翻译目标）
-            final java.util.List<String> targetLangNames = new java.util.ArrayList<>();
-            final java.util.List<String> targetLangCodes = new java.util.ArrayList<>();
-            targetLangNames.add("英语");
-            targetLangCodes.add("en");
-            targetLangNames.add("中文");
-            targetLangCodes.add("zh");
-            targetLangNames.add("日语");
-            targetLangCodes.add("ja");
-            targetLangNames.add("韩语");
-            targetLangCodes.add("ko");
-            targetLangNames.add("法语");
-            targetLangCodes.add("fr");
-            targetLangNames.add("德语");
-            targetLangCodes.add("de");
-            targetLangNames.add("西班牙语");
-            targetLangCodes.add("es");
-            targetLangNames.add("俄语");
-            targetLangCodes.add("ru");
-            targetLangNames.add("意大利语");
-            targetLangCodes.add("it");
-            targetLangNames.add("葡萄牙语");
-            targetLangCodes.add("pt");
-            
-            // 设置源语言下拉框
-            if (spinnerSource != null && hasInstalledLanguages) {
-                android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
-                    mActivity, R.layout.spinner_item, sourceLangNames);
-                adapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
-                spinnerSource.setAdapter(adapter);
-                
-                // 恢复上次选择的源语言
-                String savedSourceLang = prefs.getString(PREF_SOURCE_LANGUAGE, null);
-                if (savedSourceLang != null) {
-                    int index = sourceLangCodes.indexOf(savedSourceLang);
-                    if (index >= 0) {
-                        spinnerSource.setSelection(index);
-                    }
-                }
-            }
-            
-            // 设置目标语言下拉框
-            if (spinnerTarget != null) {
-                android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
-                    mActivity, R.layout.spinner_item, targetLangNames);
-                adapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
-                spinnerTarget.setAdapter(adapter);
-                
-                // 恢复上次选择的目标语言
-                String savedTargetLang = prefs.getString(PREF_TARGET_LANGUAGE, null);
-                if (savedTargetLang != null) {
-                    int index = targetLangCodes.indexOf(savedTargetLang);
-                    if (index >= 0) {
-                        spinnerTarget.setSelection(index);
-                    }
-                }
-            }
-            
-            // 恢复翻译开关状态
-            boolean translationEnabled = prefs.getBoolean(PREF_TRANSLATION_ENABLED, true);
-            if (translateSwitch != null) {
-                translateSwitch.setChecked(translationEnabled);
-                
-                // 根据开关状态设置目标语言控件
-                if (spinnerTarget != null) {
-                    spinnerTarget.setEnabled(translationEnabled);
-                    spinnerTarget.setAlpha(translationEnabled ? 1.0f : 0.5f);
-                }
-                if (tvTargetLabel != null) {
-                    tvTargetLabel.setAlpha(translationEnabled ? 1.0f : 0.5f);
-                }
-                
-                translateSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                    // 保存翻译开关状态
-                    prefs.edit().putBoolean(PREF_TRANSLATION_ENABLED, isChecked).apply();
-                    
-                    if (spinnerTarget != null) {
-                        spinnerTarget.setEnabled(isChecked);
-                        spinnerTarget.setAlpha(isChecked ? 1.0f : 0.5f);
-                    }
-                    if (tvTargetLabel != null) {
-                        tvTargetLabel.setAlpha(isChecked ? 1.0f : 0.5f);
-                    }
-                });
-            }
-            
-            // 管理语言包按钮点击事件
-            if (btnManageLanguagePack != null) {
-                btnManageLanguagePack.setOnClickListener(v -> {
-                    dialog.dismiss();
-                    showSpeechLanguagePackDialog();
-                });
-            }
-            
-            // 开始按钮
-            if (btnStart != null) {
-                btnStart.setOnClickListener(v -> {
-                    if (!hasInstalledLanguages || sourceLangCodes.isEmpty()) {
-                        showToast("请先下载至少一个语言包");
-                        return;
-                    }
-                    
-                    Log.d(TAG, "btn_start_speech clicked!");
-                    int sourceIndex = spinnerSource != null ? spinnerSource.getSelectedItemPosition() : 0;
-                    int targetIndex = spinnerTarget != null ? spinnerTarget.getSelectedItemPosition() : 0;
-                    boolean enableTranslate = translateSwitch != null && translateSwitch.isChecked();
-                    
-                    if (sourceIndex < 0 || sourceIndex >= sourceLangCodes.size()) {
-                        showToast("请选择识别语言");
-                        return;
-                    }
-                    
-                    String sourceLang = sourceLangCodes.get(sourceIndex);
-                    String targetLang = enableTranslate ? targetLangCodes.get(targetIndex) : null;
-                    
-                    // 保存选择的语言
-                    prefs.edit()
-                        .putString(PREF_SOURCE_LANGUAGE, sourceLang)
-                        .putString(PREF_TARGET_LANGUAGE, targetLangCodes.get(targetIndex))
-                        .apply();
-                    
-                    Log.d(TAG, "Starting speech translate: source=" + sourceLang + ", target=" + targetLang);
-                    dialog.dismiss();
-                    
-                    // 提前加载模型（在后台线程）
-                    preloadSpeechModel(sourceLang, () -> {
-                        // 模型加载完成后启动识别
-                        startSpeechTranslate(sourceLang, targetLang);
-                    });
-                });
-            }
-            
-            // 取消按钮
-            View btnCancel = dialogView.findViewById(R.id.btn_cancel_speech);
-            if (btnCancel != null) {
-                btnCancel.setOnClickListener(v -> dialog.dismiss());
-            }
-            
-        } catch (Exception e) {
-            Log.e(TAG, "showSpeechTranslateSettings error", e);
-            showToast("打开语音识别设置失败");
-        }
-    }
-    
-    /**
-     * 显示语音识别语言包管理对话框
-     */
-    private void showSpeechLanguagePackDialog() {
-        try {
-            com.orange.playerlibrary.speech.SpeechLanguagePackDialog dialog = 
-                new com.orange.playerlibrary.speech.SpeechLanguagePackDialog(mActivity);
-            
-            // 设置语言变化监听器
-            dialog.setOnLanguageChangedListener(new com.orange.playerlibrary.speech.SpeechLanguagePackDialog.OnLanguageChangedListener() {
-                @Override
-                public void onLanguageInstalled(String languageCode) {
-                    Log.d(TAG, "Language installed: " + languageCode);
-                }
-                
-                @Override
-                public void onLanguageDeleted(String languageCode) {
-                    Log.d(TAG, "Language deleted: " + languageCode);
-                }
-            });
-            
-            // 设置关闭监听器，关闭后重新打开设置对话框
-            dialog.setOnDismissListener(() -> {
-                // 重新打开设置对话框以刷新语言列表
-                showSpeechTranslateSettings();
-            });
-            
-            dialog.show();
-        } catch (Exception e) {
-            Log.e(TAG, "showSpeechLanguagePackDialog error", e);
-            showToast("打开语言包管理失败");
-        }
-    }
-    
-    /**
-     * 开始语音识别翻译
-     */
-    private void startSpeechTranslate(String sourceLang, String targetLang) {
-        Log.d(TAG, "startSpeechTranslate: sourceLang=" + sourceLang + ", targetLang=" + targetLang);
-        
-        // AudioPlaybackCapture 不需要麦克风权限，只需要 MediaProjection 权限
-        // MediaProjection 权限会在 SpeechSubtitleManager.start() 中请求
-        doStartSpeechTranslate(sourceLang, targetLang);
-    }
-    
-    /**
-     * 提前加载语音模型（在后台线程，避免卡顿）
-     * 点击开始识别时调用，加载完成后再启动识别服务
-     * @param language 语言代码
-     * @param onComplete 加载完成回调
-     */
-    private void preloadSpeechModel(String language, Runnable onComplete) {
-        // 检查是否已缓存
-        com.orange.playerlibrary.speech.VoskModelCache cache = com.orange.playerlibrary.speech.VoskModelCache.getInstance();
-        if (cache.isModelCached(language)) {
-            Log.d(TAG, "Model already cached, starting recognition immediately");
-            if (onComplete != null) {
-                onComplete.run();
-            }
-            return;
-        }
-        
-        // 使用下载进度对话框
-        final DownloadProgressDialog loadingDialog = new DownloadProgressDialog(mActivity);
-        loadingDialog.showWithRealProgress("正在加载语音模型");
-        
-        // 在后台线程加载模型
-        new Thread(() -> {
-            try {
-                // 模拟进度更新
-                mActivity.runOnUiThread(() -> loadingDialog.setProgress(10, "正在读取模型文件..."));
-                
-                // 使用缓存管理器加载模型
-                org.vosk.Model model = cache.loadAndCacheModel(mActivity, language);
-                
-                mActivity.runOnUiThread(() -> loadingDialog.setProgress(90, "模型加载完成"));
-                
-                // 短暂延迟让用户看到完成状态
-                Thread.sleep(300);
-                
-                // 回到主线程
-                mActivity.runOnUiThread(() -> {
-                    loadingDialog.complete();
-                    if (model != null) {
-                        Log.d(TAG, "Model preloaded and cached successfully, starting recognition service");
-                        // 模型加载成功，启动识别服务
-                        if (onComplete != null) {
-                            onComplete.run();
-                        }
-                    } else {
-                        loadingDialog.fail("模型加载失败");
-                        showToast("模型加载失败");
-                    }
-                });
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to preload model", e);
-                mActivity.runOnUiThread(() -> {
-                    loadingDialog.fail("模型加载失败: " + e.getMessage());
-                    showToast("模型加载失败: " + e.getMessage());
-                });
-            }
-        }, "ModelPreloadThread").start();
-    }
-    
-    // MediaProjection 权限回调需要的变量（不是麦克风权限）
-    private String mPendingSpeechSourceLang;
-    private String mPendingSpeechTargetLang;
-    
-    /**
-     * 处理录音权限请求结果（已废弃，AudioPlaybackCapture 不需要麦克风权限）
-     */
-    @Deprecated
-    public void handleRecordAudioPermissionResult(int requestCode, String[] permissions, int[] grantResults) {
-        // AudioPlaybackCapture 不需要麦克风权限，此方法已废弃
-        Log.w(TAG, "handleRecordAudioPermissionResult: This method is deprecated, AudioPlaybackCapture doesn't need RECORD_AUDIO permission");
-    }
-    
-    /**
-     * 实际启动语音识别翻译（使用 Vosk + AudioPlaybackCapture）
-     * 注意：调用此方法前应该已经通过 preloadSpeechModel 加载了模型
-     */
-    private void doStartSpeechTranslate(String sourceLang, String targetLang) {
-        Log.d(TAG, "doStartSpeechTranslate: sourceLang=" + sourceLang + ", targetLang=" + targetLang);
-        
-        // 检查是否支持
-        if (!com.orange.playerlibrary.speech.SpeechSubtitleManager.isSupported()) {
-            showSpeechNotSupportedDialog();
-            return;
-        }
-        
-        // 检查语音模型是否已下载
-        if (!com.orange.playerlibrary.speech.VoskSpeechEngine.isModelDownloaded(mActivity, sourceLang)) {
-            showVoskModelDownloadDialog(sourceLang, targetLang);
-            return;
-        }
-        
-        // 创建语音字幕管理器（模型已经预加载，这里会很快）
-        com.orange.playerlibrary.speech.SpeechSubtitleManager speechManager = 
-            new com.orange.playerlibrary.speech.SpeechSubtitleManager(mActivity);
-        
-        // 设置回调
-        speechManager.setCallback(new com.orange.playerlibrary.speech.SpeechSubtitleManager.SpeechSubtitleCallback() {
-            @Override
-            public void onPartialSubtitle(String text, String translatedText) {
-                // 显示 partial 结果
-                mActivity.runOnUiThread(() -> {
-                    if (mController != null && mController.getSubtitleManager() != null) {
-                        String displayText = formatSpeechSubtitle(text, translatedText, targetLang != null);
-                        Log.d(TAG, "---------- Speech PARTIAL callback: original=[" + text + "], translated=[" + translatedText + "], display=[" + displayText + "] ----------");
-                        showSpeechSubtitle(displayText, false);
-                    }
-                });
-            }
-            
-            @Override
-            public void onFinalSubtitle(String text, String translatedText) {
-                // 显示最终结果
-                mActivity.runOnUiThread(() -> {
-                    if (mController != null && mController.getSubtitleManager() != null) {
-                        String displayText = formatSpeechSubtitle(text, translatedText, targetLang != null);
-                        Log.d(TAG, "---------- Speech FINAL callback: original=[" + text + "], translated=[" + translatedText + "], display=[" + displayText + "] ----------");
-                        showSpeechSubtitle(displayText, true);
-                    }
-                });
-            }
-            
-            @Override
-            public void onError(String error) {
-                mActivity.runOnUiThread(() -> {
-                    showToast("语音识别错误: " + error);
-                });
-            }
-            
-            @Override
-            public void onStateChanged(boolean isListening) {
-                Log.d(TAG, "Speech state changed: " + isListening);
-                mActivity.runOnUiThread(() -> {
-                    if (isListening) {
-                        showToast("语音识别已启动");
-                    }
-                });
-            }
-        });
-        
-        // 保存引用
-        mSpeechSubtitleManager = speechManager;
-        mPendingSpeechSourceLang = sourceLang;
-        mPendingSpeechTargetLang = targetLang;
-        
-        // 请求屏幕捕获权限
-        speechManager.requestMediaProjection(mActivity);
-    }
-    
-    /**
-     * 处理屏幕捕获权限结果
-     */
-    public void handleMediaProjectionResult(int requestCode, int resultCode, Intent data) {
-        Log.d(TAG, "handleMediaProjectionResult: requestCode=" + requestCode + ", resultCode=" + resultCode + ", data=" + data);
-        Log.d(TAG, "handleMediaProjectionResult: mSpeechSubtitleManager=" + mSpeechSubtitleManager);
-        
-        if (mSpeechSubtitleManager != null) {
-            if (mSpeechSubtitleManager.handleActivityResult(requestCode, resultCode, data)) {
-                Log.d(TAG, "handleMediaProjectionResult: permission granted, starting speech recognition");
-                // 权限已授予，开始语音识别
-                mSpeechSubtitleManager.start(mPendingSpeechSourceLang, mPendingSpeechTargetLang);
-            } else {
-                Log.d(TAG, "handleMediaProjectionResult: permission not granted or wrong requestCode");
-            }
-        } else {
-            Log.w(TAG, "handleMediaProjectionResult: mSpeechSubtitleManager is null");
-        }
-    }
-    
-    /**
-     * 显示不支持的提示
-     */
-    private void showSpeechNotSupportedDialog() {
-        String reason = com.orange.playerlibrary.speech.SpeechSubtitleManager.getUnsupportedReason();
-        new AlertDialog.Builder(mActivity)
-            .setTitle("不支持语音识别")
-            .setMessage(reason != null ? reason : "您的设备不支持此功能")
-            .setPositiveButton("知道了", null)
-            .show();
-    }
-    
-    /**
-     * 显示 Vosk 模型下载对话框
-     */
-    private void showVoskModelDownloadDialog(String sourceLang, String targetLang) {
-        String langName = getLanguageName(sourceLang);
-        String sizeDesc = com.orange.playerlibrary.speech.VoskSpeechEngine.getModelSizeDescription(sourceLang);
-        
-        new AlertDialog.Builder(mActivity)
-            .setTitle("需要下载语音模型")
-            .setMessage("首次使用需要下载 " + langName + " 语音识别模型\n大小：" + sizeDesc + "\n\n下载后可离线使用")
-            .setPositiveButton("下载", (dialog, which) -> {
-                downloadVoskModel(sourceLang, targetLang);
-            })
-            .setNegativeButton("取消", null)
-            .show();
-    }
-    
-    /**
-     * 下载 Vosk 模型
-     */
-    private void downloadVoskModel(String sourceLang, String targetLang) {
-        final DownloadProgressDialog progressDialog = new DownloadProgressDialog(mActivity);
-        progressDialog.showWithRealProgress("正在下载语音模型");
-        
-        com.orange.playerlibrary.speech.VoskModelManager modelManager = 
-            new com.orange.playerlibrary.speech.VoskModelManager(mActivity);
-        
-        modelManager.downloadModel(sourceLang, new com.orange.playerlibrary.speech.VoskModelManager.DownloadCallback() {
-            @Override
-            public void onProgress(int progress, String status) {
-                progressDialog.setProgress(progress, status);
-            }
-            
-            @Override
-            public void onSuccess() {
-                progressDialog.complete();
-                showToast("模型下载完成");
-                // 重新启动语音识别
-                mMainHandler.postDelayed(() -> {
-                    doStartSpeechTranslate(sourceLang, targetLang);
-                }, 500);
-            }
-            
-            @Override
-            public void onError(String error) {
-                progressDialog.fail(error);
-                showToast("模型下载失败: " + error);
-            }
-        });
-    }
-    
-    /**
-     * 获取语言名称
-     */
-    private String getLanguageName(String code) {
-        if (code == null) return "未知";
-        String lang = code.toLowerCase();
-        if (lang.startsWith("zh")) return "中文";
-        if (lang.startsWith("en")) return "英语";
-        if (lang.startsWith("ja")) return "日语";
-        if (lang.startsWith("ko")) return "韩语";
-        return code;
-    }
-    
-    /**
-     * 显示语音识别不可用的提示对话框（旧方法，保留兼容）
-     */
-    private void showSpeechNotAvailableDialog() {
-        showSpeechNotSupportedDialog();
-    }
-    
-    /**
-     * 停止语音识别翻译
-     */
-    public void stopSpeechTranslate() {
-        if (mSpeechSubtitleManager != null) {
-            mSpeechSubtitleManager.release();
-            mSpeechSubtitleManager = null;
-        }
-        
-        // 清理定时任务
-        if (mSpeechSubtitleHideRunnable != null) {
-            mMainHandler.removeCallbacks(mSpeechSubtitleHideRunnable);
-            mSpeechSubtitleHideRunnable = null;
-        }
-        if (mSpeechSubtitleRefreshRunnable != null) {
-            mMainHandler.removeCallbacks(mSpeechSubtitleRefreshRunnable);
-            mSpeechSubtitleRefreshRunnable = null;
-        }
-        
-        // 关闭字幕显示
-        if (mController != null && mController.getSubtitleManager() != null) {
-            mController.getSubtitleManager().showText("");
-            mCurrentSpeechSubtitle = "";
-        }
-        
-        // 清空字幕和时间戳
-        mCurrentSpeechSubtitle = "";
-        mLastSpeechSubtitleClearTime = 0;
-        if (mController != null && mController.getSubtitleManager() != null) {
-            mController.getSubtitleManager().showText("");
-        }
-    }
 }
 

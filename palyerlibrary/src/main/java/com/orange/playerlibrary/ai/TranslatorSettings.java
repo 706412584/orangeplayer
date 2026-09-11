@@ -10,6 +10,9 @@ public class TranslatorSettings {
     /** OpenAI 兼容聊天补全路径后缀，附加在 baseUrl 后 */
     public static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
 
+    /** OpenAI 兼容模型列表路径后缀（GET 返回可用模型 id） */
+    public static final String MODELS_PATH = "/models";
+
     public static final String DEFAULT_BASE_URL = "https://api.deepseek.com";
     public static final String DEFAULT_MODEL = "deepseek-chat";
     public static final int DEFAULT_TIMEOUT_MS = 30_000;
@@ -86,6 +89,15 @@ public class TranslatorSettings {
             base = base.substring(0, base.length() - 1);
         }
         return base + CHAT_COMPLETIONS_PATH;
+    }
+
+    /** 模型列表端点 URL（供设置界面「获取模型」拉取可用模型） */
+    public String getModelsUrl() {
+        String base = baseUrl;
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return base + MODELS_PATH;
     }
 
     public static Builder builder() {

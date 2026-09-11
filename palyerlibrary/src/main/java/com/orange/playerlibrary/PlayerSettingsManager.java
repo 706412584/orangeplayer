@@ -581,11 +581,14 @@ public class PlayerSettingsManager {
     private static final String KEY_AI_BASE_URL = "ai_base_url";
     private static final String KEY_AI_MODEL = "ai_model";
     private static final String KEY_AI_TARGET_LANG = "ai_target_lang";
+    private static final String KEY_AI_SOURCE_LANG = "ai_source_lang";
 
     /** 默认接入点（OpenAI 兼容协议；可在设置里改 Qwen/GLM 等任意端点） */
     public static final String DEFAULT_AI_BASE_URL = "https://apihub.agnes-ai.com/v1";
     public static final String DEFAULT_AI_MODEL = "agnes-2.5-flash";
     public static final String DEFAULT_AI_TARGET_LANG = "简体中文";
+    /** 预装本地模型时默认的源语言（识别时仍以 ASR 自动检测为准） */
+    public static final String DEFAULT_AI_SOURCE_LANG = "英语";
 
     /**
      * 保存 AI API Key。
@@ -629,6 +632,16 @@ public class PlayerSettingsManager {
 
     public String getAiTargetLang() {
         return mPreferences.getString(KEY_AI_TARGET_LANG, DEFAULT_AI_TARGET_LANG);
+    }
+
+    /** 预装本地模型用的源语言（仅影响预装哪个语言模型，不影响识别时的自动检测） */
+    public void setAiSourceLang(String lang) {
+        mPreferences.edit().putString(KEY_AI_SOURCE_LANG,
+                lang == null || lang.trim().isEmpty() ? DEFAULT_AI_SOURCE_LANG : lang.trim()).apply();
+    }
+
+    public String getAiSourceLang() {
+        return mPreferences.getString(KEY_AI_SOURCE_LANG, DEFAULT_AI_SOURCE_LANG);
     }
 
     // ===== 边看边识别（渐进 ASR）开关 =====

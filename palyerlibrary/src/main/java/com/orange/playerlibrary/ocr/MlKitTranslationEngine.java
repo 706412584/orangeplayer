@@ -297,4 +297,48 @@ public class MlKitTranslationEngine implements TranslationEngine {
     public boolean isInitialized() {
         return mInitialized;
     }
+
+    /** MLKit 翻译模型的应用内存储目录（实测：按「语言↔英语」命名，如 en_zh） */
+    private static final String MODELS_DIR_NAME = "com.google.mlkit.translate.models";
+
+    /** 中转语言：MLKit 翻译经英语中转，故英语本身无需模型 */
+    private static final String PIVOT_LANGUAGE = "en";
+
+    /**
+     * 已下载的本地翻译语言码集合（MLKit 语言码，如 "zh"/"ja"）。
+     *
+     * MLKit 按「语言↔英语」存模型（en_zh / en_ja / en_ko…），翻译任意两语言
+     * 经英语中转，故某语言可用 ⇔ 其 en_&lt;语言&gt; 目录存在；英语作为中转
+     * 语言恒可用。设置界面据此标注「已装/未装」，避免用户盲选后首播等下载。
+     *
+     * 说明：MLKit 未提供同步的批量查询 API（isModelDownloaded 是异步 Task 且需
+     * 逐语言建实例），设置界面需要即时渲染，故直接读其存储目录。
+     */
+    public static java.util.Set<String> getInstalledLanguageCodes(Context context) {
+        java.util.Set<String> installed = new java.util.HashSet<>();
+        installed.add(PIVOT_LANGUAGE);
+        if (context == null) {
+            return installed;
+        }
+        try {
+            java.io.File dir = new java.io.File(context.getNoBackupFilesDir(), MODELS_DIR_NAME);
+            java.io.File[] children = dir.listFiles();
+            if (children == null) {
+                return installed;
+            }
+            for (java.io.File child : children) {
+                if (child == null || !child.isDirectory()) {
+                    continue;
+                }
+                String name = child.getName();
+                // 仅认 en_<语言> 形态；temp 等中间目录天然不匹配
+                if (name.startsWith(PIVOT_LANGUAGE + "_") && name.length() > 3) {
+                    installed.add(name.substring(PIVOT_LANGUAGE.length() + 1));
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "读取已装本地翻译模型失败", t);
+        }
+        return installed;
+    }
 }

@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *  - 进度：按三文件总字节汇总，回调含已下载/总量（便于显示 MB 数）
  *  - 校验：按服务端 Content-Length 比对，截断文件自动重下
  *
- * 与 {@link VoskModelManager} 同模式（下载能力独立于 UI，UI 层订阅回调）。
+ * 下载能力独立于 UI，UI 层订阅回调。
  */
 public class AsrModelDownloader {
 

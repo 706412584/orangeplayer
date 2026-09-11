@@ -1,14 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/layout"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:background="@drawable/setup_card_bg">
+    android:layout_height="match_parent"
+    android:background="@color/op_scrim">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="20dp">
+    <ScrollView
+        android:layout_width="@dimen/op_panel_width"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="@drawable/setup_panel_bg"
+        android:clickable="true"
+        android:focusable="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
 
         <!-- 标题 -->
         <TextView
@@ -86,19 +95,38 @@
             android:textSize="13sp"
             android:layout_marginBottom="6dp" />
 
-        <EditText
-            android:id="@+id/et_ai_model"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:background="@drawable/edit_text_bg"
-            android:hint="agnes-2.5-flash"
-            android:textColor="@color/op_text_primary"
-            android:textColorHint="@color/op_text_tertiary"
-            android:textSize="13sp"
-            android:paddingHorizontal="12dp"
-            android:singleLine="true"
-            android:imeOptions="actionNext"
-            android:layout_marginBottom="12dp" />
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="12dp">
+
+            <EditText
+                android:id="@+id/et_ai_model"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="44dp"
+                android:background="@drawable/edit_text_bg"
+                android:hint="agnes-2.5-flash"
+                android:textColor="@color/op_text_primary"
+                android:textColorHint="@color/op_text_tertiary"
+                android:textSize="13sp"
+                android:paddingHorizontal="12dp"
+                android:singleLine="true"
+                android:imeOptions="actionNext" />
+
+            <Button
+                android:id="@+id/btn_ai_fetch_models"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:paddingHorizontal="14dp"
+                android:text="获取模型"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+        </LinearLayout>
 
         <!-- 目标语言 -->
         <TextView
@@ -114,6 +142,40 @@
             android:layout_width="match_parent"
             android:layout_height="44dp"
             android:background="@drawable/spinner_bg"
+            android:layout_marginBottom="12dp" />
+
+        <!-- 本地翻译模型（MLKit，OCR 与语音识别共用同一份） -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="源语言（仅预装本地模型用，识别时自动检测）"
+            android:textColor="@color/op_text_primary"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <Spinner
+            android:id="@+id/spinner_ai_source_lang"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:background="@drawable/spinner_bg"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btn_ai_preinstall_model"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="预装本地翻译模型"
+            android:textColor="@color/op_text_primary"
+            android:textSize="13sp"
+            android:background="@drawable/btn_subtitle_bg"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tv_ai_preinstall_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/op_text_secondary"
+            android:textSize="12sp"
             android:layout_marginBottom="20dp" />
 
         <!-- 按钮区域 -->
@@ -142,5 +204,6 @@
                 android:background="@drawable/btn_subtitle_bg"
                 android:layout_marginStart="8dp" />
         </LinearLayout>
-    </LinearLayout>
-</ScrollView>
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>

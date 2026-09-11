@@ -1,7 +1,11 @@
 package com.orange.playerlibrary.ai;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.mockito.Mockito.mock;
+
+import android.content.Context;
 
 import org.junit.Test;
 
@@ -64,5 +68,21 @@ public class ProgressiveTranslatorLangTest {
         assertNull(ProgressiveTranslator.mapToMlKitCode(""));
         assertNull(ProgressiveTranslator.mapToMlKitCode("克林贡语"));
         assertNull(ProgressiveTranslator.mapToMlKitCode("xx"));
+    }
+
+    /**
+     * retarget 的前置校验：目标语言为空 / 会话未配置（mCallback==null）时必须
+     * 直接返回 false 而不是改状态——否则会把在途会话的目标语言改成空值，
+     * 后续批次全部翻译失败。
+     */
+    @Test
+    public void retargetRejectsBlankLanguageAndUnconfiguredSession() {
+        Context context = mock(Context.class);
+        ProgressiveTranslator translator = new ProgressiveTranslator(context);
+        assertFalse(translator.retarget("http://v/1.mp4", null, null));
+        assertFalse(translator.retarget("http://v/1.mp4", "", null));
+        assertFalse(translator.retarget("http://v/1.mp4", "   ", null));
+        // 未 configure（无 callback）：合法语言也不该触发
+        assertFalse(translator.retarget("http://v/1.mp4", "英语", null));
     }
 }

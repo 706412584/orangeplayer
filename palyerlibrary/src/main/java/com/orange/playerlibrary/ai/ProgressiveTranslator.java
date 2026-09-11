@@ -113,6 +113,45 @@ public class ProgressiveTranslator {
     }
 
     /**
+     * 会话进行中切换目标语言（用户在 AI 设置里改了目标语言）。
+     * 换目标语言与缓存键，并把已累积的全部原文按新语言重译一遍。
+     *
+     * 不走 {@link #configure}：它会 reset() 清空 mAllLines，而已显示字幕的
+     * <b>原文只存在于这里</b>（SubtitleManager 侧的字条已被旧译文覆盖），
+     * 清掉就再也无法重译。新到达的批次照常走 submit，同样使用新语言。
+     *
+     * @return true=已触发重译；false=无内容可重译（未配置或尚无字幕）
+     */
+    public boolean retarget(String videoUrl, String targetLang, TranslatorSettings aiSettings) {
+        if (targetLang == null || targetLang.trim().isEmpty() || mCallback == null) {
+            return false;
+        }
+        mTargetLang = targetLang;
+        mAiSettings = aiSettings;
+        mCacheRoot = new File(mAppContext.getCacheDir(), "ai_translation");
+        mCacheKey = "sub=|url=" + (videoUrl == null ? "" : videoUrl)
+                + "|to=" + targetLang;
+        // 换语言后旧语言的失败锁存不再适用，允许重新尝试 AI
+        mAiLockedToLocal = false;
+        mAiFailStreak.set(0);
+
+        List<SubtitleLine> snapshot;
+        synchronized (mAllLines) {
+            if (mAllLines.isEmpty()) {
+                Log.d(TAG, "retarget: 目标语言改为 " + targetLang + "，暂无已识别内容");
+                return false;
+            }
+            snapshot = new ArrayList<>(mAllLines);
+        }
+        List<SubtitleEntry> entries = new ArrayList<>(snapshot.size());
+        for (SubtitleLine line : snapshot) {
+            entries.add(new SubtitleEntry(0, 0, line.getText()));
+        }
+        Log.d(TAG, "retarget: 目标语言改为 " + targetLang + "，重译 " + entries.size() + " 条");
+        return submit(0, entries);
+    }
+
+    /**
      * 提交一批新字幕。
      *
      * @param startIdx 本批首条在字幕列表中的**实际下标**（由
@@ -461,8 +500,8 @@ public class ProgressiveTranslator {
             "简体中文", "繁体中文", "英语", "日语", "韩语", "法语",
             "德语", "西班牙语", "俄语", "阿拉伯语", "泰语", "越南语"};
 
-    /** 目标/源语言显示名 → MLKit 语言码 */
-    static String mapToMlKitCode(String lang) {
+    /** 目标/源语言显示名 → MLKit 语言码（供设置界面预装模型时复用同一套映射） */
+    public static String mapToMlKitCode(String lang) {
         if (lang == null) {
             return null;
         }

@@ -69,6 +69,11 @@ public class AiTranslationEngineTest {
             }
             return reply.toString();
         }
+
+        @Override
+        public List<String> listModels(TranslatorSettings settings) throws AiException {
+            return new ArrayList<>();
+        }
     }
 
     private List<SubtitleLine> lines(int n) {

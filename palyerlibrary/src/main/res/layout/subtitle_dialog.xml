@@ -141,34 +141,6 @@
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="16dp" />
 
-            <!-- 语音识别与翻译 -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="语音识别与翻译"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="12dp" />
-
-            <TextView
-                android:id="@+id/speech_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="识别视频音频并翻译为字幕"
-                android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginBottom="8dp" />
-
-            <Button
-                android:id="@+id/btn_speech_translate"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="开启语音识别"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
-
             <!-- 分隔线 -->
             <View
                 android:layout_width="match_parent"

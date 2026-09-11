@@ -121,7 +121,6 @@ dependencies {
     implementation 'com.github.bilibili:DanmakuFlameMaster:0.9.25'           // 弹幕
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.7.0'   // OCR 识别
     implementation 'com.google.mlkit:translate:17.0.2'                        // ML Kit 翻译
-    implementation 'com.alphacephei:vosk-android:0.3.47'                      // 语音识别
 
     // Torrent playback (libtorrent4j) - runtime dependencies
     def libtorrent_version = '2.0.6-26'

@@ -70,9 +70,6 @@ dependencies {
     // OCR 翻译字幕功能 - compileOnly（需要 API 21+，用户按需添加）
     compileOnly 'cz.adaptech.tesseract4android:tesseract4android:4.7.0'
     compileOnly 'com.google.mlkit:translate:17.0.2'
-    
-    // Vosk 离线语音识别 - compileOnly（需要 API 21+，用户按需添加）
-    compileOnly 'com.alphacephei:vosk-android:0.3.47'
 
     // libtorrent4j 种子播放 - compileOnly（可选）
     // 使用 libtorrent4j（jlibtorrent 的 fork，API 更完善）
