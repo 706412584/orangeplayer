@@ -103,6 +103,11 @@ lint/tmp/
 /maven-central/bundle.zip
 /maven-central/deployment_response.json
 /maven-central/publish.bat
+# 打包产物与 Central 状态查询响应（构建生成，不入库）
+/maven-central/temp_bundle_build/
+/maven-central/status_check.json
+/maven-central/deployments_check.json
+/maven-central/deployments_list.json
 # GPG 私钥环（凭据，不入库）
 /maven-central/secring.gpg
 # 凭据沙盒：本地若将凭据写入独立文件，经此忽略（gradle.properties 本体入库但仅含构建配置）
@@ -110,6 +115,9 @@ lint/tmp/
 
 # 排除日志文件
 logcat.txt
+
+# 调试/验证用截图（真机验证产物，仓库根目录不入库）
+/*.png
 
 # 排除 GSYVideoPlayer 子模块的修改
 
