@@ -13,9 +13,9 @@ ext {
     signingPassword = project.findProperty('signing.password') ?: System.getenv('SIGNING_PASSWORD') ?: ''
     signingSecretKeyRingFile = project.findProperty('signing.secretKeyRingFile') ?: System.getenv('SIGNING_SECRET_KEY_RING_FILE') ?: ''
     
-    // POM information - unified version 1.1.1
+    // POM information
     pomGroupId = 'io.github.706412584'
-    pomVersion = '1.4.2'
+    pomVersion = '1.5.0'
     pomUrl = 'https://github.com/706412584/orangeplayer'
     pomScmUrl = 'https://github.com/706412584/orangeplayer.git'
     pomScmConnection = 'scm:git:git://github.com/706412584/orangeplayer.git'
