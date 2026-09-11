@@ -65,11 +65,7 @@ public class FloatingRingProgress {
     /** 用户是否拖过位置（拖过则后续任务保留落点，不再回默认位置） */
     private boolean mHasCustomPosition;
 
-    /** 无操作多久后自动贴边隐藏（进度更新不算操作） */
-    private static final long AUTO_HIDE_DELAY_MS = 5000;
-
-    /** 自动贴边：贴到距离更近的一侧（构造器内初始化，需引用 mRoot） */
-    private final Runnable mAutoHideRunnable;
+    /** 自动贴边隐藏已取消（见上）：想收起的用户拖到边缘即可，会话结束由 dismiss() 移除 */
 
     /** 容器尺寸变化（旋转/全屏切换）后重新约束，避免控件彻底跑出可视区 */
     private final View.OnLayoutChangeListener mLayoutListener =
@@ -88,17 +84,6 @@ public class FloatingRingProgress {
         mRoot.setClickable(true);
         mRoot.setFocusable(false);
         mRoot.setOnTouchListener(new DragTouchListener());
-        mAutoHideRunnable = this::autoHideToNearestEdge;
-    }
-
-    /** 自动贴边：隐藏到距离更近的一侧 */
-    private void autoHideToNearestEdge() {
-        if (mHidden || mAnchor == null || mLp == null) {
-            return;
-        }
-        int left = mLp.leftMargin;
-        int right = mAnchor.getWidth() - (left + mRoot.getWidth());
-        hideAtEdge(right <= left);
     }
 
     /**
@@ -320,16 +305,13 @@ public class FloatingRingProgress {
         mHasCustomPosition = true;
     }
 
-    /** 显示完整 UI 后启动自动贴边计时（重复调用只保留最后一次） */
+    /** 显示完整 UI（自动贴边已取消；保留入口供把手恢复/拖动结算路径） */
     private void scheduleAutoHide() {
-        mRoot.removeCallbacks(mAutoHideRunnable);
-        if (!mHidden) {
-            mRoot.postDelayed(mAutoHideRunnable, AUTO_HIDE_DELAY_MS);
-        }
+        // no-op：不再自动贴边
     }
 
     private void cancelAutoHide() {
-        mRoot.removeCallbacks(mAutoHideRunnable);
+        // no-op：自动贴边已取消，无回调可撤销
     }
 
     private int dp(int value) {
