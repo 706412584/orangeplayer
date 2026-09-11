@@ -155,18 +155,21 @@ public class LanguagePackManager {
         List<LanguagePack> languages = new ArrayList<>();
         
         // 常用语言包（使用 tessdata_fast 版本的大小）
-        languages.add(new LanguagePack("chi_sim", "简体中文", "识别简体中文字幕", 2_500_000));
-        languages.add(new LanguagePack("chi_tra", "繁体中文", "识别繁体中文字幕", 2_400_000));
-        languages.add(new LanguagePack("eng", "英语", "识别英文字幕", 4_100_000));
-        languages.add(new LanguagePack("jpn", "日语", "识别日文字幕", 2_300_000));
-        languages.add(new LanguagePack("kor", "韩语", "识别韩文字幕", 1_500_000));
-        languages.add(new LanguagePack("fra", "法语", "识别法文字幕", 1_300_000));
-        languages.add(new LanguagePack("deu", "德语", "识别德文字幕", 1_200_000));
-        languages.add(new LanguagePack("spa", "西班牙语", "识别西班牙文字幕", 1_200_000));
-        languages.add(new LanguagePack("rus", "俄语", "识别俄文字幕", 1_400_000));
-        languages.add(new LanguagePack("ara", "阿拉伯语", "识别阿拉伯文字幕", 1_100_000));
-        languages.add(new LanguagePack("tha", "泰语", "识别泰文字幕", 1_000_000));
-        languages.add(new LanguagePack("vie", "越南语", "识别越南文字幕", 600_000));
+        // 体积为 tessdata_fast 实测值（2026-09 经 jsDelivr 解压后计数核对）。
+        // 用途有三：界面显示、无 Content-Length 时的进度基准、下载内容下限校验——
+        // 声明值偏小会同时导致「显示偏小」「进度超过 100%」「下限校验过松」。
+        languages.add(new LanguagePack("chi_sim", "简体中文", "识别简体中文字幕", 2_469_156));
+        languages.add(new LanguagePack("chi_tra", "繁体中文", "识别繁体中文字幕", 2_366_642));
+        languages.add(new LanguagePack("eng", "英语", "识别英文字幕", 4_113_088));
+        languages.add(new LanguagePack("jpn", "日语", "识别日文字幕", 2_471_260));
+        languages.add(new LanguagePack("kor", "韩语", "识别韩文字幕", 1_677_415));
+        languages.add(new LanguagePack("fra", "法语", "识别法文字幕", 1_130_365));
+        languages.add(new LanguagePack("deu", "德语", "识别德文字幕", 1_525_436));
+        languages.add(new LanguagePack("spa", "西班牙语", "识别西班牙文字幕", 2_294_433));
+        languages.add(new LanguagePack("rus", "俄语", "识别俄文字幕", 3_861_738));
+        languages.add(new LanguagePack("ara", "阿拉伯语", "识别阿拉伯文字幕", 1_432_056));
+        languages.add(new LanguagePack("tha", "泰语", "识别泰文字幕", 1_072_600));
+        languages.add(new LanguagePack("vie", "越南语", "识别越南文字幕", 531_275));
         
         // 检查已安装状态
         for (LanguagePack pack : languages) {
@@ -292,10 +295,10 @@ public class LanguagePackManager {
                     downloaded += bytesRead;
 
                     if (progressBase > 0) {
-                        int progress = (int) (downloaded * 100 / progressBase);
-                        if (progress > 99 && downloaded < progressBase) {
-                            progress = 99;   // 预估偏小时不虚报 100%
-                        }
+                        // 单一出口钳位：服务器未给 Content-Length 时以预估体积为基准，
+                        // 预估偏小会让 percent 冲过 100（实测 rus 可达 276%、并在中途
+                        // 先假装 100%）。100% 只在落盘成功时上报。
+                        int progress = (int) Math.min(99, downloaded * 100 / progressBase);
                         if (progress != lastProgress) {
                             lastProgress = progress;
                             postProgress(callback, progress, downloaded, progressBase);

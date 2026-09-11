@@ -48,13 +48,24 @@ public class AsrSubtitleGenerator {
     }
 
     /**
-     * 模型是否就位（model.int8.onnx/tokens.txt/silero_vad.onnx）
+     * 模型是否就位（model.int8.onnx/tokens.txt/silero_vad.onnx）。
+     * 除存在性外校验体积与清单一致：截断/损坏的文件此前会被判定「就绪」，
+     * 直到 ONNX 加载才报错（难排查），且下载器不会重下。
      */
     public static boolean isModelReady(Context context) {
         File dir = getModelDir(context);
-        return new File(dir, "model.int8.onnx").exists()
-                && new File(dir, "tokens.txt").exists()
-                && new File(dir, "silero_vad.onnx").exists();
+        return isModelFileComplete(new File(dir, "model.int8.onnx"))
+                && isModelFileComplete(new File(dir, "tokens.txt"))
+                && isModelFileComplete(new File(dir, "silero_vad.onnx"));
+    }
+
+    /** 文件存在且体积符合清单预期（清单无记录时只要求非空） */
+    private static boolean isModelFileComplete(File file) {
+        if (!file.exists() || file.length() == 0) {
+            return false;
+        }
+        long expected = AsrModelDownloader.expectedSizeOf(file.getName());
+        return expected <= 0 || file.length() == expected;
     }
 
     public static File getModelDir(Context context) {

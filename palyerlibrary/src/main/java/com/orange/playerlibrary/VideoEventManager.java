@@ -3672,7 +3672,11 @@ public class VideoEventManager {
                     }
                     ((android.widget.Button) btnAsrGenerate).setText("下载模型");
                     btnAsrGenerate.setOnClickListener(v -> startAsrModelDownload(
-                            btnAsrGenerate, asrStatus));
+                            btnAsrGenerate, asrStatus, () -> {
+                                // 模型就绪后：关掉设置面板并按「生成字幕」流程继续
+                                dialog.dismiss();
+                                startAsrGenerateUi();
+                            }));
                 } else if (mIsAsrGenerating) {
                     if (asrStatus != null) {
                         asrStatus.setText("语音字幕生成中...");
@@ -4370,9 +4374,15 @@ public class VideoEventManager {
 
     /**
      * 下载 ASR 模型并在对话框内展示进度（约 228MB，支持断点续传）。
-     * 完成后按钮恢复为「开始生成字幕」。
+     *
+     * 完成后把按钮重绑为「生成字幕」：旧实现只改了文案与 enabled，监听器仍指向
+     * 本方法——用户点「生成字幕」会再次进入下载路径（三个文件体积全部命中跳过
+     * 分支、立即回调成功），表现为「字幕生成永远不开始，只弹下载完成」。
+     *
+     * @param onReadyToGenerate 模型就绪后点击按钮应执行的动作
      */
-    private void startAsrModelDownload(final android.view.View btn, final android.widget.TextView status) {
+    private void startAsrModelDownload(final android.view.View btn, final android.widget.TextView status,
+                                       final Runnable onReadyToGenerate) {
         if (sAsrModelDownloader == null) {
             sAsrModelDownloader = new com.orange.playerlibrary.speech.AsrModelDownloader(mContext);
         }
@@ -4388,9 +4398,11 @@ public class VideoEventManager {
             public void onProgress(final int percent, final long downloaded, final long total,
                                    final String stage) {
                 mActivity.runOnUiThread(() -> {
+                    // stage 含「续传」/当前文件名等关键状态，拼进状态行
                     String text = String.format(java.util.Locale.US,
                             "下载模型 %d%%（%.0f/%.0f MB）",
-                            percent, downloaded / 1048576.0, total / 1048576.0);
+                            percent, downloaded / 1048576.0, total / 1048576.0)
+                            + (stage == null || stage.isEmpty() ? "" : " · " + stage);
                     if (btn instanceof android.widget.Button) {
                         ((android.widget.Button) btn).setText(percent + "%");
                     }
@@ -4411,6 +4423,12 @@ public class VideoEventManager {
                     if (btn instanceof android.widget.Button) {
                         ((android.widget.Button) btn).setText("生成字幕");
                         btn.setEnabled(true);
+                        // 关键：把监听器切到「生成字幕」，否则点击会再次进入下载路径
+                        btn.setOnClickListener(v -> {
+                            if (onReadyToGenerate != null) {
+                                onReadyToGenerate.run();
+                            }
+                        });
                     }
                     showToast("ASR 模型下载完成");
                 });
