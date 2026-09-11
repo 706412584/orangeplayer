@@ -3641,6 +3641,10 @@ public class VideoEventManager {
                     if (!isChecked) {
                         // 关闭「边看边识别」：结束在途渐进会话并摘掉悬浮环
                         stopProgressiveAsr();
+                    } else {
+                        // 重新开启：对当前视频重启渐进识别。自动触发不会再启动
+                        // （URL 已在 sAutoAsrTriggeredUrls 去重集合中），必须在此显式重启
+                        startProgressiveAsrForCurrentVideo();
                     }
                 });
             }
@@ -3725,12 +3729,29 @@ public class VideoEventManager {
         android.widget.EditText etKey = dialogView.findViewById(R.id.et_ai_api_key);
         android.widget.EditText etBase = dialogView.findViewById(R.id.et_ai_base_url);
         android.widget.EditText etModel = dialogView.findViewById(R.id.et_ai_model);
-        android.widget.EditText etTarget = dialogView.findViewById(R.id.et_ai_target_lang);
+        android.widget.Spinner spinnerTarget =
+                dialogView.findViewById(R.id.spinner_ai_target_lang);
 
         if (etKey != null) etKey.setText(mSettingsManager.getAiApiKey());
         if (etBase != null) etBase.setText(mSettingsManager.getAiBaseUrl());
         if (etModel != null) etModel.setText(mSettingsManager.getAiModel());
-        if (etTarget != null) etTarget.setText(mSettingsManager.getAiTargetLang());
+        if (spinnerTarget != null) {
+            java.util.List<String> langs = new java.util.ArrayList<>(java.util.Arrays.asList(
+                    com.orange.playerlibrary.ai.ProgressiveTranslator.TARGET_LANGUAGES));
+            String current = mSettingsManager.getAiTargetLang();
+            // 旧版本手输过的语言可能不在列表内：保留为额外项，避免保存时被静默改写
+            if (current != null && !current.trim().isEmpty() && !langs.contains(current.trim())) {
+                langs.add(current.trim());
+            }
+            android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
+                    mActivity, R.layout.spinner_item, langs);
+            adapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+            spinnerTarget.setAdapter(adapter);
+            int idx = langs.indexOf(current == null ? "" : current.trim());
+            if (idx >= 0) {
+                spinnerTarget.setSelection(idx);
+            }
+        }
 
         View btnCancel = dialogView.findViewById(R.id.btn_ai_settings_cancel);
         if (btnCancel != null) {
@@ -3743,7 +3764,9 @@ public class VideoEventManager {
                 if (etKey != null) mSettingsManager.setAiApiKey(etKey.getText().toString());
                 if (etBase != null) mSettingsManager.setAiBaseUrl(etBase.getText().toString());
                 if (etModel != null) mSettingsManager.setAiModel(etModel.getText().toString());
-                if (etTarget != null) mSettingsManager.setAiTargetLang(etTarget.getText().toString());
+                if (spinnerTarget != null && spinnerTarget.getSelectedItem() != null) {
+                    mSettingsManager.setAiTargetLang(spinnerTarget.getSelectedItem().toString());
+                }
                 dialog.dismiss();
                 if (mSettingsManager.isAiConfigured()) {
                     showToast("AI 翻译已配置：" + mSettingsManager.getAiModel());
@@ -3991,19 +4014,10 @@ public class VideoEventManager {
         }
         if (mSettingsManager.isAsrLiveEnabled()) {
             // 渐进（边看边识别）：本地/已缓存 mp4 或 HLS 按播放进度逐块识别
-            final String url = mVideoView != null ? mVideoView.getUrl() : null;
-            if (url != null && !url.isEmpty()
-                    && com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext)) {
-                if (isM3u8Url(url)) {
-                    startProgressiveAsrHls(url);
-                    return;
-                }
-                java.io.File local = resolveLocalVideoFileForAsr();
-                if (local != null) {
-                    startProgressiveAsr(local);
-                    return;
-                }
+            if (startProgressiveAsrForCurrentVideo()) {
+                return;
             }
+            final String url = mVideoView != null ? mVideoView.getUrl() : null;
             if (url != null && isM3u8Url(url)) {
                 showToast("边看边识别暂不可用，改用完整版");
             }
@@ -4468,6 +4482,33 @@ public class VideoEventManager {
         startProgressiveAsr(
                 new com.orange.playerlibrary.speech.LocalFileBlockSource(videoFile, durationMs),
                 videoFile.getName());
+    }
+
+    /**
+     * 对当前播放视频启动渐进识别（本地/已缓存 mp4 或 HLS）。
+     *
+     * @return true=已接管（含已在运行）；false=当前视频不支持渐进识别
+     *         （未缓存网络视频等），由调用方决定回退策略
+     */
+    private boolean startProgressiveAsrForCurrentVideo() {
+        if (sProgressiveAsr != null && sProgressiveAsr.isRunning()) {
+            return true;
+        }
+        final String url = mVideoView != null ? mVideoView.getUrl() : null;
+        if (url == null || url.isEmpty()
+                || !com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext)) {
+            return false;
+        }
+        if (isM3u8Url(url)) {
+            startProgressiveAsrHls(url);
+            return true;
+        }
+        java.io.File local = resolveLocalVideoFileForAsr();
+        if (local == null) {
+            return false;
+        }
+        startProgressiveAsr(local);
+        return true;
     }
 
     /**

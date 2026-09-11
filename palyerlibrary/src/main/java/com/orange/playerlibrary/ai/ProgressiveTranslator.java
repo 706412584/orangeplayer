@@ -452,6 +452,15 @@ public class ProgressiveTranslator {
         return result.get();
     }
 
+    /**
+     * 可选目标语言显示名（AI 设置的「目标语言」下拉列表）。
+     * 与 {@link #mapToMlKitCode} 的支持范围一致——未配置 AI Key 时本地
+     * MLKit 兜底同样可译，避免选到只能走 AI 的语言导致兜底静默跳过。
+     */
+    public static final String[] TARGET_LANGUAGES = {
+            "简体中文", "繁体中文", "英语", "日语", "韩语", "法语",
+            "德语", "西班牙语", "俄语", "阿拉伯语", "泰语", "越南语"};
+
     /** 目标/源语言显示名 → MLKit 语言码 */
     static String mapToMlKitCode(String lang) {
         if (lang == null) {

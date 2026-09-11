@@ -262,7 +262,7 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:text="边看边识别（看一段出一段字幕）"
+                    android:text="边看边识别（关：完整下载后一次识别）"
                     android:textColor="@color/op_text_primary"
                     android:textSize="13sp" />
 
@@ -284,7 +284,7 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:text="自动生成字幕（播放就绪后自动识别）"
+                    android:text="新视频自动开始（关：手动点下方按钮）"
                     android:textColor="@color/op_text_primary"
                     android:textSize="13sp" />
 

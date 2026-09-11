@@ -109,18 +109,11 @@
             android:textSize="13sp"
             android:layout_marginBottom="6dp" />
 
-        <EditText
-            android:id="@+id/et_ai_target_lang"
+        <Spinner
+            android:id="@+id/spinner_ai_target_lang"
             android:layout_width="match_parent"
             android:layout_height="44dp"
-            android:background="@drawable/edit_text_bg"
-            android:hint="简体中文"
-            android:textColor="@color/op_text_primary"
-            android:textColorHint="@color/op_text_tertiary"
-            android:textSize="13sp"
-            android:paddingHorizontal="12dp"
-            android:singleLine="true"
-            android:imeOptions="actionDone"
+            android:background="@drawable/spinner_bg"
             android:layout_marginBottom="20dp" />
 
         <!-- 按钮区域 -->
