@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.github.706412584</groupId>
+  <artifactId>orange-ffmpeg</artifactId>
+  <version>1.4.2</version>
+  <packaging>aar</packaging>
+  <name>OrangePlayer</name>
+  <description>Enhanced Android video player library based on GSYVideoPlayer, supports multiple player engines, subtitles, danmaku, OCR recognition, speech recognition and more</description>
+  <url>https://github.com/706412584/orangeplayer</url>
+  <licenses>
+    <license>
+      <name>The Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>706412584</id>
+      <name>Orange Developer</name>
+      <email>706412584@qq.com</email>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:git://github.com/706412584/orangeplayer.git</connection>
+    <developerConnection>scm:git:ssh://github.com/706412584/orangeplayer.git</developerConnection>
+    <url>https://github.com/706412584/orangeplayer</url>
+  </scm>
+  <dependencies/>
+</project>

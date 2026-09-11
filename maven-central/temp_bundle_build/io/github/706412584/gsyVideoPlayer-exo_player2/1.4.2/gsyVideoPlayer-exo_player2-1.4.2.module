@@ -1,0 +1,263 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "io.github.706412584",
+    "module": "gsyVideoPlayer-exo_player2",
+    "version": "1.4.2",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseVariantReleaseApiPublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "io.github.706412584",
+          "module": "gsyVideoPlayer-base",
+          "version": {
+            "requires": "1.4.2"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer-dash",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer-hls",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer-rtsp",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-datasource-rtmp",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-session",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-extractor",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-cast",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer-smoothstreaming",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-ui",
+          "version": {
+            "requires": "1.11.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "gsyVideoPlayer-exo_player2-1.4.2.aar",
+          "url": "gsyVideoPlayer-exo_player2-1.4.2.aar",
+          "size": 46449,
+          "sha512": "1180c84c9faf3b81444efd4f875dfd8ab606d552de36ad50c62d769b81db42b7aa5ae8cb5ca077fd302e2613d4784f270529207d297b7d6b48b113e7e122d2dd",
+          "sha256": "8d102e79809a99386dff2661e9aca3ee2b0204f3357763e1cdcb860b17b0485a",
+          "sha1": "4e255e061777445c007bb02b88317c56599a29b7",
+          "md5": "956dc7d071baff38deabc70802a54fb8"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseRuntimePublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "androidx.annotation",
+          "module": "annotation",
+          "version": {
+            "requires": "1.3.0"
+          }
+        },
+        {
+          "group": "io.github.706412584",
+          "module": "gsyVideoPlayer-base",
+          "version": {
+            "requires": "1.4.2"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer-dash",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer-hls",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer-rtsp",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-datasource-rtmp",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-session",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-extractor",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-cast",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-exoplayer-smoothstreaming",
+          "version": {
+            "requires": "1.11.0"
+          }
+        },
+        {
+          "group": "androidx.media3",
+          "module": "media3-ui",
+          "version": {
+            "requires": "1.11.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "gsyVideoPlayer-exo_player2-1.4.2.aar",
+          "url": "gsyVideoPlayer-exo_player2-1.4.2.aar",
+          "size": 46449,
+          "sha512": "1180c84c9faf3b81444efd4f875dfd8ab606d552de36ad50c62d769b81db42b7aa5ae8cb5ca077fd302e2613d4784f270529207d297b7d6b48b113e7e122d2dd",
+          "sha256": "8d102e79809a99386dff2661e9aca3ee2b0204f3357763e1cdcb860b17b0485a",
+          "sha1": "4e255e061777445c007bb02b88317c56599a29b7",
+          "md5": "956dc7d071baff38deabc70802a54fb8"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseSourcePublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-exo_player2-1.4.2-sources.jar",
+          "url": "gsyVideoPlayer-exo_player2-1.4.2-sources.jar",
+          "size": 27305,
+          "sha512": "48527dd30501ae6a7fbc5d8e35fcc7b6b50e8624d4506e4d703840990600139836986ace1a4e60ff838ac8ecd72f8abba9062f1376ccdae321b0cc7f1f6a9950",
+          "sha256": "0119d745f604544cd59112f3ea3100a81aa7b2643623272f00859d3d2ceb6c71",
+          "sha1": "8e875ef8db68203e23475061426b029561e175c7",
+          "md5": "9260b391e8b4629de5693042353c7506"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseJavaDocPublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "javadoc",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-exo_player2-1.4.2-javadoc.jar",
+          "url": "gsyVideoPlayer-exo_player2-1.4.2-javadoc.jar",
+          "size": 348652,
+          "sha512": "5dddacb939bc43f2e06f98237c14fc74c1748de494907ed86cd7f5c24287a6d5a934d807c2c22cf5eeff6aa0081435d56ce41db0d958d0201d4f720d10bc72d6",
+          "sha256": "7ebf68ebc61fae58b4114dc79e3b120db4de726243c5f0b8a2b0194e053e8018",
+          "sha1": "804e09b10e365d5d1353478e91311183e4c509be",
+          "md5": "5cc4122741cfc97137a8ade44a23b633"
+        }
+      ]
+    }
+  ]
+}

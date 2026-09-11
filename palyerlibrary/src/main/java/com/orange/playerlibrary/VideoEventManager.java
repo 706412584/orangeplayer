@@ -4503,16 +4503,28 @@ public class VideoEventManager {
                             }
                             com.orange.playerlibrary.subtitle.SubtitleManager sm =
                                     mController.getSubtitleManager();
-                            sm.appendSubtitles(entries, owningUrl);
                             if (!sProgressiveSubtitleShown) {
                                 sProgressiveSubtitleShown = true;
                                 sm.show();
                                 mController.startSubtitle();
                             }
-                            // 边识别边翻译：提交本批（下标与刚追加的区间一致）
-                            if (sProgressiveTranslator != null) {
-                                sProgressiveTranslator.submit(entries);
-                            }
+                            // 边识别边翻译：用真实写入下标提交（列表可能被整表替换/清空，
+                            // 计数器推断的下标会把译文回写到别的条目上）
+                            sm.appendSubtitles(entries, owningUrl,
+                                    new com.orange.playerlibrary.subtitle.SubtitleManager.AppendCallback() {
+                                        @Override
+                                        public void onAppended(int startIdx) {
+                                            if (sProgressiveTranslator != null) {
+                                                sProgressiveTranslator.submit(startIdx, entries);
+                                            }
+                                        }
+
+                                        @Override
+                                        public void onDiscarded() {
+                                            // 本批被丢弃（换源/会话切换），不提交翻译，
+                                            // 翻译侧下标与列表保持一致
+                                        }
+                                    });
                         });
                     }
 

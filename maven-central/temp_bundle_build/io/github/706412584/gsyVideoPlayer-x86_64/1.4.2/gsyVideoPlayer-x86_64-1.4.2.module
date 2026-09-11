@@ -1,0 +1,107 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "io.github.706412584",
+    "module": "gsyVideoPlayer-x86_64",
+    "version": "1.4.2",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseVariantReleaseApiPublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-x86_64-1.4.2.aar",
+          "url": "gsyVideoPlayer-x86_64-1.4.2.aar",
+          "size": 3547304,
+          "sha512": "7d8af84da4ca6931383571a02bd9ed218c8789491da0b3761d9383b22b77c941a7449f9a8fdd0a0601eb952bb0c15bdd27eda7d4a27c3ff332ec653fb79f1908",
+          "sha256": "6d8aa49e61499cbdfa95d88b43b2ffe5ae8a24b7e2fc88901219b9cda2189aef",
+          "sha1": "c9edfc1c98eb75f31aff8ed18244f062c85d4b2e",
+          "md5": "7770d39f74e424f27a7caac38c435b1d"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseRuntimePublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "androidx.annotation",
+          "module": "annotation",
+          "version": {
+            "requires": "1.3.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "gsyVideoPlayer-x86_64-1.4.2.aar",
+          "url": "gsyVideoPlayer-x86_64-1.4.2.aar",
+          "size": 3547304,
+          "sha512": "7d8af84da4ca6931383571a02bd9ed218c8789491da0b3761d9383b22b77c941a7449f9a8fdd0a0601eb952bb0c15bdd27eda7d4a27c3ff332ec653fb79f1908",
+          "sha256": "6d8aa49e61499cbdfa95d88b43b2ffe5ae8a24b7e2fc88901219b9cda2189aef",
+          "sha1": "c9edfc1c98eb75f31aff8ed18244f062c85d4b2e",
+          "md5": "7770d39f74e424f27a7caac38c435b1d"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseSourcePublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-x86_64-1.4.2-sources.jar",
+          "url": "gsyVideoPlayer-x86_64-1.4.2-sources.jar",
+          "size": 261,
+          "sha512": "1487e5a20c9e4d74f298e07c42e96a61be11b7a768c3fbc199ee138cd68e1fc2267d1cfe3f11f288acc05df755315344d052cc5f6f751f126ab4fe1caa5125ea",
+          "sha256": "c6deada2fac53b8ea6523dbda77597b128006674616f140f04df23264c6d1aa3",
+          "sha1": "2ad14aed781c4a73ed4dbb421966d408a0a06686",
+          "md5": "f43436d6bec321290f6af228ad602604"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseJavaDocPublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "javadoc",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-x86_64-1.4.2-javadoc.jar",
+          "url": "gsyVideoPlayer-x86_64-1.4.2-javadoc.jar",
+          "size": 261,
+          "sha512": "1487e5a20c9e4d74f298e07c42e96a61be11b7a768c3fbc199ee138cd68e1fc2267d1cfe3f11f288acc05df755315344d052cc5f6f751f126ab4fe1caa5125ea",
+          "sha256": "c6deada2fac53b8ea6523dbda77597b128006674616f140f04df23264c6d1aa3",
+          "sha1": "2ad14aed781c4a73ed4dbb421966d408a0a06686",
+          "md5": "f43436d6bec321290f6af228ad602604"
+        }
+      ]
+    }
+  ]
+}

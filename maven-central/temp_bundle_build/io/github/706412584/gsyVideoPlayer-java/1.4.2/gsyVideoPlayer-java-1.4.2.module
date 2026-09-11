@@ -1,0 +1,221 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "io.github.706412584",
+    "module": "gsyVideoPlayer-java",
+    "version": "1.4.2",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseVariantReleaseApiPublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "io.github.706412584",
+          "module": "gsyVideoPlayer-base",
+          "version": {
+            "requires": "1.4.2"
+          }
+        },
+        {
+          "group": "io.github.706412584",
+          "module": "gsyVideoPlayer-proxy_cache",
+          "version": {
+            "requires": "1.4.2"
+          }
+        },
+        {
+          "group": "androidx.appcompat",
+          "module": "appcompat",
+          "version": {
+            "requires": "1.6.0"
+          }
+        },
+        {
+          "group": "androidx.transition",
+          "module": "transition",
+          "version": {
+            "requires": "1.4.1"
+          }
+        },
+        {
+          "group": "androidx.core",
+          "module": "core",
+          "version": {
+            "requires": "1.7.0"
+          }
+        },
+        {
+          "group": "androidx.recyclerview",
+          "module": "recyclerview",
+          "version": {
+            "requires": "1.2.1"
+          }
+        },
+        {
+          "group": "com.github.bumptech.glide",
+          "module": "glide",
+          "version": {
+            "requires": "4.12.0"
+          }
+        },
+        {
+          "group": "com.github.bumptech.glide",
+          "module": "okhttp3-integration",
+          "version": {
+            "requires": "4.12.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "gsyVideoPlayer-java-1.4.2.aar",
+          "url": "gsyVideoPlayer-java-1.4.2.aar",
+          "size": 410375,
+          "sha512": "d372994db61beee476f0628f9deb61de7bed09628f3bcde0733542395137c9b7a45ee78c292e6cd228482e2d95ea375d079987e80acfd3b2d365e913cf341a67",
+          "sha256": "f9f87ec3621e84f8c29bfe56152fc2a6a4793fa125ccd4df88065a16dd173f60",
+          "sha1": "2169c68fb9c304ee98fb4da72219d22ac57c0617",
+          "md5": "29fb1c65908b2be7b1cf9b0dbce5eb0d"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseRuntimePublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "androidx.annotation",
+          "module": "annotation",
+          "version": {
+            "requires": "1.3.0"
+          }
+        },
+        {
+          "group": "io.github.706412584",
+          "module": "gsyVideoPlayer-base",
+          "version": {
+            "requires": "1.4.2"
+          }
+        },
+        {
+          "group": "io.github.706412584",
+          "module": "gsyVideoPlayer-proxy_cache",
+          "version": {
+            "requires": "1.4.2"
+          }
+        },
+        {
+          "group": "androidx.appcompat",
+          "module": "appcompat",
+          "version": {
+            "requires": "1.6.0"
+          }
+        },
+        {
+          "group": "androidx.transition",
+          "module": "transition",
+          "version": {
+            "requires": "1.4.1"
+          }
+        },
+        {
+          "group": "androidx.core",
+          "module": "core",
+          "version": {
+            "requires": "1.7.0"
+          }
+        },
+        {
+          "group": "androidx.recyclerview",
+          "module": "recyclerview",
+          "version": {
+            "requires": "1.2.1"
+          }
+        },
+        {
+          "group": "com.github.bumptech.glide",
+          "module": "glide",
+          "version": {
+            "requires": "4.12.0"
+          }
+        },
+        {
+          "group": "com.github.bumptech.glide",
+          "module": "okhttp3-integration",
+          "version": {
+            "requires": "4.12.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "gsyVideoPlayer-java-1.4.2.aar",
+          "url": "gsyVideoPlayer-java-1.4.2.aar",
+          "size": 410375,
+          "sha512": "d372994db61beee476f0628f9deb61de7bed09628f3bcde0733542395137c9b7a45ee78c292e6cd228482e2d95ea375d079987e80acfd3b2d365e913cf341a67",
+          "sha256": "f9f87ec3621e84f8c29bfe56152fc2a6a4793fa125ccd4df88065a16dd173f60",
+          "sha1": "2169c68fb9c304ee98fb4da72219d22ac57c0617",
+          "md5": "29fb1c65908b2be7b1cf9b0dbce5eb0d"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseSourcePublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-java-1.4.2-sources.jar",
+          "url": "gsyVideoPlayer-java-1.4.2-sources.jar",
+          "size": 203747,
+          "sha512": "08d9d61a0a6c4cb5b5c43636dac7fcf83ba42db241a98a0137262ba1f5d076aae7dc413b98c6bc53d2f1f61e6ed0423994c3eceec470be84decc383319076a33",
+          "sha256": "972daabd81a74ac57cff741ccb9f483ffaae40c869c7bb6ba2d66394f9cb80ce",
+          "sha1": "53543a77ef34c718f0e639710aa799f058e6c099",
+          "md5": "5e38d78fc5d7d0cc684413654acaa31f"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseJavaDocPublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "javadoc",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-java-1.4.2-javadoc.jar",
+          "url": "gsyVideoPlayer-java-1.4.2-javadoc.jar",
+          "size": 1138684,
+          "sha512": "4db5d882b680398d50af1c3cb505452f3fed073dd5a1280d44e7cec8f68084069c3347e297f1d99d9c669c63e6760e25f7a0adbff01dad3cd22e0c9accc254bd",
+          "sha256": "0ede00280b41b5b567a8e2bec8aaaa66e24d2638f4d8ff12cc56e2e53fec94ac",
+          "sha1": "0eaed871bfa1122fb5783e80379cfb3ce8143ed5",
+          "md5": "4c0dc50efb176d2026b4ea3290cd4a7f"
+        }
+      ]
+    }
+  ]
+}

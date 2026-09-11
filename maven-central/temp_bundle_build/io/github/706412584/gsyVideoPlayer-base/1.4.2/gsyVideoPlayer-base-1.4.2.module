@@ -1,0 +1,123 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "io.github.706412584",
+    "module": "gsyVideoPlayer-base",
+    "version": "1.4.2",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseVariantReleaseApiPublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "io.github.carguo",
+          "module": "gsyijkjava",
+          "version": {
+            "requires": "1.0.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "gsyVideoPlayer-base-1.4.2.aar",
+          "url": "gsyVideoPlayer-base-1.4.2.aar",
+          "size": 5142,
+          "sha512": "83d5e61b99395d42d013d00ca6e301f37cb0b110b7e93b8493e3c108a5e6f7b1ccc978bbd1f5e047af66d093dcfc93359534f98cb2c59bb893c65df1b13af996",
+          "sha256": "0863c68609dc7d2467a2cdc52c432add536fee0aa64c1993b03f21b0f5d276e1",
+          "sha1": "73f8ac481f0735e034593caaf97ef8bdefd24bb7",
+          "md5": "a58b3d64fb38f7aa6c8035007c0a7c0c"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseRuntimePublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "androidx.annotation",
+          "module": "annotation",
+          "version": {
+            "requires": "1.3.0"
+          }
+        },
+        {
+          "group": "io.github.carguo",
+          "module": "gsyijkjava",
+          "version": {
+            "requires": "1.0.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "gsyVideoPlayer-base-1.4.2.aar",
+          "url": "gsyVideoPlayer-base-1.4.2.aar",
+          "size": 5142,
+          "sha512": "83d5e61b99395d42d013d00ca6e301f37cb0b110b7e93b8493e3c108a5e6f7b1ccc978bbd1f5e047af66d093dcfc93359534f98cb2c59bb893c65df1b13af996",
+          "sha256": "0863c68609dc7d2467a2cdc52c432add536fee0aa64c1993b03f21b0f5d276e1",
+          "sha1": "73f8ac481f0735e034593caaf97ef8bdefd24bb7",
+          "md5": "a58b3d64fb38f7aa6c8035007c0a7c0c"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseSourcePublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-base-1.4.2-sources.jar",
+          "url": "gsyVideoPlayer-base-1.4.2-sources.jar",
+          "size": 5423,
+          "sha512": "e96abd7c894ab76c3f7f211dc515e2b40bf0503cc8128257d17e87753b9d6e7b284f28c03a5e89a4d15aef379b9856dba3e31fafb979af8768248363cf074b6f",
+          "sha256": "e04fcddb0f6ddcd41aa47354dbf829069174296415197e6ebb16c6232d24a999",
+          "sha1": "40c78109b085551d94c5251f010982f1672b4203",
+          "md5": "67f47fef8e15ad4ddd60970e9df87845"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseJavaDocPublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "javadoc",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-base-1.4.2-javadoc.jar",
+          "url": "gsyVideoPlayer-base-1.4.2-javadoc.jar",
+          "size": 306337,
+          "sha512": "46ef866e0d9c050e7ca8906e0e006a6b86dde086e34404ec4180d44b6c71b71c1c69052045297e0a20c9bc575c56763f947d1e27c41956801ee3d5328234b2c6",
+          "sha256": "163c685ae31bd1f429f89ab0b64842d3908f13ad94c3de208827ddd9ce12a21e",
+          "sha1": "b776a0495ff38f1ced7781d569c03b9008be6ff9",
+          "md5": "3c8622c1ebf7f1f6a2230ea196ce1acd"
+        }
+      ]
+    }
+  ]
+}

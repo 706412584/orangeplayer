@@ -1,0 +1,137 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "io.github.706412584",
+    "module": "gsyVideoPlayer-aliplay",
+    "version": "1.4.2",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseVariantReleaseApiPublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "io.github.706412584",
+          "module": "gsyVideoPlayer-base",
+          "version": {
+            "requires": "1.4.2"
+          }
+        },
+        {
+          "group": "com.aliyun.sdk.android",
+          "module": "AliyunPlayer",
+          "version": {
+            "requires": "7.2.0-full"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "gsyVideoPlayer-aliplay-1.4.2.aar",
+          "url": "gsyVideoPlayer-aliplay-1.4.2.aar",
+          "size": 15138,
+          "sha512": "39783f2d9af87b32c68488226c14e7e7293563dc945fc3e536d488d1db89ca35478bf16e8500604ac5331949899a448949d669f18b5848d67b2dda0f193c1f90",
+          "sha256": "beb1d15d4d910b8261b9cd537a2f63f5dd64e5ab6720cf3659c4a696548bf852",
+          "sha1": "b13f4fdfdf92a1b0b56b8185c9eccc4294940c62",
+          "md5": "4a4d6ab0337fe212e937f1279ab83bba"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseRuntimePublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "androidx.annotation",
+          "module": "annotation",
+          "version": {
+            "requires": "1.3.0"
+          }
+        },
+        {
+          "group": "io.github.706412584",
+          "module": "gsyVideoPlayer-base",
+          "version": {
+            "requires": "1.4.2"
+          }
+        },
+        {
+          "group": "com.aliyun.sdk.android",
+          "module": "AliyunPlayer",
+          "version": {
+            "requires": "7.2.0-full"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "gsyVideoPlayer-aliplay-1.4.2.aar",
+          "url": "gsyVideoPlayer-aliplay-1.4.2.aar",
+          "size": 15138,
+          "sha512": "39783f2d9af87b32c68488226c14e7e7293563dc945fc3e536d488d1db89ca35478bf16e8500604ac5331949899a448949d669f18b5848d67b2dda0f193c1f90",
+          "sha256": "beb1d15d4d910b8261b9cd537a2f63f5dd64e5ab6720cf3659c4a696548bf852",
+          "sha1": "b13f4fdfdf92a1b0b56b8185c9eccc4294940c62",
+          "md5": "4a4d6ab0337fe212e937f1279ab83bba"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseSourcePublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-aliplay-1.4.2-sources.jar",
+          "url": "gsyVideoPlayer-aliplay-1.4.2-sources.jar",
+          "size": 6393,
+          "sha512": "a4129c8efc6374e1878c84a69646900b0bd5a3a5a8dad37cb7c1b0f68c7cdaf46c09f65630d15dbf707f75406950772630ef62cd70392239d2529f8cc77708eb",
+          "sha256": "ab1e7db049100e831ecb1f618d1e358b549ae4c3bd07535a1a24a8fe5f2dc9a9",
+          "sha1": "d4612f0973e96492fed925094a8390c8bcdf804f",
+          "md5": "f1b4ec239ee34551fc890fb974027bc5"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseJavaDocPublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "javadoc",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "gsyVideoPlayer-aliplay-1.4.2-javadoc.jar",
+          "url": "gsyVideoPlayer-aliplay-1.4.2-javadoc.jar",
+          "size": 279567,
+          "sha512": "fdd8da11edc3cf12b9bee3d44b7956302a9657268a9632760223ad8a8b8ba6fa29b2b25631c376a0762c40e638895c4a31a094ccc70c9e2b1d886650de8a1dc3",
+          "sha256": "1abf539b616b7a33535abea6e92574ce11968f12ed9e2b165e28fcfe40bf9e57",
+          "sha1": "a6c90e4a1008a7f39f9ac180d4306759f04815e7",
+          "md5": "bd5c4b15081844ae9d5f4495812b3534"
+        }
+      ]
+    }
+  ]
+}

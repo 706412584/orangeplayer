@@ -888,12 +888,47 @@ public class SubtitleManager {
      *                  旧会话结果会带着旧 URL 到达，据此丢弃而不是污染新视频。
      */
     public void appendSubtitles(final List<SubtitleEntry> entries, final String sourceUrl) {
+        appendSubtitles(entries, sourceUrl, null);
+    }
+
+    /**
+     * 追加回调：把**实际写入位置**告知调用方。
+     *
+     * 存在的原因：字幕列表可能被整表替换（加载外挂字幕）或清空，调用方无法用
+     * 计数器推断下标——推断出的下标一旦与列表实际状态不符，按该下标回写的译文
+     * 就会覆盖到别的条目上（真机可达：会话中途加载外挂字幕 / 同一视频再次生成）。
+     */
+    public interface AppendCallback {
+        /** 成功追加，startIdx 为本批首条在列表中的下标 */
+        void onAppended(int startIdx);
+
+        /** 本批被丢弃（不属于当前播放源 / 会话已切换），不应据此翻译或计数 */
+        void onDiscarded();
+    }
+
+    /**
+     * 增量追加字幕条目（渐进 ASR：边识别边注入）。
+     * 与 loadSubtitle 的整体替换不同，本方法保留同源已有条目。
+     *
+     * @param sourceUrl 这批字幕归属的播放源。传 null 时取当前源。
+     *                  必须由调用方传入「识别时所在的源」——换视频后在途的
+     *                  旧会话结果会带着旧 URL 到达，据此丢弃而不是污染新视频。
+     * @param callback  追加结果回调（主线程）；传 null 表示不关心
+     */
+    public void appendSubtitles(final List<SubtitleEntry> entries, final String sourceUrl,
+                                final AppendCallback callback) {
         if (entries == null || entries.isEmpty()) {
+            if (callback != null) {
+                callback.onDiscarded();
+            }
             return;
         }
         final int generation = mGeneration;
         mHandler.post(() -> {
             if (generation != mGeneration) {
+                if (callback != null) {
+                    callback.onDiscarded();
+                }
                 return;
             }
             String owning = sourceUrl != null ? sourceUrl : currentSourceUrl();
@@ -901,6 +936,9 @@ public class SubtitleManager {
             // 归属校验①：这批字幕不属于当前播放源（换视频后在途的旧结果）→ 丢弃
             if (owning != null && playing != null && !owning.equals(playing)) {
                 Log.d(TAG, "appendSubtitles: 丢弃非当前源的 " + entries.size() + " 条字幕");
+                if (callback != null) {
+                    callback.onDiscarded();
+                }
                 return;
             }
             // 归属校验②：列表里存的是别的源的字幕（换视频后尚未清理）→ 先清空
@@ -915,9 +953,14 @@ public class SubtitleManager {
             if (owning != null) {
                 mSourceUrl = owning;
             }
+            final int startIdx = mSubtitles.size();   // 实际写入位置
             mSubtitles.addAll(entries);
             mLoaded = true;
-            Log.d(TAG, "Appended " + entries.size() + " subtitle entries, total=" + mSubtitles.size());
+            Log.d(TAG, "Appended " + entries.size() + " subtitle entries, total="
+                    + mSubtitles.size() + " (from idx " + startIdx + ")");
+            if (callback != null) {
+                callback.onAppended(startIdx);
+            }
         });
     }
 

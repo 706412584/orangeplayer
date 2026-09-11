@@ -1,0 +1,19 @@
+1
+00:00:01,000 --> 00:00:05,000
+Hey Naruto, wait up!
+
+2
+00:00:05,500 --> 00:00:10,000
+Sasuke left the village three years ago.
+
+3
+00:00:10,500 --> 00:00:15,000
+I have been training every single day since then.
+
+4
+00:00:15,500 --> 00:00:20,000
+That ramen smells really good today.
+
+5
+00:00:20,500 --> 00:00:25,000
+Believe it!

@@ -9,9 +9,7 @@ import com.orange.playerlibrary.subtitle.SubtitleEntry;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,7 +57,6 @@ public class ProgressiveTranslator {
 
     /** 已提交的全部行（idx 与字幕列表下标一致；传全量给引擎以命中缓存） */
     private final List<SubtitleLine> mAllLines = new ArrayList<>();
-    private final AtomicInteger mSubmittedCount = new AtomicInteger(0);
 
     /** 世代号：reset 后作废在途任务 */
     private volatile int mGeneration;
@@ -118,56 +115,111 @@ public class ProgressiveTranslator {
     }
 
     /**
-     * 提交一批新字幕（与字幕追加同序）。
+     * 提交一批新字幕。
      *
-     * @return 该批首条在字幕列表中的下标；未启用/已释放返回 -1
+     * @param startIdx 本批首条在字幕列表中的**实际下标**（由
+     *                 {@code SubtitleManager.AppendCallback} 回传）。
+     *                 不能用内部计数器推断：列表可能被整表替换（加载外挂字幕）
+     *                 或清空，推断出的下标一旦与列表实际状态不符，按该下标回写的
+     *                 译文就会覆盖到别的条目上。
+     * @return 是否接受（未启用/已释放返回 false）
      */
-    public int submit(List<SubtitleEntry> entries) {
-        if (entries == null || entries.isEmpty() || mTargetLang == null
-                || mTargetLang.trim().isEmpty()) {
-            return -1;
+    public boolean submit(int startIdx, List<SubtitleEntry> entries) {
+        if (entries == null || entries.isEmpty() || startIdx < 0
+                || mTargetLang == null || mTargetLang.trim().isEmpty()
+                || mCallback == null) {
+            return false;
         }
-        final int startIdx = mSubmittedCount.getAndAdd(entries.size());
+        // 按真实下标放置行（扩容 + 覆盖）：与列表同构，translateAll 才能正确命中缓存
         synchronized (mAllLines) {
-            for (SubtitleEntry e : entries) {
-                mAllLines.add(new SubtitleLine(mAllLines.size(),
-                        e.getText() == null ? "" : e.getText()));
+            while (mAllLines.size() < startIdx) {
+                mAllLines.add(new SubtitleLine(mAllLines.size(), ""));
             }
+            for (int i = 0; i < entries.size(); i++) {
+                SubtitleLine line = new SubtitleLine(startIdx + i,
+                        entries.get(i).getText() == null ? "" : entries.get(i).getText());
+                int idx = startIdx + i;
+                if (idx < mAllLines.size()) {
+                    mAllLines.set(idx, line);
+                } else {
+                    mAllLines.add(line);
+                }
+            }
+        }
+        // 背压：只累积待处理区间，不逐批投递网络任务。
+        // 单线程 executor 是无界队列，若每批都投递一个含网络调用的任务，
+        // AI 超时型故障（连得上但不通，单批最坏约 127s）会让队列只增不减、
+        // 本地兜底永远排不上、整场视频没有译文。
+        synchronized (mPendingLock) {
+            if (mPendingFrom < 0) {
+                mPendingFrom = startIdx;
+            }
+            mPendingTo = Math.max(mPendingTo, startIdx + entries.size());
         }
         final int generation = mGeneration;
         mExecutor.execute(() -> {
+            int from;
+            int to;
+            synchronized (mPendingLock) {
+                if (mPendingFrom < 0) {
+                    return;   // 已被前一个任务取走（说明有任务在跑，本任务无需做事）
+                }
+                from = mPendingFrom;
+                to = mPendingTo;
+                mPendingFrom = -1;
+                mPendingTo = -1;
+            }
             try {
-                runBatch(generation, startIdx, entries.size());
+                runBatch(generation, from, to - from);
             } catch (Throwable t) {
-                Log.w(TAG, "批次翻译失败 @" + startIdx, t);
+                Log.w(TAG, "批次翻译失败 @" + from, t);
             }
         });
-        return startIdx;
+        return true;
     }
 
+    /** 待翻译区间（startIdx, endIdx）；-1 表示无待处理 */
+    private final Object mPendingLock = new Object();
+    private int mPendingFrom = -1;
+    private int mPendingTo = -1;
+
     private void runBatch(int generation, int startIdx, int count) {
-        if (generation != mGeneration) {
+        if (generation != mGeneration || count <= 0) {
             return;   // 已换视频/重置
         }
-        TranslatorSettings settings = mAiSettings;
+        int from = startIdx;
+        int n = count;
+        // 区间起点可能早于已译部分（背压合并了多批）：裁掉已处理的
+        synchronized (mAllLines) {
+            while (n > 0 && from < mAllLines.size()
+                    && mAllLines.get(from).hasTranslation()) {
+                from++;
+                n--;
+            }
+        }
+        if (n <= 0) {
+            return;
+        }
+        TranslatorSettings settings = mAiLockedToLocal ? null : mAiSettings;
         String[] translated;
         if (settings != null) {
-            translated = translateWithAi(generation, startIdx, count, settings);
+            translated = translateWithAi(generation, from, n, settings);
             if (translated == null && generation == mGeneration) {
                 // AI 不可用（网络/Key/额度）→ 本地兜底
                 notifyStatus("AI 翻译不可用，改用本地翻译");
-                translated = translateLocal(generation, startIdx, count);
+                translated = translateLocal(generation, from, n);
             }
         } else {
-            translated = translateLocal(generation, startIdx, count);
+            translated = translateLocal(generation, from, n);
         }
         if (translated == null || generation != mGeneration) {
             return;
         }
         final String[] result = translated;
+        final int resultFrom = from;
         Callback cb = mCallback;
         if (cb != null) {
-            cb.onTranslated(startIdx, result);
+            cb.onTranslated(resultFrom, result);
         }
     }
 
@@ -199,13 +251,31 @@ public class ProgressiveTranslator {
                 }
             }
             Log.d(TAG, "AI 批次完成 @" + startIdx + ": " + ok + "/" + count);
-            // 全部失败视为 AI 不可用（Key/网络），交由本地兜底
-            return ok == 0 && count > 0 ? null : out;
+            if (ok == 0) {
+                // 全部失败：AI 不可用（Key/网络），交由本地兜底。
+                // 连续多批失败则锁存为本地模式——超时型故障下每批要重试到
+                // 超时才降级（单批最坏约 127s），不锁存会让整场视频都在等 AI。
+                if (mAiFailStreak.incrementAndGet() >= AI_FAIL_STREAK_TO_LOCAL) {
+                    mAiLockedToLocal = true;
+                    Log.w(TAG, "AI 连续 " + mAiFailStreak.get() + " 批失败，本会话改用本地翻译");
+                    notifyStatus("AI 翻译连续失败，本会话改用本地翻译");
+                }
+                return null;
+            }
+            mAiFailStreak.set(0);
+            return out;
         } catch (Throwable t) {
             Log.w(TAG, "AI 翻译异常，转本地兜底", t);
+            mAiFailStreak.incrementAndGet();
             return null;
         }
     }
+
+    /** AI 连续失败批次数：达到阈值后本会话锁定本地翻译 */
+    private static final int AI_FAIL_STREAK_TO_LOCAL = 2;
+
+    private final AtomicInteger mAiFailStreak = new AtomicInteger(0);
+    private volatile boolean mAiLockedToLocal;
 
     /** 本地兜底：MLKit 逐条翻译（复用同一份落盘缓存） */
     private String[] translateLocal(int generation, int startIdx, int count) {
@@ -458,9 +528,14 @@ public class ProgressiveTranslator {
     /** 重置（换视频/停止识别）：作废在途任务与已累积下标 */
     public void reset() {
         mGeneration++;
-        mSubmittedCount.set(0);
         synchronized (mAllLines) {
             mAllLines.clear();
+        }
+        // 背压区间一并作废：mPendingFrom 只在 <0 时赋值，不清会让新会话
+        // 的首个区间起点被上一会话残留值污染（表现为重复翻译/下标错位）
+        synchronized (mPendingLock) {
+            mPendingFrom = -1;
+            mPendingTo = -1;
         }
         mLocalFailStreak.set(0);
         mCallback = null;
