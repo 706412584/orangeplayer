@@ -155,24 +155,28 @@ public class ProgressiveTranslator {
             mPendingTo = Math.max(mPendingTo, startIdx + entries.size());
         }
         final int generation = mGeneration;
-        mExecutor.execute(() -> {
-            int from;
-            int to;
-            synchronized (mPendingLock) {
-                if (mPendingFrom < 0) {
-                    return;   // 已被前一个任务取走（说明有任务在跑，本任务无需做事）
+        try {
+            mExecutor.execute(() -> {
+                int from;
+                int to;
+                synchronized (mPendingLock) {
+                    if (mPendingFrom < 0) {
+                        return;   // 已被前一个任务取走（说明有任务在跑，本任务无需做事）
+                    }
+                    from = mPendingFrom;
+                    to = mPendingTo;
+                    mPendingFrom = -1;
+                    mPendingTo = -1;
                 }
-                from = mPendingFrom;
-                to = mPendingTo;
-                mPendingFrom = -1;
-                mPendingTo = -1;
-            }
-            try {
-                runBatch(generation, from, to - from);
-            } catch (Throwable t) {
-                Log.w(TAG, "批次翻译失败 @" + from, t);
-            }
-        });
+                try {
+                    runBatch(generation, from, to - from);
+                } catch (Throwable t) {
+                    Log.w(TAG, "批次翻译失败 @" + from, t);
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // release() 已 shutdown：会话作废，本批无需再处理
+        }
         return true;
     }
 
