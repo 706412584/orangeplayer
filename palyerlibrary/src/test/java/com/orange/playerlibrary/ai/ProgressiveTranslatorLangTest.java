@@ -51,6 +51,14 @@ public class ProgressiveTranslatorLangTest {
     }
 
     @Test
+    public void mapsCantoneseAsChinese() {
+        // SenseVoice 检测到粤语（yue）时转写已是书面中文，
+        // 按 zh 走 MLKit，否则本地兜底对粤语视频静默跳过
+        assertEquals("zh", ProgressiveTranslator.mapToMlKitCode("yue"));
+        assertEquals("zh", ProgressiveTranslator.mapToMlKitCode("粤语"));
+    }
+
+    @Test
     public void unknownReturnsNull() {
         assertNull(ProgressiveTranslator.mapToMlKitCode(null));
         assertNull(ProgressiveTranslator.mapToMlKitCode(""));

@@ -467,6 +467,12 @@ public class ProgressiveTranslator {
             case "繁体中文":
             case "中文":
                 return "zh";
+            // 粤语：MLKit 无粤语模型，但 SenseVoice 把粤语转写为书面中文，
+            // 按中文模型翻译；否则源语言=yue 的视频本地兜底静默跳过
+            case "yue":
+            case "cantonese":
+            case "粤语":
+                return "zh";
             case "en":
             case "english":
             case "eng":
