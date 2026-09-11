@@ -15,6 +15,19 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         // Use Aliyun mirror for faster downloads in China
+        // 注意：androidx / com.google / com.android 的构件只在阿里云的 google 镜像里，
+        // public 镜像对它们返回 404；国内访问时 Gradle 会正常 fallback，但 GitHub
+        // runner（美国 IP）请求 public 会触发其代理回源失败并返回 502——Gradle 把 5xx
+        // 视为仓库硬错误并禁用该仓库，构建直接失败（CI 实测两次均栽在此）。
+        // 故用内容过滤把它们单独导向 google 镜像（与上方 pluginManagement 一致）。
+        maven {
+            url 'https://maven.aliyun.com/repository/google'
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
         maven { url 'https://maven.aliyun.com/repository/public' }
         maven { url 'https://maven.aliyun.com/repository/central' }
         google()
