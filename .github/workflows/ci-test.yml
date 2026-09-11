@@ -29,6 +29,17 @@ jobs:
       - name: Strip local Windows JDK path (if present)
         run: sed -i '/^org.gradle.java.home=/d' gradle.properties || true
 
+      - name: Fetch sherpa-onnx AAR
+        # 49MB AAR 受 .gitignore 的 *.aar 规则排除（与 libmpv 同理不入库），
+        # :orangeplayer-sherpa 经 settings.gradle 的 flatDir 仓库解析它。
+        run: |
+          set -e
+          DEST=orangeplayer-sherpa/libs/sherpa-onnx-1.13.7.aar
+          mkdir -p "$(dirname "$DEST")"
+          curl -sfL --retry 3 --retry-delay 5 -o "$DEST" \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-1.13.7.aar
+          echo "c4ef49e309f24fcee5c106b8a279481aaecaabb078cd37b2cd6e9a62cc8a73c8  $DEST" | sha256sum -c -
+
       - name: mpv integration architecture check
         run: bash scripts/check_mpv_isolation.sh
 
