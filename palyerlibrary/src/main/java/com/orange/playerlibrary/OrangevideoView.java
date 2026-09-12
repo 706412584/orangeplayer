@@ -1056,6 +1056,12 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         addView(mVodControlView, matchParentParams);
         android.util.Log.d(TAG, "  VodControlView: @" + Integer.toHexString(mVodControlView.hashCode()));
 
+        // 初始化嗅探组件。initSniffingView 此前只在 setVideoController() 里调用，
+        // 而 2b57fd5 起宿主改为复用本处自动创建的 controller、不再走 setVideoController，
+        // 导致 SniffingView 从不创建——嗅探无面板、结果不显示、画面全黑。
+        // 放在各组件（含 mTitleView）之后、addView 顺序保证嗅探面板盖在最上层。
+        initSniffingView(mOrangeController);
+
         android.util.Log.d(TAG, "initOrangeComponents: 组件初始化完成");
         android.util.Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -5510,7 +5516,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
      * 初始化嗅探视图组件
      */
     private void initSniffingView(OrangeVideoController controller) {
-        if (controller == null) {
+        if (controller == null || controller.getSniffingView() != null) {
             return;
         }
 

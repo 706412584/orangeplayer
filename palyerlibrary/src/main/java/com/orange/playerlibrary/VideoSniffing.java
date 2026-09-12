@@ -9,11 +9,13 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.ViewGroup;
+import android.webkit.CookieManager;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.JavascriptInterface;
 import android.widget.LinearLayout;
 
 import java.io.ByteArrayInputStream;
@@ -72,6 +74,60 @@ public class VideoSniffing {
     
     /** 已处理的 URL 集合（避免重复请求）*/
     private static Set<String> processedUrls = new HashSet<>();
+
+    /** 当前嗅探 WebViewClient（JS 桥接回调需要复用它的校验与结果分发）*/
+    private static VideoWebViewClient currentClient;
+
+    /**
+     * 注入页面的媒体嗅探脚本（借鉴 cat-catch 思路，自实现）。
+     * shouldInterceptRequest 能看到所有网络请求，但只能按 URL 形态猜测；
+     * 而 hls.js/dash.js 等 MSE 播放器的分片与清单 URL 往往没有可辨识后缀，
+     * 或响应 Content-Type 为 octet-stream。页面里的 JS 知道"播放器拿哪个
+     * URL 当媒体用了"，语义更准：
+     * - hook XHR/fetch：拿到响应后按 content-type + 扩展名判定媒体 URL 上报
+     * - 扫描 <video> 元素：播放列表指定的直链（非 blob:/data:）也上报
+     * 通过 OrangeSniff 接口回调到 Java 侧，复用与网络拦截路径相同的
+     * 二次验证与去重逻辑。重复注入由 __orangeSniffOn 幂等守卫挡住。
+     */
+    private static final String SNIFF_JS =
+            "(function(){"
+            + "if (window.__orangeSniffOn) return; window.__orangeSniffOn = true;"
+            + "var seen = {};"
+            + "function abs(u){ try { return new URL(u, location.href).href; } catch(e){ return null; } }"
+            + "function mediaLike(u, ct){"
+            + "  if (ct) { var c = ct.toLowerCase();"
+            + "    if (c.indexOf('video/') === 0 || c.indexOf('audio/') === 0 || c.indexOf('mpegurl') >= 0) return true; }"
+            + "  var path = u.split('?')[0].split('#')[0].toLowerCase();"
+            // .ts/.m4s 是分片，逐个上报只会淹没结果列表——只报清单与完整容器
+            + "  return /\\.(m3u8|mp4|flv|avi|mov|mkv|webm|mpd)$/.test(path);"
+            + "}"
+            + "function rep(u, ct, src){ try {"
+            + "  if (!u || seen[u]) return; seen[u] = 1;"
+            + "  if (window.OrangeSniff) window.OrangeSniff.report(u, ct || '', src);"
+            + "} catch(e){} }"
+            + "var XO = XMLHttpRequest.prototype.open, XS = XMLHttpRequest.prototype.send;"
+            + "XMLHttpRequest.prototype.open = function(m, u){ try { this.__su = u; } catch(e){}"
+            + "  return XO.apply(this, arguments); };"
+            + "XMLHttpRequest.prototype.send = function(){ var x = this; try { x.addEventListener('load', function(){ try {"
+            + "  if (x.status >= 200 && x.status < 400) { var ct = ''; try { ct = x.getResponseHeader('content-type') || ''; } catch(e){}"
+            + "    var au = abs(x.__su); if (au && mediaLike(au, ct)) rep(au, ct, 'xhr'); } } catch(e){} }); } catch(e){}"
+            + "  return XS.apply(this, arguments); };"
+            + "var OF = window.fetch;"
+            + "if (OF) { window.fetch = function(input, init){ var u = ''; try {"
+            + "  u = (typeof input === 'string') ? input : (input && input.url) || ''; } catch(e){}"
+            + "  var p = OF.apply(this, arguments); try { p.then(function(r){ try {"
+            + "    var ct = ''; try { ct = r.headers.get('content-type') || ''; } catch(e){}"
+            + "    var au = abs(r.url || u); if (au && mediaLike(au, ct)) rep(au, ct, 'fetch'); } catch(e){} }); } catch(e){}"
+            + "  return p; }; }"
+            + "function scanMedia(){ try { var vids = document.querySelectorAll('video');"
+            + "  for (var i = 0; i < vids.length; i++) { var s = vids[i].currentSrc || vids[i].src;"
+            + "    if (s && s.indexOf('blob:') !== 0 && s.indexOf('data:') !== 0) {"
+            + "      var au = abs(s); if (au && mediaLike(au, '')) rep(au, '', 'video'); } } } catch(e){} }"
+            + "try { new MutationObserver(scanMedia).observe(document.documentElement,"
+            + "  { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] }); } catch(e){}"
+            + "try { document.addEventListener('play', scanMedia, true); } catch(e){}"
+            + "scanMedia();"
+            + "})();";
 
     /**
      * 嗅探回调接口
@@ -183,7 +239,16 @@ public class VideoSniffing {
         activity.addContentView(webView, new LinearLayout.LayoutParams(0, 0));
 
         // 加载 URL 时携带自定义请求头
-        webView.setWebViewClient(new VideoWebViewClient(activity, call, customHeaders));
+        VideoWebViewClient client = new VideoWebViewClient(activity, call, customHeaders);
+        currentClient = client;
+        webView.setWebViewClient(client);
+
+        // JS 侧媒体嗅探桥接：注入脚本 hook fetch/XHR，捕获 MSE 播放器
+        // （hls.js/dash.js）使用的、无扩展名可辨的媒体 URL。上报后走与网络
+        // 拦截相同的验证 + 去重路径。允许第三方页访问此接口是嗅探的必要前提。
+        webView.addJavascriptInterface(new SniffBridge(), "OrangeSniff");
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView2, true);
+
         if (customHeaders != null && !customHeaders.isEmpty()) {
             webView.loadUrl(url, customHeaders);
         } else {
@@ -223,6 +288,7 @@ public class VideoSniffing {
         // 2. 清理延迟任务和回调引用
         finishHandler.removeCallbacksAndMessages(null);
         currentCall = null;
+        currentClient = null;
 
         // 3. 释放所有信号量许可
         concurrentRequestSemaphore.drainPermits();
@@ -255,6 +321,23 @@ public class VideoSniffing {
         List<VideoInfo> videoList = new ArrayList<>(videoInfoSet);
         currentCall.onFinish(videoList, videoList.size());
         stop(true);
+    }
+
+    /**
+     * 注入脚本回传到 Java 侧的桥。回调运行在 WebView 的 JavaBridge 线程，
+     * scheduleVerification 内部已做线程安全处理。
+     */
+    private static class SniffBridge {
+        @JavascriptInterface
+        public void report(String url, String contentType, String source) {
+            final VideoWebViewClient client = currentClient;
+            if (client == null || url == null || url.isEmpty()) {
+                return;
+            }
+            // JS 侧已按"播放器真正使用过"筛出候选媒体 URL，这里仍复用同一套
+            // 二次验证（HEAD 请求确认响应），避免误报；页面请求方法未知，用 GET
+            client.scheduleVerification(url, "GET", "js:" + source);
+        }
     }
 
 
@@ -301,11 +384,28 @@ public class VideoSniffing {
                     currentTitle = view.getTitle();
                 }
             });
+            // 尽早注入：此时初始 HTML 已可访问、外部脚本通常尚未执行完，
+            // fetch/XHR 的 hook 赶在播放器发起媒体请求之前。脚本自带幂等守卫。
+            try {
+                view.evaluateJavascript(SNIFF_JS, null);
+            } catch (Exception e) {
+                if (isDebug) {
+                    Log.e(TAG, "嗅探脚本注入失败: " + url, e);
+                }
+            }
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
+            // 兜底再注入一次（动态渲染的站点可能主文档没有 video/播放器）
+            try {
+                view.evaluateJavascript(SNIFF_JS, null);
+            } catch (Exception e) {
+                if (isDebug) {
+                    Log.e(TAG, "嗅探脚本补注入失败: " + url, e);
+                }
+            }
             mainHandler.post(() -> {
                 if (view != webView) {
                     return;
@@ -374,18 +474,35 @@ public class VideoSniffing {
             if (!isPotentialVideoUrl(url)) {
                 return super.shouldInterceptRequest(view, request);
             }
-            
+
             if (isDebug) {
                 Log.d(TAG, "检查潜在视频 URL: " + url);
             }
-            
+
+            // 异步二次验证。请求方法与页面请求保持一致，由 shouldInterceptRequest
+            // 与 JS 桥接（SniffBridge）两条路径共用。
+            scheduleVerification(url, request.getMethod(), "net");
+
+            // 关键修复：让 WebView 正常加载资源，我们只是在后台异步检查
+            return super.shouldInterceptRequest(view, request);
+        }
+
+        /**
+         * 对候选 URL 做异步二次验证：独立发起请求确认响应是视频资源，
+         * 通过则连同响应头一起上报。去重、并发限制、结果分发与旧网络拦截
+         * 路径完全一致（两条路径共用，行为不变）。
+         *
+         * @param method 请求方法（GET/HEAD）
+         * @param source 来源标记，仅用于日志（net=网络拦截，js=页面注入）
+         */
+        void scheduleVerification(String url, String method, String source) {
             // 去重检查：如果已经处理过这个 URL，直接跳过
             synchronized (processedUrls) {
                 if (processedUrls.contains(url)) {
                     if (isDebug) {
                         Log.d(TAG, "URL 已处理，跳过: " + url);
                     }
-                    return createEmptyResource();
+                    return;
                 }
                 processedUrls.add(url);
             }
@@ -399,25 +516,26 @@ public class VideoSniffing {
                 synchronized (processedUrls) {
                     processedUrls.remove(url);  // 移除标记，允许下次重试
                 }
-                return super.shouldInterceptRequest(view, request);
+                return;
             }
 
             if (isDebug) {
-                Log.d(TAG, "开始异步检查视频: " + url);
+                Log.d(TAG, "开始异步检查视频(" + source + "): " + url);
             }
 
+            final WebView sniffView = webView;
             // 在线程池中异步执行网络请求
             networkExecutor.execute(() -> {
                 HttpURLConnection connection = null;
                 try {
                     URL requestUrl = new URL(url);
                     connection = (HttpURLConnection) requestUrl.openConnection();
-                    
+
                     synchronized (activeConnections) {
                         activeConnections.add(connection);
                     }
 
-                    connection.setRequestMethod(request.getMethod());
+                    connection.setRequestMethod(method);
                     if (customHeaders != null) {
                         for (Map.Entry<String, String> header : customHeaders.entrySet()) {
                             connection.setRequestProperty(header.getKey(), header.getValue());
@@ -433,7 +551,7 @@ public class VideoSniffing {
                     if (isDebug) {
                         Log.d(TAG, "响应码: " + responseCode + " URL: " + url);
                     }
-                    
+
                     if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_PARTIAL) {
                         if (isDebug) {
                             Log.d(TAG, "响应码不匹配，跳过: " + url);
@@ -445,13 +563,13 @@ public class VideoSniffing {
                     if (isDebug) {
                         Log.d(TAG, "Content-Type: " + respContentType + " URL: " + url);
                     }
-                    
+
                     // 只处理视频资源
                     if (isVideoSource(respContentType) || isVideoSource(url)) {
                         if (isDebug) {
                             Log.d(TAG, "发现视频资源！Content-Type: " + respContentType + " URL: " + url);
                         }
-                        
+
                         HashMap<String, String> headers = new HashMap<>();
                         for (int i = 0; ; i++) {
                             String key = connection.getHeaderFieldKey(i);
@@ -463,7 +581,7 @@ public class VideoSniffing {
                         }
 
                         mainHandler.post(() -> {
-                            if (webView == null || view != webView) {
+                            if (webView == null || sniffView != webView) {
                                 return;
                             }
                             handleResponse(respContentType, headers, currentTitle, url);
@@ -497,9 +615,6 @@ public class VideoSniffing {
                     concurrentRequestSemaphore.release();
                 }
             });
-
-            // 关键修复：让 WebView 正常加载资源，我们只是在后台异步检查
-            return super.shouldInterceptRequest(view, request);
         }
         
         /**
