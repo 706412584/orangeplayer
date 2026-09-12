@@ -15,7 +15,7 @@ ext {
     
     // POM information
     pomGroupId = 'io.github.706412584'
-    pomVersion = '1.5.1'
+    pomVersion = '1.5.2'
     pomUrl = 'https://github.com/706412584/orangeplayer'
     pomScmUrl = 'https://github.com/706412584/orangeplayer.git'
     pomScmConnection = 'scm:git:git://github.com/706412584/orangeplayer.git'
