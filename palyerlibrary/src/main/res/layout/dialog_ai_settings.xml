@@ -38,6 +38,31 @@
             android:textSize="12sp"
             android:layout_marginBottom="16dp" />
 
+        <!-- 翻译引擎：远程 LLM / 本地 MLKit 二选一。
+             配了 Key 又想离线（或想省 token）时，「仅本地」必须能压过 Key。 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="翻译引擎"
+            android:textColor="@color/op_text_primary"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <Spinner
+            android:id="@+id/spinner_ai_engine"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:background="@drawable/spinner_bg"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:id="@+id/tv_ai_engine_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/op_text_secondary"
+            android:textSize="12sp"
+            android:layout_marginBottom="16dp" />
+
         <!-- API Key -->
         <TextView
             android:layout_width="wrap_content"

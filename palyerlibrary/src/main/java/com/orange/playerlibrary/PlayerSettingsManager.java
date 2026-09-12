@@ -644,6 +644,29 @@ public class PlayerSettingsManager {
         return mPreferences.getString(KEY_AI_SOURCE_LANG, DEFAULT_AI_SOURCE_LANG);
     }
 
+    // ===== 翻译引擎选择（远程 LLM / 本地 MLKit）=====
+
+    private static final String KEY_TRANSLATE_ENGINE = "translate_engine";
+
+    /** 自动：配了 API Key 走远程，远程不可用时兜底本地 */
+    public static final String ENGINE_AUTO = "auto";
+    /** 仅本地：离线、不消耗 token；即使填了 Key 也不发请求 */
+    public static final String ENGINE_LOCAL = "local";
+    /** 仅远程：只用 LLM，失败不兜底本地（避免用户以为在用 AI 实际在用本地） */
+    public static final String ENGINE_REMOTE = "remote";
+
+    public void setTranslateEngine(String engine) {
+        String value = engine == null ? "" : engine.trim();
+        if (!ENGINE_LOCAL.equals(value) && !ENGINE_REMOTE.equals(value)) {
+            value = ENGINE_AUTO;
+        }
+        mPreferences.edit().putString(KEY_TRANSLATE_ENGINE, value).apply();
+    }
+
+    public String getTranslateEngine() {
+        return mPreferences.getString(KEY_TRANSLATE_ENGINE, ENGINE_AUTO);
+    }
+
     // ===== 边看边识别（渐进 ASR）开关 =====
 
     private static final String KEY_ASR_LIVE_ENABLED = "asr_live_enabled";

@@ -18,6 +18,7 @@ import com.orange.playerlibrary.component.VodControlView;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.function.Consumer;
 
 /**
  * 视频事件管理
@@ -3527,7 +3528,10 @@ public class VideoEventManager {
             boolean subtitleLoaded = mController != null
                     && mController.getSubtitleManager() != null
                     && mController.getSubtitleManager().getSubtitleCount() > 0;
-            boolean aiConfigured = mSettingsManager.isAiConfigured();
+            // 能否走在线翻译由「翻译引擎」设置决定：填了 Key 也可能被选成「仅本地」
+            boolean aiConfigured = isRemoteTranslationEnabled();
+            boolean engineLocal = PlayerSettingsManager.ENGINE_LOCAL.equals(
+                    mSettingsManager.getTranslateEngine());
 
             if (btnAiSettings != null) {
                 btnAiSettings.setOnClickListener(v -> {
@@ -3537,7 +3541,19 @@ public class VideoEventManager {
             }
 
             if (btnAiTranslate != null) {
-                if (!aiConfigured) {
+                if (engineLocal) {
+                    // 批量翻译字幕只有在线大模型一条链路（本地模型不提供批量整片翻译），
+                    // 故「仅本地」时必须明确告知，而不是让按钮点下去什么都不发生
+                    if (aiStatus != null) {
+                        aiStatus.setText("翻译引擎已设为「仅本地」——批量翻译字幕需在线大模型");
+                        aiStatus.setTextColor(0xFFFF8F3F);
+                    }
+                    ((android.widget.Button) btnAiTranslate).setText("改设置");
+                    btnAiTranslate.setOnClickListener(v -> {
+                        dialog.dismiss();
+                        showAiSettingsDialog();
+                    });
+                } else if (!aiConfigured) {
                     if (aiStatus != null) {
                         aiStatus.setText("未配置 AI Key——点「AI 设置」填入接口地址与 Key");
                         aiStatus.setTextColor(0xFFFF6B6B);
@@ -3611,11 +3627,11 @@ public class VideoEventManager {
                 asrTranslateSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
                     mSettingsManager.setAsrAutoTranslateEnabled(isChecked);
                     if (isChecked) {
-                        // 提示走的是哪条翻译链路（AI 未配置时自动本地兜底）
+                        // 提示走的是哪条翻译链路（由「翻译引擎」设置决定，未配 Key 时本地兜底）
                         String target = mSettingsManager.getAiTargetLang();
-                        boolean aiReady = mSettingsManager.isAiConfigured();
+                        boolean aiReady = isRemoteTranslationEnabled();
                         showToast("识别后自动翻译为「" + (target == null ? "" : target) + "」"
-                                + (aiReady ? "（AI 翻译）" : "（未配 AI Key，用本地翻译兜底）"));
+                                + (aiReady ? "（在线大模型）" : "（本地模型）"));
                     }
                 });
             }
@@ -3707,6 +3723,50 @@ public class VideoEventManager {
         if (etBase != null) etBase.setText(mSettingsManager.getAiBaseUrl());
         if (etModel != null) etModel.setText(mSettingsManager.getAiModel());
 
+        // 翻译引擎三选：自动 / 仅本地 / 仅远程（下标与 ENGINE_VALUES 对齐）
+        android.widget.Spinner spinnerEngine = dialogView.findViewById(R.id.spinner_ai_engine);
+        android.widget.TextView tvEngineHint = dialogView.findViewById(R.id.tv_ai_engine_hint);
+        if (spinnerEngine != null) {
+            android.widget.ArrayAdapter<String> engineAdapter = new android.widget.ArrayAdapter<>(
+                    mActivity, R.layout.spinner_item,
+                    new java.util.ArrayList<>(java.util.Arrays.asList(ENGINE_LABELS)));
+            engineAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+            spinnerEngine.setAdapter(engineAdapter);
+            spinnerEngine.setSelection(engineIndex(mSettingsManager.getTranslateEngine()));
+            final Runnable updateEngineHint = () -> {
+                if (tvEngineHint == null) {
+                    return;
+                }
+                String engine = ENGINE_VALUES[engineIndex(engineValue(spinnerEngine))];
+                boolean hasKey = mSettingsManager.isAiConfigured();
+                if (PlayerSettingsManager.ENGINE_LOCAL.equals(engine)) {
+                    tvEngineHint.setText("只用本地 MLKit 模型：离线可译，不消耗 API 额度"
+                            + (hasKey ? "（已填的 Key 将被忽略）" : ""));
+                } else if (PlayerSettingsManager.ENGINE_REMOTE.equals(engine)) {
+                    tvEngineHint.setText(hasKey
+                            ? "只用在线大模型：效果最好，失败不会退回本地"
+                            : "只用在线大模型：尚未填 API Key，翻译将无法进行");
+                } else {
+                    tvEngineHint.setText(hasKey
+                            ? "优先在线大模型，不可用时自动退回本地模型"
+                            : "尚未填 API Key：当前实际走本地模型");
+                }
+            };
+            spinnerEngine.setOnItemSelectedListener(
+                    new android.widget.AdapterView.OnItemSelectedListener() {
+                        @Override
+                        public void onItemSelected(android.widget.AdapterView<?> parent,
+                                                   android.view.View view, int position, long id) {
+                            updateEngineHint.run();
+                        }
+
+                        @Override
+                        public void onNothingSelected(android.widget.AdapterView<?> parent) {
+                        }
+                    });
+            updateEngineHint.run();
+        }
+
         // 语言下拉：显示名带「已装/未装」标注，选中值取纯语言名（下标与 langs 对齐）
         final Runnable[] refreshLangs = new Runnable[1];
         refreshLangs[0] = () -> {
@@ -3788,6 +3848,9 @@ public class VideoEventManager {
                 if (etKey != null) mSettingsManager.setAiApiKey(etKey.getText().toString());
                 if (etBase != null) mSettingsManager.setAiBaseUrl(etBase.getText().toString());
                 if (etModel != null) mSettingsManager.setAiModel(etModel.getText().toString());
+                if (spinnerEngine != null) {
+                    mSettingsManager.setTranslateEngine(engineValue(spinnerEngine));
+                }
                 String target = selectedLangName(spinnerTarget, langs);
                 String previousTarget = mSettingsManager.getAiTargetLang();
                 if (!target.isEmpty()) {
@@ -3807,15 +3870,52 @@ public class VideoEventManager {
                 }
                 // 先明确「已保存」，再分别说明两条翻译链路的可用性——
                 // 旧文案只提 AI 未配置，用户会误以为设置没保存成功
-                if (mSettingsManager.isAiConfigured()) {
-                    showToast("已保存：AI 翻译可用（" + mSettingsManager.getAiModel() + "）；"
-                            + "识别后自动翻译「" + mSettingsManager.getAiTargetLang() + "」");
-                } else {
-                    showToast("已保存：目标语言「" + mSettingsManager.getAiTargetLang()
+                String engine = mSettingsManager.getTranslateEngine();
+                String langText = mSettingsManager.getAiTargetLang();
+                if (PlayerSettingsManager.ENGINE_LOCAL.equals(engine)) {
+                    showToast("已保存：翻译走本地模型（离线），目标语言「" + langText + "」");
+                } else if (!mSettingsManager.isAiConfigured()) {
+                    showToast("已保存：目标语言「" + langText
                             + "」；未填 API Key，翻译走本地模型");
+                } else if (PlayerSettingsManager.ENGINE_REMOTE.equals(engine)) {
+                    showToast("已保存：翻译走在线大模型（" + mSettingsManager.getAiModel()
+                            + "），目标语言「" + langText + "」");
+                } else {
+                    showToast("已保存：AI 翻译可用（" + mSettingsManager.getAiModel() + "）；"
+                            + "识别后自动翻译「" + langText + "」");
                 }
             });
         }
+    }
+
+    /**
+     * 翻译引擎下拉项。文案与 {@link #ENGINE_VALUES} 一一对应，
+     * 由 {@link #engineIndex} / {@link #engineValue} 做双向映射。
+     */
+    private static final String[] ENGINE_LABELS = {
+            "自动（优先在线，失败退回本地）", "仅本地模型（离线，不耗额度）", "仅在线大模型"};
+
+    private static final String[] ENGINE_VALUES = {
+            PlayerSettingsManager.ENGINE_AUTO,
+            PlayerSettingsManager.ENGINE_LOCAL,
+            PlayerSettingsManager.ENGINE_REMOTE};
+
+    private static int engineIndex(String engine) {
+        for (int i = 0; i < ENGINE_VALUES.length; i++) {
+            if (ENGINE_VALUES[i].equals(engine)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private static String engineValue(android.widget.Spinner spinner) {
+        if (spinner == null) {
+            return PlayerSettingsManager.ENGINE_AUTO;
+        }
+        int pos = spinner.getSelectedItemPosition();
+        return pos >= 0 && pos < ENGINE_VALUES.length
+                ? ENGINE_VALUES[pos] : PlayerSettingsManager.ENGINE_AUTO;
     }
 
     /**
@@ -3969,8 +4069,29 @@ public class VideoEventManager {
 
         final DownloadProgressDialog progressDialog = new DownloadProgressDialog(mActivity);
         progressDialog.showWithRealProgress("正在下载本地翻译模型", srcName + " ↔ " + tgtName);
-        final Runnable stopPolling = startMlKitDownloadProgressPolling(
-                progressDialog, srcCode, tgtCode);
+        final Runnable[] stopPollingHolder = new Runnable[1];
+        final boolean[] settled = {false};
+        final Runnable stopPolling = () -> {
+            if (stopPollingHolder[0] != null) {
+                stopPollingHolder[0].run();
+            }
+        };
+        // 收尾：下载真正失败、和「一直 0 字节」（设备缺 GMS MLKit 运行时）共用，
+        // settled 保证只收尾一次
+        final Consumer<String> finish = error -> mActivity.runOnUiThread(() -> {
+            if (settled[0]) {
+                return;
+            }
+            settled[0] = true;
+            Log.w(TAG, "本地翻译模型预装失败: " + error);
+            stopPolling.run();
+            progressDialog.fail(error);
+            showToast("本地翻译模型下载失败: " + error);
+            if (statusView != null) {
+                statusView.setText("预装失败：" + srcName + "、" + tgtName + " 可重试");
+            }
+            engine.release();
+        });
         if (statusView != null) {
             statusView.setText("正在下载：" + srcName + " ↔ " + tgtName);
         }
@@ -3982,6 +4103,10 @@ public class VideoEventManager {
             @Override
             public void onSuccess() {
                 mActivity.runOnUiThread(() -> {
+                    if (settled[0]) {
+                        return;
+                    }
+                    settled[0] = true;
                     stopPolling.run();
                     progressDialog.complete();
                     showToast("本地翻译已就绪：" + srcName + " ↔ " + tgtName);
@@ -3999,18 +4124,13 @@ public class VideoEventManager {
 
             @Override
             public void onError(String error) {
-                mActivity.runOnUiThread(() -> {
-                    stopPolling.run();
-                    progressDialog.fail(error);
-                    showToast("本地翻译模型下载失败: " + error);
-                    if (statusView != null) {
-                        statusView.setText("预装失败：" + srcName + "、"
-                                + tgtName + " 可重试");
-                    }
-                    engine.release();
-                });
+                finish.accept(error);
             }
         });
+        stopPollingHolder[0] = startMlKitDownloadProgressPolling(
+                progressDialog, srcCode, tgtCode,
+                () -> finish.accept("下载未启动：系统下载服务可能被省电策略冻结，"
+                        + "请允许「下载管理器」后台运行后重试"));
     }
 
     /** MLKit 下载进度轮询间隔（毫秒） */
@@ -4018,6 +4138,9 @@ public class VideoEventManager {
 
     /** 进度上限：分母是估算值，留 5% 余量，完成时才由 complete() 跳到 100% */
     private static final int MLKIT_PROGRESS_CAP = 95;
+
+    /** 连续多久仍是 0 字节就判定下载没起来（毫秒）。只判「一个字节都没下」，不设总时长上限 */
+    private static final long MLKIT_NO_PROGRESS_TIMEOUT_MS = 20 * 1000L;
 
     /**
      * 让进度对话框显示 MLKit 模型下载的**真实字节进度**。
@@ -4030,11 +4153,19 @@ public class VideoEventManager {
      * 经英语中转，故已装的语言不会再下），因此进度会收敛到
      * {@link #MLKIT_PROGRESS_CAP}%，由调用方在成功回调里 complete() 补到 100%。
      *
+     * 部分设备（实测 OnePlus PJA110 / Android 16）ColorOS 会冻结系统下载服务
+     * com.android.providers.downloads，MLKit 交给它的任务不执行、一个字节都不下。
+     * 这里连续 {@link #MLKIT_NO_PROGRESS_TIMEOUT_MS} 仍是 0 字节就回调 onStalled，
+     * 避免进度条永久停在 0%。注意只判「零字节」，一旦开始下载就交给
+     * {@link com.orange.playerlibrary.ocr.MlKitTranslationEngine} 的停滞检测，
+     * 不在这里设总时长上限（慢速下载可能持续数分钟）。
+     *
      * @return 停止轮询的句柄；调用方在 onSuccess/onError 里必须先调用它，
      *         否则 complete() 的 100% 会被后续轮询结果覆盖
      */
     private Runnable startMlKitDownloadProgressPolling(
-            final DownloadProgressDialog dialog, final String srcCode, final String tgtCode) {
+            final DownloadProgressDialog dialog, final String srcCode, final String tgtCode,
+            final Runnable onStalled) {
         final java.util.Set<String> installed =
                 com.orange.playerlibrary.ocr.MlKitTranslationEngine
                         .getInstalledLanguageCodes(mContext);
@@ -4051,6 +4182,7 @@ public class VideoEventManager {
                 com.orange.playerlibrary.ocr.MlKitTranslationEngine.getModelsDirSize(mContext);
         final boolean[] stopped = {false};
         final Runnable[] tick = new Runnable[1];
+        final long startAt = android.os.SystemClock.elapsedRealtime();
         tick[0] = () -> {
             if (stopped[0] || !dialog.isShowing()) {
                 return;
@@ -4061,6 +4193,15 @@ public class VideoEventManager {
                     .getModelsDirSize(mContext) - baseline
                     + com.orange.playerlibrary.ocr.MlKitTranslationEngine
                             .getInFlightDownloadBytes(mContext);
+            if (grown <= 0
+                    && android.os.SystemClock.elapsedRealtime() - startAt
+                            >= MLKIT_NO_PROGRESS_TIMEOUT_MS) {
+                stopped[0] = true;
+                if (onStalled != null) {
+                    onStalled.run();
+                }
+                return;
+            }
             int pct = (int) Math.min(MLKIT_PROGRESS_CAP, Math.max(0, grown * 100 / estimate));
             dialog.setProgress(pct, "已下载 " + (grown / (1024 * 1024)) + "MB");
             mMainHandler.postDelayed(tick[0], MLKIT_PROGRESS_POLL_MS);
@@ -4100,8 +4241,11 @@ public class VideoEventManager {
             showToast("没有已加载的字幕");
             return;
         }
-        if (!mSettingsManager.isAiConfigured()) {
-            showToast("请先在 AI 设置中填写 API Key");
+        if (!isRemoteTranslationEnabled()) {
+            showToast(PlayerSettingsManager.ENGINE_LOCAL.equals(
+                    mSettingsManager.getTranslateEngine())
+                    ? "批量翻译字幕需在线大模型，请把「翻译引擎」改为在线或自动"
+                    : "请先在 AI 设置中填写 API Key");
             showAiSettingsDialog();
             return;
         }
@@ -4280,9 +4424,15 @@ public class VideoEventManager {
         }
     }
 
-    /** AI 接入配置；未填 API Key 返回 null（调用方走本地 MLKit 兜底） */
+    /**
+     * AI 接入配置；返回 null 表示调用方应走本地 MLKit。
+     *
+     * 是否使用远程由「翻译引擎」设置决定，而非「有没有填 Key」：填了 Key 也
+     * 可能被用户显式选成「仅本地」（离线/不耗 token），此时必须返回 null，
+     * 否则设置形同虚设。
+     */
     private com.orange.playerlibrary.ai.TranslatorSettings buildAiSettings(String targetLang) {
-        if (!mSettingsManager.isAiConfigured()) {
+        if (!isRemoteTranslationEnabled()) {
             return null;
         }
         return com.orange.playerlibrary.ai.TranslatorSettings.builder()
@@ -4291,6 +4441,14 @@ public class VideoEventManager {
                 .model(mSettingsManager.getAiModel())
                 .targetLanguage(targetLang)
                 .build();
+    }
+
+    /** 当前设置是否允许使用远程 LLM 翻译（「仅本地」恒为 false） */
+    private boolean isRemoteTranslationEnabled() {
+        if (PlayerSettingsManager.ENGINE_LOCAL.equals(mSettingsManager.getTranslateEngine())) {
+            return false;
+        }
+        return mSettingsManager.isAiConfigured();
     }
 
     /**
@@ -5744,9 +5902,12 @@ public class VideoEventManager {
             if (!downloadCompleted[0]) {
                 // MLKit 不报进度：显示基于「模型目录真实字节增长」的进度
                 progressDialog.showWithRealProgress("正在下载翻译模型");
+                // 识别流程里不做「0 字节」判定：识别本身可能本来就无需下载，
+                // 误报会打断识别；这里只展示进度，失败交给下面的 onError
                 stopPolling[0] = startMlKitDownloadProgressPolling(progressDialog,
                         com.orange.playerlibrary.ai.ProgressiveTranslator.mapToMlKitCode(sourceLang),
-                        com.orange.playerlibrary.ai.ProgressiveTranslator.mapToMlKitCode(targetLang));
+                        com.orange.playerlibrary.ai.ProgressiveTranslator.mapToMlKitCode(targetLang),
+                        null);
             }
         }, 500); // 500ms 后如果还没完成才显示对话框
         

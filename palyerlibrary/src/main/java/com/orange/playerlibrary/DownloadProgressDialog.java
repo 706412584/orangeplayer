@@ -121,11 +121,22 @@ public class DownloadProgressDialog {
     }
 
     /**
-     * 下载失败
+     * 下载失败：把原因留在屏上再关闭。
+     *
+     * 直接 dismiss 的话用户只看到弹窗瞬间消失，配合 toast 也容易漏看；
+     * 停留 {@link #FAIL_DISPLAY_MS} 让「为什么失败」可见。
      */
     public void fail(String error) {
-        dismiss();
+        mHandler.post(() -> {
+            if (mTitleText != null) mTitleText.setText("下载失败");
+            if (mProgressText != null) mProgressText.setText("!");
+            if (mHintText != null && error != null) mHintText.setText(error);
+            mHandler.postDelayed(this::dismiss, FAIL_DISPLAY_MS);
+        });
     }
+
+    /** 失败信息停留时长（毫秒），够看清一行错误提示 */
+    private static final long FAIL_DISPLAY_MS = 2500;
 
     /**
      * 关闭对话框

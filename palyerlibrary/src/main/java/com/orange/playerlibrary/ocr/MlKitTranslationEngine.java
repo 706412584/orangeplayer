@@ -16,14 +16,17 @@ public class MlKitTranslationEngine implements TranslationEngine {
     private boolean mModelDownloaded = false;
     private String mSourceLanguage;
     private String mTargetLanguage;
-    
+    /** 用于观测下载字节（见 {@link #downloadedBytes()}），持 Application Context 不泄漏 */
+    private Context mContext;
+
     @Override
     public void init(Context context, String sourceLanguage, String targetLanguage) {
         if (!OcrAvailabilityChecker.isMlKitTranslateAvailable()) {
             Log.e(TAG, "ML Kit Translation not available");
             return;
         }
-        
+
+        mContext = context == null ? null : context.getApplicationContext();
         mSourceLanguage = sourceLanguage;
         mTargetLanguage = targetLanguage;
         
@@ -121,6 +124,19 @@ public class MlKitTranslationEngine implements TranslationEngine {
         return mModelDownloaded;
     }
     
+    /**
+     * 下载无进展多久才判定卡死（毫秒）。
+     *
+     * 注意这是「**无进展**」上限而非「总时长」上限：只要模型字节还在增长，
+     * 无论下多久都不算失败。早期版本用 {@code Tasks.await(task, 180s)} 设总时长
+     * 上限，结果一份模型（en_ja 61MB）正常下载就要 3 分钟以上，被自己掐断——
+     * 实测 pja110 上进度已到 26% 仍报「下载超时」，纯属误报。
+     */
+    private static final long DOWNLOAD_STALL_TIMEOUT_MS = 60 * 1000L;
+
+    /** 轮询下载字节的间隔（毫秒） */
+    private static final long DOWNLOAD_POLL_MS = 1000;
+
     @Override
     public void downloadModel(ModelDownloadCallback callback) {
         if (!mInitialized || mTranslator == null) {
@@ -129,85 +145,132 @@ public class MlKitTranslationEngine implements TranslationEngine {
             }
             return;
         }
-        
+
+        // 必须在后台线程：Tasks.await 会阻塞，主线程等待会 ANR
+        new Thread(() -> runDownloadOnBackgroundThread(callback), "mlkit-model-dl").start();
+    }
+
+    /**
+     * 在后台线程同步等待下载 Task 完成，并叠加「无进展超时」兜底。
+     *
+     * 不用 addOnSuccessListener/addOnFailureListener 而用 {@code Tasks.await}：部分设备
+     * （实测 OnePlus PJA110 / Android 16，ColorOS 会冻结 com.android.providers.downloads）
+     * DownloadManager 里的任务不执行，downloadModelIfNeeded 返回的 Task 既不成功也不
+     * 失败 —— 监听器版本就完全静默了，UI 会永远停在 0%。这里循环分段等待，每段之间
+     * 检查一次已下载字节：只要还在涨就继续等，真正停住 {@link #DOWNLOAD_STALL_TIMEOUT_MS}
+     * 才报错，既能拿到真实异常，也不会误杀慢速下载。
+     */
+    private void runDownloadOnBackgroundThread(ModelDownloadCallback callback) {
         try {
-            // DownloadConditions.Builder
             Class<?> conditionsBuilderClass = Class.forName("com.google.mlkit.common.model.DownloadConditions$Builder");
             Object conditionsBuilder = conditionsBuilderClass.newInstance();
-            
-            // requireWifi() - 可选
-            // java.lang.reflect.Method requireWifiMethod = conditionsBuilderClass.getMethod("requireWifi");
-            // requireWifiMethod.invoke(conditionsBuilder);
-            
-            // build
             java.lang.reflect.Method buildMethod = conditionsBuilderClass.getMethod("build");
             Object conditions = buildMethod.invoke(conditionsBuilder);
-            
-            // translator.downloadModelIfNeeded(conditions)
+
             Class<?> translatorClass = mTranslator.getClass();
             java.lang.reflect.Method downloadMethod = translatorClass.getMethod("downloadModelIfNeeded",
                 Class.forName("com.google.mlkit.common.model.DownloadConditions"));
             Object task = downloadMethod.invoke(mTranslator, conditions);
-            
-            // 添加监听器
-            addTaskListeners(task, callback);
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to download model", e);
-            if (callback != null) {
-                callback.onError(e.getMessage());
+
+            Class<?> tasksClass = Class.forName("com.google.android.gms.tasks.Tasks");
+            java.lang.reflect.Method awaitMethod = tasksClass.getMethod(
+                    "await", Class.forName("com.google.android.gms.tasks.Task"),
+                    long.class, java.util.concurrent.TimeUnit.class);
+
+            long lastBytes = downloadedBytes();
+            long lastGrowthAt = android.os.SystemClock.elapsedRealtime();
+            while (true) {
+                try {
+                    // 分段等待：单段超时不代表失败，只用来周期性检查字节是否还在涨
+                    awaitMethod.invoke(null, task, DOWNLOAD_POLL_MS,
+                            java.util.concurrent.TimeUnit.MILLISECONDS);
+                    break;
+                } catch (Exception segment) {
+                    if (!(unwrap(segment) instanceof java.util.concurrent.TimeoutException)) {
+                        throw segment;
+                    }
+                }
+                long bytes = downloadedBytes();
+                long now = android.os.SystemClock.elapsedRealtime();
+                if (bytes > lastBytes) {
+                    lastBytes = bytes;
+                    lastGrowthAt = now;
+                } else if (now - lastGrowthAt >= DOWNLOAD_STALL_TIMEOUT_MS) {
+                    throw new java.util.concurrent.TimeoutException(
+                            "已停滞 " + (DOWNLOAD_STALL_TIMEOUT_MS / 1000) + " 秒无数据（已下载 "
+                                    + (bytes / (1024 * 1024)) + "MB）");
+                }
+            }
+
+            mModelDownloaded = true;
+            dispatchSuccess(callback);
+        } catch (Exception raw) {
+            // 反射调用把真实异常包在 InvocationTargetException 里，必须剥开才看得到原因
+            Throwable cause = unwrap(raw);
+            if (cause instanceof java.util.concurrent.TimeoutException) {
+                Log.e(TAG, "Model download stalled: " + cause.getMessage());
+                dispatchError(callback, "下载停滞：" + cause.getMessage()
+                        + "。系统的下载服务可能被省电策略限制，请允许「下载管理器」"
+                        + "后台运行后重试");
+            } else {
+                Log.e(TAG, "Model download failed", cause);
+                dispatchError(callback, describeFailure(cause));
             }
         }
     }
-    
-    private void addTaskListeners(Object task, ModelDownloadCallback callback) {
-        try {
-            Class<?> taskClass = task.getClass();
-            
-            // addOnSuccessListener
-            Class<?> successListenerClass = Class.forName("com.google.android.gms.tasks.OnSuccessListener");
-            Object successListener = java.lang.reflect.Proxy.newProxyInstance(
-                successListenerClass.getClassLoader(),
-                new Class[]{successListenerClass},
-                (proxy, method, args) -> {
-                    if ("onSuccess".equals(method.getName())) {
-                        mModelDownloaded = true;
-                        Log.d(TAG, "Model downloaded successfully");
-                        if (callback != null) {
-                            callback.onSuccess();
-                        }
-                    }
-                    return null;
-                }
-            );
-            
-            java.lang.reflect.Method addSuccessMethod = taskClass.getMethod("addOnSuccessListener", successListenerClass);
-            addSuccessMethod.invoke(task, successListener);
-            
-            // addOnFailureListener
-            Class<?> failureListenerClass = Class.forName("com.google.android.gms.tasks.OnFailureListener");
-            Object failureListener = java.lang.reflect.Proxy.newProxyInstance(
-                failureListenerClass.getClassLoader(),
-                new Class[]{failureListenerClass},
-                (proxy, method, args) -> {
-                    if ("onFailure".equals(method.getName())) {
-                        Exception e = (Exception) args[0];
-                        Log.e(TAG, "Model download failed", e);
-                        if (callback != null) {
-                            callback.onError(e.getMessage());
-                        }
-                    }
-                    return null;
-                }
-            );
-            
-            java.lang.reflect.Method addFailureMethod = taskClass.getMethod("addOnFailureListener", failureListenerClass);
-            addFailureMethod.invoke(task, failureListener);
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to add task listeners", e);
+
+    /** 剥掉反射包装，拿到真实异常 */
+    private static Throwable unwrap(Throwable raw) {
+        Throwable cause = raw;
+        while (cause instanceof java.lang.reflect.InvocationTargetException
+                && cause.getCause() != null) {
+            cause = cause.getCause();
         }
+        return cause;
     }
+
+    /**
+     * 当前已下载字节 = 模型目录占用 + 系统 DownloadManager 在途字节。
+     *
+     * 用增长量而非绝对值判断「有没有进展」，故这里只需单调可比，不必精确。
+     */
+    private long downloadedBytes() {
+        return getModelsDirSize(mContext) + getInFlightDownloadBytes(mContext);
+    }
+
+    /** 把 MLKit 的异常翻成用户能看懂的话：模块缺失与网络失败要分开说 */
+    private static String describeFailure(Throwable t) {
+        if (t == null) {
+            return "未知错误";
+        }
+        String raw = t.getMessage();
+        String name = t.getClass().getSimpleName();
+        if (name.contains("MlKitException")) {
+            return "MLKit 错误：" + (raw == null ? name : raw);
+        }
+        if (t instanceof java.io.IOException || name.contains("Network")) {
+            return "网络不可用，请检查网络后重试";
+        }
+        return (raw == null || raw.isEmpty()) ? name : raw;
+    }
+
+    private void dispatchSuccess(ModelDownloadCallback callback) {
+        if (callback == null) {
+            return;
+        }
+        mMainHandler.post(callback::onSuccess);
+    }
+
+    private void dispatchError(ModelDownloadCallback callback, String error) {
+        if (callback == null) {
+            return;
+        }
+        mMainHandler.post(() -> callback.onError(error));
+    }
+
+    /** 把回调切回主线程：调用方（UI）在回调里直接操作对话框 */
+    private final android.os.Handler mMainHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
     
     @Override
     public void translate(String text, TranslationCallback callback) {
@@ -317,9 +380,15 @@ public class MlKitTranslationEngine implements TranslationEngine {
     /**
      * 已下载的本地翻译语言码集合（MLKit 语言码，如 "zh"/"ja"）。
      *
-     * MLKit 按「语言↔英语」存模型（en_zh / en_ja / en_ko…），翻译任意两语言
-     * 经英语中转，故某语言可用 ⇔ 其 en_&lt;语言&gt; 目录存在；英语作为中转
-     * 语言恒可用。设置界面据此标注「已装/未装」，避免用户盲选后首播等下载。
+     * MLKit 按「语言↔英语」存模型，目录名为两个语言码**字典序排序**后拼接
+     * （见 {@code zzad.zzc}：{@code Arrays.sort} 后 {@code "%s_%s"}）。因此
+     * 英文恒排在前面的假设只对 de/fr/ja/ko/zh 等成立，德语、阿拉伯语等
+     * 码序在 "en" 之前，目录名是 {@code de_en} / {@code ar_en} 而非
+     * {@code en_de}——只认 {@code en_} 前缀会把它们误判成「未装」。
+     *
+     * 翻译任意两语言经英语中转，故某语言可用 ⇔ 含英语的那份模型目录存在；
+     * 英语作为中转语言恒可用。设置界面据此标注「已装/未装」，避免用户盲选后
+     * 首播等下载。
      *
      * 说明：MLKit 未提供同步的批量查询 API（isModelDownloaded 是异步 Task 且需
      * 逐语言建实例），设置界面需要即时渲染，故直接读其存储目录。
@@ -340,16 +409,56 @@ public class MlKitTranslationEngine implements TranslationEngine {
                 if (child == null || !child.isDirectory()) {
                     continue;
                 }
-                String name = child.getName();
-                // 仅认 en_<语言> 形态；temp 等中间目录天然不匹配
-                if (name.startsWith(PIVOT_LANGUAGE + "_") && name.length() > 3) {
-                    installed.add(name.substring(PIVOT_LANGUAGE.length() + 1));
+                String other = pivotCompanion(child.getName());
+                if (other != null) {
+                    installed.add(other);
                 }
             }
         } catch (Throwable t) {
             Log.w(TAG, "读取已装本地翻译模型失败", t);
         }
         return installed;
+    }
+
+    /**
+     * 从模型目录名取出「英语之外的那一侧」语言码；不含英语则返回 null。
+     *
+     * 目录名形如 {@code <码A>_<码B>}（A、B 已排序），两侧都必须匹配
+     * {@code [a-z]{2,3}}——temp 等中间目录因此天然被排除。
+     */
+    static String pivotCompanion(String dirName) {
+        if (dirName == null) {
+            return null;
+        }
+        int sep = dirName.indexOf('_');
+        if (sep <= 0 || sep != dirName.lastIndexOf('_')) {
+            return null;
+        }
+        String left = dirName.substring(0, sep);
+        String right = dirName.substring(sep + 1);
+        if (!isLanguageCode(left) || !isLanguageCode(right)) {
+            return null;
+        }
+        if (PIVOT_LANGUAGE.equals(left)) {
+            return right;
+        }
+        if (PIVOT_LANGUAGE.equals(right)) {
+            return left;
+        }
+        return null;
+    }
+
+    /** 是否形如 MLKit 语言码（2~3 位小写字母） */
+    private static boolean isLanguageCode(String s) {
+        if (s.length() < 2 || s.length() > 3) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) < 'a' || s.charAt(i) > 'z') {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

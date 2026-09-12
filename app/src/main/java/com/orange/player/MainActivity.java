@@ -271,9 +271,13 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         // 【测试专用】注册测试命令广播（仅测试环境使用，无安全风险暴露面）
+        // Android 13+ (API 33) 起 registerReceiver 必须显式指定 exported 标志，
+        // 否则抛 SecurityException；adb shell 需要跨进程发送，故用 EXPORTED
         try {
             android.content.IntentFilter filter = new android.content.IntentFilter(TEST_CMD_ACTION);
-            registerReceiver(mTestCmdReceiver, filter);
+            int flag = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
+                    ? android.content.Context.RECEIVER_EXPORTED : 0;
+            registerReceiver(mTestCmdReceiver, filter, flag);
         } catch (Exception e) {
             android.util.Log.w("MainActivity", "注册测试广播失败", e);
         }
