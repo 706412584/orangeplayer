@@ -60,9 +60,31 @@ public class AudioTrackExtractor {
     public static int extractPcm(File videoFile, File pcmFile, long durationUs,
                                  ExtractListener listener, long startUs, long endUs)
             throws IOException {
+        return extractPcm(videoFile.getAbsolutePath(), null, pcmFile, durationUs,
+                listener, startUs, endUs);
+    }
+
+    /**
+     * 同 {@link #extractPcm(File, File, long, ExtractListener, long, long)}，
+     * 但数据源可以是 http(s) URL。
+     *
+     * MediaExtractor 的 http 数据源内部按 byte range 读取，所以把 source 指向
+     * danikula 本地代理即可复用播放器已缓存的分片、缺失部分按需补下——
+     * 「边下边识别」的网络视频走这条路径，不需要先下完整片。
+     *
+     * @param source 视频路径或 http(s) URL
+     * @param headers 请求头（可 null）
+     */
+    public static int extractPcm(String source, java.util.Map<String, String> headers,
+                                 File pcmFile, long durationUs, ExtractListener listener,
+                                 long startUs, long endUs) throws IOException {
         MediaExtractor extractor = new MediaExtractor();
         try {
-            extractor.setDataSource(videoFile.getAbsolutePath());
+            if (headers != null && !headers.isEmpty()) {
+                extractor.setDataSource(source, headers);
+            } else {
+                extractor.setDataSource(source);
+            }
             int trackIndex = selectAudioTrack(extractor);
             if (trackIndex < 0) {
                 throw new IOException("视频无音轨");

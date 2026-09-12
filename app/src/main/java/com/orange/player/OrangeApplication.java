@@ -48,6 +48,13 @@ public class OrangeApplication extends Application {
             Log.w(TAG, "asr_work 孤儿文件清扫失败（忽略）", t);
         }
 
+        // 清扫超期的 ASR 识别结果缓存（asr_cache，按视频 URL 落盘）
+        try {
+            com.orange.playerlibrary.speech.AsrSubtitleCache.cleanupOrphanCache(this);
+        } catch (Throwable t) {
+            Log.w(TAG, "asr_cache 超期缓存清扫失败（忽略）", t);
+        }
+
         // 初始化 VideoDownloader（用于 M3U8、MP4 等视频下载）
         try {
             VideoDownloaderWrapper downloaderWrapper = VideoDownloaderWrapper.getInstance(this);

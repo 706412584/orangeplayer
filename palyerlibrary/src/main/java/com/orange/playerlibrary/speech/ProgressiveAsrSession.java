@@ -33,14 +33,27 @@ public class ProgressiveAsrSession {
     private static final long LEAD_MS = 15_000;
 
     public interface Callback {
-        /** 某块识别完成，entries 为绝对时间轴字幕（主线程） */
-        void onBlockReady(List<SubtitleEntry> entries);
+        /**
+         * 某块识别完成（主线程）。
+         *
+         * @param blockStartMs 块起始毫秒——写增量缓存要据此标记已识别段；
+         *                     即使 entries 为空（该段无语音）块也已消费完毕
+         * @param entries      该块的绝对时间轴字幕
+         */
+        void onBlockReady(long blockStartMs, List<SubtitleEntry> entries);
 
         /** 进度：已覆盖到 ms / 总时长 ms（主线程） */
         void onProgress(long recognizedUntilMs, long durationMs);
 
         /** 失败（主线程）；会话随即结束 */
         void onError(int code, String message);
+
+        /**
+         * 已识别到视频末尾（主线程）；会话随即结束。
+         * 供调用方把增量缓存提升为整片缓存（下次重看直接命中，不再识别）。
+         */
+        default void onCompleted() {
+        }
 
         /**
          * 引擎检测到的语种（如 "zh"/"en"，auto 模式下有效；识别不到则不回调）。
@@ -58,6 +71,10 @@ public class ProgressiveAsrSession {
     private final BatchAsrEngine mEngine;
     private final Set<Long> mDoneBlocks = new HashSet<>();
     private final File mWorkDir;
+
+    /** 抽音频失败的块数：>0 时不能宣称整片识别完成（见 runLoop 收尾） */
+    private final java.util.concurrent.atomic.AtomicInteger mFailedBlocks =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     private volatile boolean mStopped;
     private volatile long mPlaybackMs;
@@ -83,6 +100,27 @@ public class ProgressiveAsrSession {
     public static boolean isAvailable(Context context) {
         return SherpaAvailabilityChecker.isSherpaAvailable()
                 && AsrSubtitleGenerator.isModelReady(context);
+    }
+
+    /**
+     * 预填「已识别过的块」（来自上一次会话的增量缓存）。
+     * 只在 {@link #start()} 之前有效；预填后本轮只识别缺失的块。
+     */
+    public void seedDoneBlocks(Set<Long> doneBlocks) {
+        if (doneBlocks == null || doneBlocks.isEmpty()) {
+            return;
+        }
+        mDoneBlocks.addAll(doneBlocks);
+        // 进度起点对齐到已识别段的末尾（与其他位置写入的语义一致：
+        // mRecognizedUntilMs 是「已覆盖到」的开区间上界）
+        long max = 0;
+        for (Long b : doneBlocks) {
+            if (b != null && b + BLOCK_MS > max) {
+                max = b + BLOCK_MS;
+            }
+        }
+        mRecognizedUntilMs = mDurationMs > 0 ? Math.min(max, mDurationMs) : max;
+        Log.d(TAG, "预填已识别块 " + doneBlocks.size() + " 个，起点 " + mRecognizedUntilMs + "ms");
     }
 
     /** 开始会话（幂等；不可用时回调 onError 并结束） */
@@ -132,6 +170,11 @@ public class ProgressiveAsrSession {
         return mTotalSegments;
     }
 
+    /** [0, duration) 内每个块都已识别（时长未知时为 false） */
+    public boolean isFullyRecognized() {
+        return mDurationMs > 0 && isAllBlocksDone();
+    }
+
     /**
      * 驱动循环：优先保证「当前所在块」已识别，其次识别「领先块」。
      * 单线程串行，避免与播放争 CPU（SenseVoice numThreads 已是省电配置）。
@@ -159,6 +202,20 @@ public class ProgressiveAsrSession {
                 }
 
                 if (target < 0 || (mDurationMs > 0 && target >= mDurationMs)) {
+                    // 无待识别块：若已覆盖到视频末尾，说明整片识别完毕
+                    if (mDurationMs > 0 && isAllBlocksDone()) {
+                        int failed = mFailedBlocks.get();
+                        if (failed == 0) {
+                            Log.d(TAG, "渐进识别已覆盖全片 " + mDurationMs + "ms");
+                            postCompleted();
+                        } else {
+                            // 有块抽不出音频（网络源取数失败等）：不能宣称整片识别完，
+                            // 否则调用方会把缺内容的 part.srt 提升为整片缓存，
+                            // 之后每次重看都用这份残缺字幕
+                            Log.w(TAG, "整片识别结束，但有 " + failed + " 个块失败，不提升为整片缓存");
+                        }
+                        return;
+                    }
                     sleepQuiet(200);
                     continue;
                 }
@@ -180,6 +237,20 @@ public class ProgressiveAsrSession {
         }
     }
 
+    /**
+     * [0, duration) 内的每个块是否都已处理过。
+     * 只对整个块判定：末块边界落在 duration 之后时也要求该块完成，
+     * 与 runLoop 中 {@code target >= mDurationMs} 的跳过规则一致。
+     */
+    private boolean isAllBlocksDone() {
+        for (long b = 0; b < mDurationMs; b += BLOCK_MS) {
+            if (!mDoneBlocks.contains(b)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** 识别单个时间块；失败不重试（避免卡死循环） */
     private void recognizeBlock(long blockStartMs) {
         mDoneBlocks.add(blockStartMs);
@@ -193,8 +264,16 @@ public class ProgressiveAsrSession {
             long t0 = android.os.SystemClock.elapsedRealtime();
             // 音频来源取块（本地 seek 解码 / HLS 分片读缓存）；返回实际起始偏移
             final long actualStartMs = mSource.extractBlockWav(blockStartMs, blockEndMs, wav);
-            if (mStopped || actualStartMs < 0 || !wav.exists() || wav.length() == 0) {
+            if (mStopped) {
                 return;
+            }
+            if (actualStartMs < 0) {
+                mFailedBlocks.incrementAndGet();
+                Log.w(TAG, "块音频抽取失败 @" + blockStartMs + "ms");
+                return;
+            }
+            if (!wav.exists() || wav.length() == 0) {
+                return;   // 该段无音频（静音/超出媒体末尾），不算失败
             }
 
             final List<SubtitleEntry> entries = new ArrayList<>();
@@ -241,14 +320,17 @@ public class ProgressiveAsrSession {
             }
             if (!entries.isEmpty()) {
                 mTotalSegments += entries.size();
-                postBlockReady(entries);
             }
+            // 无语音的块也要上报：它确实识别完了，增量缓存据此记「该段无需再识别」。
+            // 上面的早退分支（抽取失败/已停止）不走到这里，避免把失败当作已完成。
+            postBlockReady(blockStartMs, entries);
             mRecognizedUntilMs = mDurationMs > 0
                     ? Math.min(blockEndMs, mDurationMs) : blockEndMs;
             postProgress(mRecognizedUntilMs, mDurationMs);
             Log.d(TAG, "块完成 @" + blockStartMs + "ms: " + entries.size() + " 条, 耗时 "
                     + (android.os.SystemClock.elapsedRealtime() - t0) + "ms");
         } catch (Throwable t) {
+            mFailedBlocks.incrementAndGet();
             Log.w(TAG, "块识别失败 @" + blockStartMs + "ms", t);
         } finally {
             deleteQuiet(wav);
@@ -269,9 +351,15 @@ public class ProgressiveAsrSession {
         }
     }
 
-    private void postBlockReady(final List<SubtitleEntry> entries) {
+    private void postBlockReady(final long blockStartMs, final List<SubtitleEntry> entries) {
         if (mCallback != null) {
-            mCallback.onBlockReady(entries);
+            mCallback.onBlockReady(blockStartMs, entries);
+        }
+    }
+
+    private void postCompleted() {
+        if (mCallback != null) {
+            mCallback.onCompleted();
         }
     }
 

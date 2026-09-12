@@ -416,9 +416,10 @@ public class ProgressiveTranslator {
             // 标志才翻转；此前下载失败/超时的批次会一直被挡在这里）——
             // 重新查询一次，成功则本批立即可译（M2 修复：下载失败可重试）
             if (!engine.isModelDownloaded()) {
-                engine.downloadModel(null);
+                triggerLocalModelDownload(engine);
+                return awaitLocalModelReady(engine);
             }
-            return engine.isModelDownloaded();
+            return true;
         }
         if (!com.orange.playerlibrary.ocr.OcrAvailabilityChecker.isMlKitTranslateAvailable()) {
             Log.d(TAG, "本地兜底不可用：MLKit 未接入");
@@ -434,30 +435,62 @@ public class ProgressiveTranslator {
         engine.init(mAppContext, src, tgtCode);
         mLocalEngine = engine;
         mLocalEngineKey = key;
-        // 模型未下载：触发后台下载（失败时下批经上方 isModelDownloaded 重查再触发），
-        // 本批跳过
         if (!engine.isModelDownloaded()) {
-            Log.d(TAG, "本地翻译模型未下载，触发下载");
-            notifyStatus("正在下载本地翻译模型…");
-            engine.downloadModel(new TranslationEngine.ModelDownloadCallback() {
-                @Override
-                public void onProgress(int progress) {
-                }
-
-                @Override
-                public void onSuccess() {
-                    Log.d(TAG, "本地翻译模型下载完成");
-                    notifyStatus("本地翻译模型已就绪");
-                }
-
-                @Override
-                public void onError(String error) {
-                    Log.w(TAG, "本地翻译模型下载失败: " + error);
-                }
-            });
-            return false;
+            triggerLocalModelDownload(engine);
+            return awaitLocalModelReady(engine);
         }
         return true;
+    }
+
+    /** 本地模型下载等待上限（下载自身另有「无进展 60s」超时兜底） */
+    private static final long LOCAL_MODEL_WAIT_MS = 120_000;
+
+    /** 本次下载是否已明确失败（失败即不必再等，立即让批次落空） */
+    private volatile boolean mLocalModelFailed;
+
+    private void triggerLocalModelDownload(final MlKitTranslationEngine engine) {
+        mLocalModelFailed = false;
+        Log.d(TAG, "本地翻译模型未下载，触发下载");
+        notifyStatus("正在下载本地翻译模型…");
+        engine.downloadModel(new TranslationEngine.ModelDownloadCallback() {
+            @Override
+            public void onProgress(int progress) {
+            }
+
+            @Override
+            public void onSuccess() {
+                Log.d(TAG, "本地翻译模型下载完成");
+                notifyStatus("本地翻译模型已就绪");
+            }
+
+            @Override
+            public void onError(String error) {
+                mLocalModelFailed = true;
+                Log.w(TAG, "本地翻译模型下载失败: " + error);
+                notifyStatus("本地翻译模型下载失败：" + error);
+            }
+        });
+    }
+
+    /**
+     * 等待本地模型就绪（有界）。
+     *
+     * 不能像早期实现那样「本批直接跳过，等下一批再试」：完整识别整片只提交
+     * 一批，跳过了就永远没有译文（渐进识别的多批场景掩盖了这点）。这里等到
+     * 模型可用或明确失败为止，失败则本批落空、由调用方的锁存逻辑兜底。
+     */
+    private boolean awaitLocalModelReady(MlKitTranslationEngine engine) {
+        long deadline = android.os.SystemClock.elapsedRealtime() + LOCAL_MODEL_WAIT_MS;
+        while (!engine.isModelDownloaded() && !mLocalModelFailed
+                && android.os.SystemClock.elapsedRealtime() < deadline) {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return engine.isModelDownloaded();
     }
 
     /** 单条本地翻译（回调转同步） */

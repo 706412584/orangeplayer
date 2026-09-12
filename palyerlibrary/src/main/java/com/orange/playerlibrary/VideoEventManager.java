@@ -115,6 +115,12 @@ public class VideoEventManager {
                 public void onPlayStateChanged(int playState) {
                     // 播放结束：渐进识别已覆盖全部观看内容，收尾
                     if (playState == com.orange.playerlibrary.PlayerConstants.STATE_PLAYBACK_COMPLETED) {
+                        // 会话会在这里被硬停，onCompleted 不会再触发；若识别已跟上播放
+                        // 进度（全片块都过了），此刻提升为整片缓存，下次重看免识别
+                        if (sProgressiveAsr != null && sProgressiveAsr.isFullyRecognized()) {
+                            com.orange.playerlibrary.speech.AsrSubtitleCache.promoteToFull(
+                                    mContext, mVideoView != null ? mVideoView.getUrl() : null);
+                        }
                         stopProgressiveAsr();
                     }
                     maybeAutoGenerateAsr(playState);
@@ -149,76 +155,157 @@ public class VideoEventManager {
     }
 
     /**
-     * 自动触发的 ASR 视频 URL（进程级去重）。
-     * 播放器存在多个 VideoEventManager 实例（controller / error view 各自注册状态监听），
-     * 实例字段无法跨实例去重，会让同一视频重复触发完整下载，故用静态集合。
+     * 最近一次成功发起识别的视频 URL（进程级）。
+     *
+     * 存在的理由：STATE_PLAYING 与 STATE_PLAYBACK_COMPLETED 都会走到这里，
+     * 后者会在视频刚播完时把识别重新拉起（悬浮环又冒出来）。
+     *
+     * 但不能做成「本次运行触发过的 URL 集合」——那会让用户在剧集间来回切时，
+     * 回到看过的那一集再也不触发（真机症状："点下一集/选集没反应，悬浮环不出来"）。
+     * 单值记录天然满足两者：切走再切回来时与记录不同，照常触发；重复触发的代价
+     * 也已被 {@code AsrSubtitleCache} 抹平（整片命中直接加载，部分识别续接缺失段）。
      */
-    private static final java.util.Set<String> sAutoAsrTriggeredUrls =
-            java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+    private static volatile String sAutoAsrTriggeredUrl;
 
     /**
      * 播放状态变化时按「自动生成字幕」设置触发 ASR。
      * 触发点：STATE_PLAYING（已缓存资源/本地文件即时生成）、
      *        STATE_PLAYBACK_COMPLETED（网络视频缓存 100% 后生成）。
      * 本地/已缓存 mp4 且开启「边看边识别」→ 渐进；否则完整版。
-     * 仅在实际发起时登记 URL；无法触发（未缓存等）时下次状态变化可重试。
      */
     private void maybeAutoGenerateAsr(int playState) {
         try {
-            // 字幕被用户关闭：识别结果无处显示，不再自动触发
+            // 每一道守卫都记下跳过原因：这条链路环节多（开关/状态/缓存/去重），
+            // 出问题时"没反应"是唯一症状，没有日志就只能靠猜
+            String skip = null;
             if (!mSettingsManager.isSubtitleEnabled()) {
-                return;
-            }
-            if (!mSettingsManager.isAsrAutoEnabled() || mIsAsrGenerating || sProgressiveAsr != null) {
-                return;
-            }
-            if (playState != com.orange.playerlibrary.PlayerConstants.STATE_PLAYING
+                skip = "字幕未开启";
+            } else if (!mSettingsManager.isAsrAutoEnabled()) {
+                skip = "未开「新视频自动开始」";
+            } else if (sIsAsrGenerating) {
+                skip = "完整识别进行中";
+            } else if (sProgressiveAsr != null) {
+                skip = "已有渐进会话";
+            } else if (playState != com.orange.playerlibrary.PlayerConstants.STATE_PLAYING
                     && playState != com.orange.playerlibrary.PlayerConstants.STATE_PLAYBACK_COMPLETED) {
+                skip = "状态 " + playState + " 不触发";
+            } else if (mVideoView == null) {
+                skip = "播放器为空";
+            } else if (mVideoView.isLiveVideo()) {
+                skip = "直播不生成";   // 无终点，避免无限下载
+            }
+            final String url = skip == null && mVideoView != null ? mVideoView.getUrl() : null;
+            if (skip == null && (url == null || url.isEmpty())) {
+                skip = "无播放地址";
+            } else if (skip == null && url.equals(sAutoAsrTriggeredUrl)) {
+                skip = "本次播放已触发过";
+            }
+            if (skip != null) {
+                Log.d(TAG, "自动生成字幕未触发: " + skip);
                 return;
             }
-            if (mVideoView == null || mVideoView.isLiveVideo()) {
-                return;   // 直播不自动生成（无终点，避免无限下载）
+            if (triggerAsrForCurrentVideo()) {
+                sAutoAsrTriggeredUrl = url;
             }
-            if (!com.orange.playerlibrary.speech.SherpaAvailabilityChecker.isSherpaAvailable()
-                    || !com.orange.playerlibrary.speech.AsrSubtitleGenerator.isModelReady(mContext)) {
-                return;
-            }
-            final String url = mVideoView.getUrl();
-            if (url == null || url.isEmpty() || !sAutoAsrTriggeredUrls.add(url)) {
-                return;
-            }
-
-            // 网络 m3u8
-            if (isM3u8Url(url)) {
-                if (mSettingsManager.isAsrLiveEnabled()
-                        && com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext)) {
-                    Log.d(TAG, "自动生成字幕（HLS 渐进）: " + url);
-                    startProgressiveAsrHls(url);
-                } else {
-                    Log.d(TAG, "自动生成字幕（HLS 后台下载）: " + url);
-                    downloadHlsAndGenerate(url, true);
-                }
-                return;
-            }
-
-            // 本地文件 / 已缓存 mp4
-            java.io.File local = resolveLocalVideoFileForAsr();
-            if (local == null) {
-                // 网络 mp4 未缓存完整：不登记，等播放完成后再触发
-                sAutoAsrTriggeredUrls.remove(url);
-                return;
-            }
-            if (mSettingsManager.isAsrLiveEnabled()
-                    && com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext)) {
-                Log.d(TAG, "自动生成字幕（渐进）: " + url);
-                startProgressiveAsr(local);
-            } else {
-                Log.d(TAG, "自动生成字幕（完整版）: " + url);
-                startAsrGenerate(local, false, true);
-            }
+            // 未发起成功（网络视频尚未缓存完）不记录，留给下次状态变化重试
         } catch (Exception e) {
             Log.w(TAG, "自动生成字幕触发异常", e);
         }
+    }
+
+    /**
+     * 「新视频自动开始」开关拨开时立即对当前视频生效。
+     * 与自动触发共用 {@link #triggerAsrForCurrentVideo()}，区别是给出明确反馈。
+     */
+    private void startAsrForCurrentVideoNow() {
+        try {
+            if (sIsAsrGenerating || sProgressiveAsr != null) {
+                showToast("已在为当前视频生成字幕");
+                return;
+            }
+            if (mVideoView == null || mVideoView.isLiveVideo()) {
+                showToast("已开启自动生成；直播不生成字幕");
+                return;
+            }
+            final String url = mVideoView.getUrl();
+            if (url == null || url.isEmpty()) {
+                return;   // 尚未开始播放：后续播放状态变化会正常触发
+            }
+            if (!com.orange.playerlibrary.speech.SherpaAvailabilityChecker.isSherpaAvailable()
+                    || !com.orange.playerlibrary.speech.AsrSubtitleGenerator.isModelReady(mContext)) {
+                showToast("已开启自动生成；ASR 模型未就绪");
+                return;
+            }
+            if (triggerAsrForCurrentVideo()) {
+                sAutoAsrTriggeredUrl = url;
+                showToast("已开始为当前视频生成字幕");
+            } else {
+                // 网络视频尚未缓存完：本地无音频可读，只能等缓存
+                showToast("已开启自动生成；本集将在缓存完成后识别");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "开关触发 ASR 异常", e);
+        }
+    }
+
+    /**
+     * 对当前播放视频发起识别（自动触发与开关拨开共用）。
+     *
+     * @return true=已发起识别；false=此刻无法发起（资源未缓存完/m3u8 不支持渐进），
+     *         调用方可择机重试
+     */
+    private boolean triggerAsrForCurrentVideo() {
+        final String url = mVideoView != null ? mVideoView.getUrl() : null;
+        if (url == null || url.isEmpty()) {
+            return false;
+        }
+
+        // 网络 m3u8
+        if (isM3u8Url(url)) {
+            if (mSettingsManager.isAsrLiveEnabled()
+                    && com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext)) {
+                Log.d(TAG, "自动生成字幕（HLS 渐进）: " + url);
+                startProgressiveAsrHls(url);
+            } else {
+                Log.d(TAG, "自动生成字幕（HLS 后台下载）: " + url);
+                downloadHlsAndGenerate(url, true);
+            }
+            return true;
+        }
+
+        final boolean progressive = mSettingsManager.isAsrLiveEnabled()
+                && com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext);
+
+        // 本地文件 / 已缓存 mp4
+        java.io.File local = resolveLocalVideoFileForAsr();
+
+        if (progressive) {
+            if (local != null) {
+                Log.d(TAG, "自动生成字幕（渐进）: " + url);
+                startProgressiveAsr(local);
+                return true;
+            }
+            // 尚未缓存完的网络视频：不等整片缓存（danikula 随播随下，等它等于要等到
+            // 快播完），直接经本地代理按区间读取——边下边识别，且不重复下载
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                Log.d(TAG, "自动生成字幕（网络渐进，按区间读取）: " + url);
+                startProgressiveAsr(new com.orange.playerlibrary.speech.HttpBlockAudioSource(
+                        mContext, url, mVideoView != null ? mVideoView.getVideoHeaders() : null,
+                        mVideoView != null ? mVideoView.getDuration() : 0), url);
+                return true;
+            }
+            Log.d(TAG, "自动生成字幕：无本地文件且非网络地址，无法识别: " + url);
+            return false;
+        }
+
+        // 完整识别需要本地文件
+        if (local == null) {
+            Log.d(TAG, "自动生成字幕：当前视频尚未缓存完整，等待播放完成: " + url);
+            return false;
+        }
+        Log.d(TAG, "自动生成字幕（完整版）: " + url);
+        startAsrGenerate(local, false, true);
+        return true;
     }
     
     /**
@@ -3617,8 +3704,15 @@ public class VideoEventManager {
             android.widget.Switch asrAutoSwitch = dialogView.findViewById(R.id.asr_auto_switch);
             if (asrAutoSwitch != null) {
                 asrAutoSwitch.setChecked(mSettingsManager.isAsrAutoEnabled());
-                asrAutoSwitch.setOnCheckedChangeListener((buttonView, isChecked) ->
-                        mSettingsManager.setAsrAutoEnabled(isChecked));
+                asrAutoSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    mSettingsManager.setAsrAutoEnabled(isChecked);
+                    if (isChecked) {
+                        // 拨开即对当前视频生效，与「边看边识别」开关行为一致。
+                        // 光存 pref 不够：自动触发只认后续的播放状态变化，当前这集
+                        // 不会有状态变化，要等到换集才生效（看起来像开关失灵）
+                        startAsrForCurrentVideoNow();
+                    }
+                });
             }
             android.widget.Switch asrTranslateSwitch =
                     dialogView.findViewById(R.id.asr_translate_switch);
@@ -3659,7 +3753,7 @@ public class VideoEventManager {
                                 dialog.dismiss();
                                 startAsrGenerateUi();
                             }));
-                } else if (mIsAsrGenerating) {
+                } else if (sIsAsrGenerating) {
                     if (asrStatus != null) {
                         asrStatus.setText("语音字幕生成中...");
                         asrStatus.setTextColor(0xFF4CAF50);
@@ -4378,18 +4472,23 @@ public class VideoEventManager {
     private static com.orange.playerlibrary.ai.ProgressiveTranslator sProgressiveTranslator;
 
     /**
-     * 按设置启用渐进翻译：识别出的字幕逐批翻成 AI 设置中的目标语言。
-     * 未配置 API Key 时传 null 配置 → 调度器走本地 MLKit 兜底。
+     * 按设置启用识别后翻译：识别出的字幕翻成 AI 设置中的目标语言。
+     * 未配置 API Key 或选了「仅本地」时传 null 配置 → 调度器走本地 MLKit 兜底。
+     *
+     * 渐进识别（逐块 submit）与完整识别（整片 submit(0, ...)）共用本入口。
+     *
+     * @param videoKey 视频标识（翻译缓存键，两条链路互相复用译文）
+     * @return true=已配置好翻译会话，调用方可直接 submit
      */
-    private void startProgressiveTranslationIfEnabled(String owningUrl) {
+    private boolean startAsrTranslationIfEnabled(String videoKey) {
         if (!mSettingsManager.isAsrAutoTranslateEnabled()) {
             stopProgressiveTranslation();
-            return;
+            return false;
         }
         final String targetLang = mSettingsManager.getAiTargetLang();
         if (targetLang == null || targetLang.trim().isEmpty()) {
             showToast("已开启识别后翻译，但未设置目标语言（AI 设置）");
-            return;
+            return false;
         }
         if (sProgressiveTranslator == null) {
             sProgressiveTranslator = new com.orange.playerlibrary.ai.ProgressiveTranslator(mContext);
@@ -4398,7 +4497,13 @@ public class VideoEventManager {
         if (aiSettings == null) {
             Log.d(TAG, "未配置 AI Key，识别后翻译使用本地兜底");
         }
-        sProgressiveTranslator.configure(owningUrl, "auto", targetLang, aiSettings,
+        // 初始源语言取 AI 设置里的值（ASR 检测到语种后会被覆盖）：
+        // 传 "auto" 会让本地兜底在引擎未回报语种时因源语言未知而整片不译。
+        // 必须转成语言码——设置里存的是「英语」这类显示名，MLKit 只认 "en"
+        String sourceCode = com.orange.playerlibrary.ai.ProgressiveTranslator
+                .mapToMlKitCode(mSettingsManager.getAiSourceLang());
+        sProgressiveTranslator.configure(videoKey, sourceCode,
+                targetLang, aiSettings,
                 new com.orange.playerlibrary.ai.ProgressiveTranslator.Callback() {
                     @Override
                     public void onTranslated(final int startIdx, final String[] translated) {
@@ -4416,6 +4521,7 @@ public class VideoEventManager {
                         Log.d(TAG, "渐进翻译: " + message);
                     }
                 });
+        return true;
     }
 
     private void stopProgressiveTranslation() {
@@ -4467,14 +4573,19 @@ public class VideoEventManager {
 
     // ===== AI 语音生成字幕（离线 ASR）=====
 
-    private volatile boolean mIsAsrGenerating = false;
+    /**
+     * 完整识别进行中（进程级）：播放器有多个 VideoEventManager 实例
+     * （controller / error view 各自注册状态监听），实例字段挡不住另一个实例
+     * 同时发起第二次完整识别。
+     */
+    private static volatile boolean sIsAsrGenerating = false;
 
     /**
      * 字幕面板"AI 语音生成字幕"入口。
      * 无视频文件时弹系统文件选择器选视频。
      */
     private void startAsrGenerateUi() {
-        if (mIsAsrGenerating || sProgressiveAsr != null) {
+        if (sIsAsrGenerating || sProgressiveAsr != null) {
             showToast("语音字幕生成已在运行");
             return;
         }
@@ -4636,7 +4747,7 @@ public class VideoEventManager {
      * @param background true=自动触发的后台下载，用悬浮环展示进度（不弹对话框、不遮挡画面）
      */
     private void downloadHlsAndGenerate(final String m3u8Url, final boolean background) {
-        if (mIsAsrGenerating || sProgressiveAsr != null) {
+        if (sIsAsrGenerating || sProgressiveAsr != null) {
             showToast("字幕生成已在运行");
             return;
         }
@@ -4730,7 +4841,7 @@ public class VideoEventManager {
      */
     private void startAsrGenerate(final java.io.File videoFile, final boolean deleteSourceAfter,
                                   final boolean floating) {
-        if (mIsAsrGenerating || sProgressiveAsr != null) {
+        if (sIsAsrGenerating || sProgressiveAsr != null) {
             showToast("语音字幕生成已在运行");
             cleanupAsrTempFile(videoFile, deleteSourceAfter);
             return;
@@ -4749,7 +4860,26 @@ public class VideoEventManager {
             return;
         }
 
-        mIsAsrGenerating = true;
+        // 识别结果缓存：整片识别过则直接加载（含翻译），不再重跑一遍
+        final String cacheKey = asrCacheKeyFor(videoFile);
+        java.io.File cachedSrt =
+                com.orange.playerlibrary.speech.AsrSubtitleCache.fullSrtFile(mContext, cacheKey);
+        if (cachedSrt != null) {
+            Log.d(TAG, "命中整片 ASR 缓存，跳过识别: " + cacheKey);
+            cleanupAsrTempFile(videoFile, deleteSourceAfter);
+            if (floating) {
+                dismissAsrRing();
+            }
+            java.util.List<com.orange.playerlibrary.subtitle.SubtitleEntry> entries =
+                    parseAsrEntries(cachedSrt);
+            // 走 loadAsrSrtToController（整表替换）而不是 appendSubtitles：
+            // 后者的归属校验会用播放源 URL 比对，而 cacheKey 可能是文件选择器
+            // 挑来的任意文件路径，比对不过会把整批字幕丢掉
+            loadAsrSrtToController(cachedSrt, entries.size(), entries, cacheKey);
+            return;
+        }
+
+        sIsAsrGenerating = true;
         final android.app.ProgressDialog progress;
         if (floating) {
             progress = null;
@@ -4762,7 +4892,7 @@ public class VideoEventManager {
             progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
             progress.setMax(100);
             progress.setCanceledOnTouchOutside(false);
-            progress.setOnCancelListener(d -> mIsAsrGenerating = false);   // 取消仅停 UI，生成线程尽力完成
+            progress.setOnCancelListener(d -> sIsAsrGenerating = false);   // 取消仅停 UI，生成线程尽力完成
             progress.show();
         }
 
@@ -4794,10 +4924,17 @@ public class VideoEventManager {
                                 dismissAsrRing();
                             }
                             if (srtFile != null) {
-                                loadAsrSrtToController(srtFile, subtitleCount);
+                                // 完整识别没有「块」概念，一次就是整片：直接落整片缓存
+                                java.util.List<com.orange.playerlibrary.subtitle.SubtitleEntry> entries =
+                                        parseAsrEntries(srtFile);
+                                if (!entries.isEmpty()) {
+                                    com.orange.playerlibrary.speech.AsrSubtitleCache
+                                            .saveFull(mContext, cacheKey, entries);
+                                }
+                                loadAsrSrtToController(srtFile, subtitleCount, entries, cacheKey);
                             }
                             cleanupAsrTempFile(videoFile, deleteSourceAfter);
-                            mIsAsrGenerating = false;
+                            sIsAsrGenerating = false;
                         });
                     }
 
@@ -4814,7 +4951,7 @@ public class VideoEventManager {
                             }
                             showToast("语音字幕失败: " + message);
                             cleanupAsrTempFile(videoFile, deleteSourceAfter);
-                            mIsAsrGenerating = false;
+                            sIsAsrGenerating = false;
                         });
                     }
                 }, () -> false);
@@ -4851,6 +4988,7 @@ public class VideoEventManager {
         if (sAsrRing != null) {
             sAsrRing.dismiss();
             sAsrRing = null;
+            Log.d(TAG, "ASR 悬浮环已移除");
         }
     }
 
@@ -5003,7 +5141,7 @@ public class VideoEventManager {
                                      final String label) {
         // 本会话归属的视频源（启动时快照）：换视频后在途结果据此被丢弃
         final String owningUrl = mVideoView != null ? mVideoView.getUrl() : null;
-        if (mIsAsrGenerating) {
+        if (sIsAsrGenerating) {
             showToast("语音字幕生成已在运行");
             return;
         }
@@ -5013,42 +5151,29 @@ public class VideoEventManager {
             return;
         }
         stopProgressiveAsr();
+
+        // 识别结果缓存：整片识别过则直接加载，连会话都不必起
+        com.orange.playerlibrary.speech.AsrSubtitleCache.Snapshot cached =
+                com.orange.playerlibrary.speech.AsrSubtitleCache.load(mContext, owningUrl);
+        if (cached != null && cached.isComplete()) {
+            Log.d(TAG, "命中整片 ASR 缓存，跳过识别: " + label);
+            startAsrTranslationIfEnabled(owningUrl);
+            appendAsrEntries(cached.getEntries(), owningUrl);
+            return;
+        }
+
         final long durationMs = mVideoView != null ? mVideoView.getDuration() : 0;
-        startProgressiveTranslationIfEnabled(owningUrl);
+        startAsrTranslationIfEnabled(owningUrl);
         sProgressiveAsr = new com.orange.playerlibrary.speech.ProgressiveAsrSession(
                 mContext, source, "auto", durationMs,
                 new com.orange.playerlibrary.speech.ProgressiveAsrSession.Callback() {
                     @Override
-                    public void onBlockReady(final java.util.List<com.orange.playerlibrary.subtitle.SubtitleEntry> entries) {
-                        mActivity.runOnUiThread(() -> {
-                            if (mController == null || mController.getSubtitleManager() == null) {
-                                return;
-                            }
-                            com.orange.playerlibrary.subtitle.SubtitleManager sm =
-                                    mController.getSubtitleManager();
-                            if (!sProgressiveSubtitleShown) {
-                                sProgressiveSubtitleShown = true;
-                                sm.show();
-                                mController.startSubtitle();
-                            }
-                            // 边识别边翻译：用真实写入下标提交（列表可能被整表替换/清空，
-                            // 计数器推断的下标会把译文回写到别的条目上）
-                            sm.appendSubtitles(entries, owningUrl,
-                                    new com.orange.playerlibrary.subtitle.SubtitleManager.AppendCallback() {
-                                        @Override
-                                        public void onAppended(int startIdx) {
-                                            if (sProgressiveTranslator != null) {
-                                                sProgressiveTranslator.submit(startIdx, entries);
-                                            }
-                                        }
-
-                                        @Override
-                                        public void onDiscarded() {
-                                            // 本批被丢弃（换源/会话切换），不提交翻译，
-                                            // 翻译侧下标与列表保持一致
-                                        }
-                                    });
-                        });
+                    public void onBlockReady(final long blockStartMs,
+                                             final java.util.List<com.orange.playerlibrary.subtitle.SubtitleEntry> entries) {
+                        // 先落盘再显示：块已完成的事实必须持久化，否则换集后重看要重识别
+                        com.orange.playerlibrary.speech.AsrSubtitleCache
+                                .appendBlock(mContext, owningUrl, blockStartMs, entries);
+                        appendAsrEntries(entries, owningUrl);
                     }
 
                     @Override
@@ -5069,6 +5194,14 @@ public class VideoEventManager {
                     }
 
                     @Override
+                    public void onCompleted() {
+                        // 全片识别完毕：增量缓存提升为整片缓存，下次重看直接加载
+                        com.orange.playerlibrary.speech.AsrSubtitleCache
+                                .promoteToFull(mContext, owningUrl);
+                        mActivity.runOnUiThread(VideoEventManager.this::dismissAsrRing);
+                    }
+
+                    @Override
                     public void onError(final int code, final String message) {
                         mActivity.runOnUiThread(() -> {
                             dismissAsrRing();
@@ -5076,6 +5209,11 @@ public class VideoEventManager {
                         });
                     }
                 });
+        if (cached != null) {
+            // 上次只识别了一部分：预填已识别块，本轮只补缺失段
+            sProgressiveAsr.seedDoneBlocks(cached.getDoneBlocks());
+            appendAsrEntries(cached.getEntries(), owningUrl);
+        }
         sProgressiveAsr.start();
         // 用当前播放位置初始化，避免从 0 开始识别已播过的块
         if (mVideoView != null) {
@@ -5085,6 +5223,47 @@ public class VideoEventManager {
         updateAsrRing(0, "边看边识别");
         startAsrProgressTicker();
         Log.d(TAG, "渐进 ASR 已启动: " + label);
+    }
+
+    /**
+     * 把一批 ASR 条目注入字幕列表，并按需提交渐进翻译。
+     *
+     * 渐进识别、缓存命中、完整识别三条链路共用：字幕下标可能被整表替换/清空，
+     * 必须用 {@code AppendCallback} 回传的**实际写入下标**提交翻译。
+     */
+    private void appendAsrEntries(
+            final java.util.List<com.orange.playerlibrary.subtitle.SubtitleEntry> entries,
+            final String owningUrl) {
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+        mActivity.runOnUiThread(() -> {
+            if (mController == null || mController.getSubtitleManager() == null) {
+                return;
+            }
+            com.orange.playerlibrary.subtitle.SubtitleManager sm =
+                    mController.getSubtitleManager();
+            if (!sProgressiveSubtitleShown) {
+                sProgressiveSubtitleShown = true;
+                sm.show();
+                mController.startSubtitle();
+            }
+            sm.appendSubtitles(entries, owningUrl,
+                    new com.orange.playerlibrary.subtitle.SubtitleManager.AppendCallback() {
+                        @Override
+                        public void onAppended(int startIdx) {
+                            if (sProgressiveTranslator != null) {
+                                sProgressiveTranslator.submit(startIdx, entries);
+                            }
+                        }
+
+                        @Override
+                        public void onDiscarded() {
+                            // 本批被丢弃（换源/会话切换），不提交翻译，
+                            // 翻译侧下标与列表保持一致
+                        }
+                    });
+        });
     }
 
     /** 每秒把播放位置喂给渐进会话（会话按位置决定下一块） */
@@ -5139,8 +5318,16 @@ public class VideoEventManager {
         }
     }
 
-    /** 把 ASR 生成的 srt 注入当前播放器 SubtitleManager 并启用显示 */
-    private void loadAsrSrtToController(java.io.File srtFile, int subtitleCount) {
+    /**
+     * 把 ASR 生成的 srt 注入当前播放器 SubtitleManager 并启用显示。
+     *
+     * @param entries  同一份字幕的条目；非空且开启「识别后自动翻译」时，在字幕
+     *                 就位后提交整片翻译（下标从 0 起——这里走的是整表替换）
+     * @param videoKey 翻译缓存键（与渐进链路一致，两条链路的译文互相复用）
+     */
+    private void loadAsrSrtToController(java.io.File srtFile, int subtitleCount,
+                                        final java.util.List<com.orange.playerlibrary.subtitle.SubtitleEntry> entries,
+                                        final String videoKey) {
         if (mController == null || mController.getSubtitleManager() == null) {
             showToast("播放器未就绪，字幕已保存到: " + srtFile.getAbsolutePath());
             return;
@@ -5157,6 +5344,14 @@ public class VideoEventManager {
                     }
                     mSettingsManager.setSubtitleEnabled(true);
                     showToast("语音字幕已生成: " + count + " 条");
+                    // 字幕就位后再提交翻译：早于 loadSubtitle 完成时列表还是空的，
+                    // 译文回写会因下标越界被丢弃
+                    if (entries != null && !entries.isEmpty()
+                            && startAsrTranslationIfEnabled(videoKey)) {
+                        if (sProgressiveTranslator != null) {
+                            sProgressiveTranslator.submit(0, entries);
+                        }
+                    }
                 });
             }
 
@@ -5165,6 +5360,36 @@ public class VideoEventManager {
                 mActivity.runOnUiThread(() -> showToast("字幕加载失败: " + error));
             }
         });
+    }
+
+    /** 解析 ASR 产物 srt 为字幕条目；失败返回空列表（调用方据此跳过缓存/翻译） */
+    private java.util.List<com.orange.playerlibrary.subtitle.SubtitleEntry> parseAsrEntries(
+            java.io.File srtFile) {
+        try {
+            return com.orange.playerlibrary.speech.AsrSubtitleCache.parseSrt(srtFile);
+        } catch (Throwable t) {
+            Log.w(TAG, "解析 ASR 字幕失败", t);
+            return new java.util.ArrayList<>();
+        }
+    }
+
+    /**
+     * ASR 缓存键：识别对象就是当前播放源时用 URL（跨会话、跨临时文件稳定），
+     * 否则退回文件路径——用户从文件选择器挑的任意视频与当前播放源无关，
+     * 用 URL 做键会把它的识别结果错误地挂到当前视频名下。
+     */
+    private String asrCacheKeyFor(java.io.File videoFile) {
+        String url = mVideoView != null ? mVideoView.getUrl() : null;
+        if (url != null && !url.isEmpty()) {
+            if (isM3u8Url(url)) {
+                return url;   // HLS 的临时下载文件名随机，只能按 URL 归属
+            }
+            java.io.File current = resolveLocalVideoFileForAsr();
+            if (current != null && current.equals(videoFile)) {
+                return url;
+            }
+        }
+        return videoFile != null ? videoFile.getAbsolutePath() : null;
     }
 
     /**

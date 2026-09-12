@@ -17,12 +17,13 @@ import java.util.Map;
 public class ExternalProxyCacheManager extends ProxyCacheManager {
     
     private static final String TAG = "ExternalProxyCacheManager";
-    
+
     // 静态缓存目录，供CacheFactory创建实例时使用
     private static File sCacheDirectory;
-    
-    private HttpProxyCacheServer proxyCacheServer;
-    
+
+    /** 进程级代理服务器：播放器与 ASR 共用同一份缓存（见 getProxyUrl） */
+    private static volatile HttpProxyCacheServer sProxyCacheServer;
+
     /**
      * 静态设置缓存目录（在CacheFactory创建实例前调用）
      */
@@ -30,11 +31,11 @@ public class ExternalProxyCacheManager extends ProxyCacheManager {
         sCacheDirectory = cacheDirectory;
         Log.d(TAG, "Static cache directory set: " + (cacheDirectory != null ? cacheDirectory.getAbsolutePath() : "null"));
     }
-    
+
     /**
      * 获取缓存目录
      */
-    private File getCacheDirectory(Context context) {
+    private static File getCacheDirectory(Context context) {
         if (sCacheDirectory != null) {
             return sCacheDirectory;
         }
@@ -46,21 +47,53 @@ public class ExternalProxyCacheManager extends ProxyCacheManager {
         }
         return videoCacheDir;
     }
-    
+
     /**
-     * 获取或创建代理缓存服务器
+     * 获取或创建代理缓存服务器（进程级单例）。
+     *
+     * 必须是单例：ASR 的「按区间读取」要经这个代理读同一份缓存
+     * （{@link #getProxyUrl}），两个实例各起一个服务端会变成两份缓存、
+     * 且同一目录并发写入。
      */
-    private HttpProxyCacheServer getProxyCacheServer(Context context) {
-        if (proxyCacheServer == null) {
-            File cacheDir = getCacheDirectory(context);
-            proxyCacheServer = new HttpProxyCacheServer.Builder(context.getApplicationContext())
-                .cacheDirectory(cacheDir)
-                .maxCacheSize(1024 * 1024 * 1024)  // 1GB
-                .maxCacheFilesCount(50)
-                .build();
-            Log.d(TAG, "HttpProxyCacheServer created with cacheDir=" + cacheDir.getAbsolutePath());
+    private static HttpProxyCacheServer getProxyCacheServer(Context context) {
+        HttpProxyCacheServer server = sProxyCacheServer;
+        if (server == null) {
+            synchronized (ExternalProxyCacheManager.class) {
+                server = sProxyCacheServer;
+                if (server == null) {
+                    File cacheDir = getCacheDirectory(context);
+                    server = new HttpProxyCacheServer.Builder(context.getApplicationContext())
+                        .cacheDirectory(cacheDir)
+                        .maxCacheSize(1024 * 1024 * 1024)  // 1GB
+                        .maxCacheFilesCount(50)
+                        .build();
+                    sProxyCacheServer = server;
+                    Log.d(TAG, "HttpProxyCacheServer created with cacheDir=" + cacheDir.getAbsolutePath());
+                }
+            }
         }
-        return proxyCacheServer;
+        return server;
+    }
+
+    /**
+     * 取某个网络视频的本地代理 URL（null=代理不可用/非网络地址）。
+     *
+     * 供 ASR 复用播放器的 danikula 缓存：已缓存的分片直接返回，缺失的按 Range
+     * 向源站补下，因此不必等整片缓存完就能识别。
+     */
+    public static String getProxyUrl(Context context, String url) {
+        if (context == null || url == null || url.isEmpty()) {
+            return null;
+        }
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return null;
+        }
+        try {
+            return getProxyCacheServer(context).getProxyUrl(url);
+        } catch (Throwable t) {
+            Log.w(TAG, "取代理 URL 失败", t);
+            return null;
+        }
     }
     
     @Override
