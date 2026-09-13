@@ -6054,7 +6054,7 @@ public class VideoEventManager {
 
         for (int i = 0; i < bundleIds.length; i++) {
             final String bundleId = bundleIds[i];
-            final android.widget.Button btn = dialogView.findViewById(rowIds[i]);
+            final android.widget.TextView btn = dialogView.findViewById(rowIds[i]);
             final android.widget.TextView status = dialogView.findViewById(statusIds[i]);
             if (btn == null) {
                 continue;
@@ -6076,7 +6076,7 @@ public class VideoEventManager {
 
     /** 单个组件行的状态绑定与下载按钮（紧凑单行：左状态、右小按钮） */
     private void bindBundleRow(final AlertDialog dialog, final String bundleId,
-                               final android.widget.Button btn,
+                               final android.widget.TextView btn,
                                final android.widget.TextView status) {
         final com.orange.playerlibrary.tool.NativeLibManager.BundleInfo info =
                 com.orange.playerlibrary.tool.NativeLibManager.getBundle(bundleId);
@@ -6092,7 +6092,9 @@ public class VideoEventManager {
                 status.setTextColor(0xFFFF6B6B);
             }
             btn.setText("不可用");
-            btn.setEnabled(false);
+            // TextView 的 setEnabled(false) 不改外观，需显式降透明度
+            btn.setAlpha(0.4f);
+            btn.setOnClickListener(null);
             btn.setBackgroundResource(R.drawable.btn_bundle_delete_bg);
             return;
         }
@@ -6103,7 +6105,7 @@ public class VideoEventManager {
                 status.setTextColor(0xFF4CAF50);
             }
             btn.setText("删除");
-            btn.setEnabled(true);
+            btn.setAlpha(1f);
             // 删除是破坏性操作，用弱化描边样式，不与「下载」抢注意力
             btn.setBackgroundResource(R.drawable.btn_bundle_delete_bg);
             btn.setOnClickListener(v -> {
@@ -6131,7 +6133,7 @@ public class VideoEventManager {
         }
         // 体积已在上方状态行给出，按钮只留动作词，避免窄按钮里塞长文案
         btn.setText("下载");
-        btn.setEnabled(true);
+        btn.setAlpha(1f);
         btn.setBackgroundResource(R.drawable.btn_bundle_action_bg);
         btn.setOnClickListener(v -> startBundleDownload(dialog, bundleId, btn, status));
     }
@@ -6147,9 +6149,11 @@ public class VideoEventManager {
 
     /** 下载并安装单个组件，进度写入该行状态文本 */
     private void startBundleDownload(final AlertDialog dialog, final String bundleId,
-                                     final android.widget.Button btn,
+                                     final android.widget.TextView btn,
                                      final android.widget.TextView status) {
-        btn.setEnabled(false);
+        // TextView 无 enabled 视觉反馈，且置 false 仍会收点击，故清监听 + 降透明度
+        btn.setOnClickListener(null);
+        btn.setAlpha(0.6f);
         btn.setText("下载中…");
         if (status != null) {
             status.setText("准备下载…");
@@ -6192,8 +6196,10 @@ public class VideoEventManager {
                                 status.setTextColor(0xFFFF6B6B);
                             }
                             btn.setText("重试");
-                            btn.setEnabled(true);
+                            btn.setAlpha(1f);
                             btn.setBackgroundResource(R.drawable.btn_bundle_action_bg);
+                            btn.setOnClickListener(v ->
+                                    startBundleDownload(dialog, bundleId, btn, status));
                         });
                     }
                 });

@@ -779,7 +779,7 @@
                                 android:ellipsize="end" />
                         </LinearLayout>
 
-                        <Button
+                        <TextView
                             android:id="@+id/btn_setup_native_libs"
                             style="@style/BundleRowButton"
                             android:text="管理" />

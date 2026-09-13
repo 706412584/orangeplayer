@@ -102,7 +102,11 @@
         <item name="android:ellipsize">end</item>
     </style>
 
-    <!-- 行内小按钮：固定最小宽度，避免「下载(11.0MB)」与「删除」宽度差异过大 -->
+    <!-- 行内小按钮：固定最小宽度，避免「下载」与「删除」宽度差异过大。
+         用 TextView 而非 Button：宿主是 Material3 主题，Button 会被替换成
+         MaterialButton，自带 6dp 上下 inset 与较大的垂直 padding，压到 32dp
+         会把 12sp 文字裁掉上半（真机实测）。TextView + gravity=center 无此问题，
+         与 setup_dialog 里播放核心按钮（alihx 等）的写法一致。 -->
     <style name="BundleRowButton">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">32dp</item>
@@ -112,6 +116,9 @@
         <item name="android:layout_marginStart">8dp</item>
         <item name="android:textColor">@color/op_text_primary</item>
         <item name="android:textSize">12sp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
         <item name="android:background">@drawable/btn_bundle_action_bg</item>
     </style>
 

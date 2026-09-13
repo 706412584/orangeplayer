@@ -67,7 +67,7 @@
                         <TextView style="@style/BundleRowName" android:text="种子播放" />
                         <TextView android:id="@+id/tv_bundle_torrent_status" style="@style/BundleRowStatus" />
                     </LinearLayout>
-                    <Button android:id="@+id/btn_bundle_torrent" style="@style/BundleRowButton" />
+                    <TextView android:id="@+id/btn_bundle_torrent" style="@style/BundleRowButton" />
                 </LinearLayout>
 
                 <View style="@style/BundleRowDivider" />
@@ -78,7 +78,7 @@
                         <TextView style="@style/BundleRowName" android:text="语音识别" />
                         <TextView android:id="@+id/tv_bundle_asr_status" style="@style/BundleRowStatus" />
                     </LinearLayout>
-                    <Button android:id="@+id/btn_bundle_asr" style="@style/BundleRowButton" />
+                    <TextView android:id="@+id/btn_bundle_asr" style="@style/BundleRowButton" />
                 </LinearLayout>
 
                 <View style="@style/BundleRowDivider" />
@@ -89,7 +89,7 @@
                         <TextView style="@style/BundleRowName" android:text="文字识别" />
                         <TextView android:id="@+id/tv_bundle_ocr_status" style="@style/BundleRowStatus" />
                     </LinearLayout>
-                    <Button android:id="@+id/btn_bundle_ocr" style="@style/BundleRowButton" />
+                    <TextView android:id="@+id/btn_bundle_ocr" style="@style/BundleRowButton" />
                 </LinearLayout>
 
                 <View style="@style/BundleRowDivider" />
@@ -100,7 +100,7 @@
                         <TextView style="@style/BundleRowName" android:text="翻译" />
                         <TextView android:id="@+id/tv_bundle_translate_status" style="@style/BundleRowStatus" />
                     </LinearLayout>
-                    <Button android:id="@+id/btn_bundle_translate" style="@style/BundleRowButton" />
+                    <TextView android:id="@+id/btn_bundle_translate" style="@style/BundleRowButton" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -139,7 +139,7 @@
                         <TextView style="@style/BundleRowName" android:text="IJK 内核" />
                         <TextView android:id="@+id/tv_bundle_ijk_status" style="@style/BundleRowStatus" />
                     </LinearLayout>
-                    <Button android:id="@+id/btn_bundle_ijk" style="@style/BundleRowButton" />
+                    <TextView android:id="@+id/btn_bundle_ijk" style="@style/BundleRowButton" />
                 </LinearLayout>
 
                 <View style="@style/BundleRowDivider" />
@@ -150,7 +150,7 @@
                         <TextView style="@style/BundleRowName" android:text="阿里云内核" />
                         <TextView android:id="@+id/tv_bundle_ali_status" style="@style/BundleRowStatus" />
                     </LinearLayout>
-                    <Button android:id="@+id/btn_bundle_ali" style="@style/BundleRowButton" />
+                    <TextView android:id="@+id/btn_bundle_ali" style="@style/BundleRowButton" />
                 </LinearLayout>
 
                 <View style="@style/BundleRowDivider" />
@@ -161,7 +161,7 @@
                         <TextView style="@style/BundleRowName" android:text="MPV 内核" />
                         <TextView android:id="@+id/tv_bundle_mpv_status" style="@style/BundleRowStatus" />
                     </LinearLayout>
-                    <Button android:id="@+id/btn_bundle_mpv" style="@style/BundleRowButton" />
+                    <TextView android:id="@+id/btn_bundle_mpv" style="@style/BundleRowButton" />
                 </LinearLayout>
 
                 <View style="@style/BundleRowDivider" />
@@ -172,7 +172,7 @@
                         <TextView style="@style/BundleRowName" android:text="FFmpeg 合并" />
                         <TextView android:id="@+id/tv_bundle_ffmpeg_status" style="@style/BundleRowStatus" />
                     </LinearLayout>
-                    <Button android:id="@+id/btn_bundle_ffmpeg" style="@style/BundleRowButton" />
+                    <TextView android:id="@+id/btn_bundle_ffmpeg" style="@style/BundleRowButton" />
                 </LinearLayout>
             </LinearLayout>
 
