@@ -43,7 +43,8 @@ ABIS = ['arm64-v8a', 'armeabi-v7a']
 # 与 app/build.gradle 的依赖版本一致；升级依赖必须同步改这里与 NativeLibManager 常量
 REMOTE = {
     'sherpa': 'https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-1.13.7.aar',
-    'tess': 'https://repo1.maven.org/maven2/cz/adaptech/tesseract4android/'
+    # jitpack 托管（Maven Central 上无此坐标，实测 404）
+    'tess': 'https://jitpack.io/cz/adaptech/tesseract4android/'
             'tesseract4android/4.7.0/tesseract4android-4.7.0.aar',
     'mlk': 'https://dl.google.com/dl/android/maven2/com/google/mlkit/'
            'translate/17.0.2/translate-17.0.2.aar',
