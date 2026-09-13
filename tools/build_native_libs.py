@@ -225,6 +225,45 @@ def verify(manifest_path, java_path):
     return errors
 
 
+def check_release(tag, java_path, repo='706412584/orangeplayer'):
+    """校验 GitHub Release 上的资产与 NativeLibManager 常量一致。
+
+    zip 由本地构建后上传（deflate 字节流依赖 zlib 版本，跨环境不可复现，
+    故 CI 不自行构建，只校验已上传的资产）。逐条比对每个资产的
+    size 与 sha256 是否出现在 Java 源码中，返回错误列表。
+    """
+    import urllib.request
+    src = open(java_path, encoding='utf-8').read()
+    api = 'https://api.github.com/repos/%s/releases/tags/%s' % (repo, tag)
+    req = urllib.request.Request(api, headers={'Accept': 'application/vnd.github+json'})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        release = json.load(resp)
+    errors = []
+    seen = set()
+    for asset in release.get('assets', []):
+        name = asset['name']
+        if not name.endswith('.zip'):
+            continue
+        seen.add(name)
+        # 资产在 GitHub 侧记录的 sha256 是 "sha256:<hex>"
+        digest = (asset.get('digest') or '').replace('sha256:', '')
+        size = asset['size']
+        if not digest:
+            errors.append('%s 缺少 sha256（GitHub 未返回 digest）' % name)
+            continue
+        if digest not in src:
+            errors.append('%s sha256 %s 未出现在 NativeLibManager' % (name, digest))
+        if '%dL' % size not in src and '%sL' % format(size, '_d') not in src:
+            errors.append('%s size %d 未出现在 NativeLibManager' % (name, size))
+    # 每个 bundle/abi 都应有一个 zip 资产
+    for bundle in BUNDLES:
+        for abi in ABIS:
+            fname = '%s-%s.zip' % (bundle, abi)
+            if fname not in seen:
+                errors.append('Release %s 缺少资产 %s' % (tag, fname))
+    return errors
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default='build/native-libs')
@@ -233,7 +272,18 @@ def main():
     ap.add_argument('--skip', help='跳过指定 bundle（逗号分隔）')
     ap.add_argument('--verify', metavar='JAVA',
                     help='校验 NativeLibManager 常量与 --out/manifest.json 一致')
+    ap.add_argument('--check-release', metavar='TAG',
+                    help='校验 GitHub Release 上的资产与 NativeLibManager 常量一致（CI 用）')
     args = ap.parse_args()
+
+    if args.check_release:
+        java = args.verify or ('palyerlibrary/src/main/java/com/orange/playerlibrary/'
+                               'tool/NativeLibManager.java')
+        errors = check_release(args.check_release, java)
+        for e in errors:
+            print('MISMATCH: %s' % e)
+        print('check-release %s: %d 处不一致' % (args.check_release, len(errors)))
+        sys.exit(1 if errors else 0)
 
     if args.verify:
         errors = verify(os.path.join(args.out, 'manifest.json'), args.verify)

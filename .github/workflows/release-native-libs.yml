@@ -1,8 +1,17 @@
 name: Release Native Libs
 
-# 按需安装的组件包（torrent / asr / ocr / translate 的 so），与 APK 同 tag 发布为
-# release 资产，由 app 侧 NativeLibManager 运行时下载。
+# 按需安装的组件包（torrent / asr / ocr / translate / ijk / ali / mpv / ffmpeg 的 so），
+# 与 APK 同 tag 发布为 release 资产，由 app 侧 NativeLibManager 运行时下载。
 # 详见 palyerlibrary/.../tool/NativeLibManager.java 与 tools/build_native_libs.py。
+#
+# 为什么 CI 不构建 zip：zip 的 deflate 字节流依赖运行时的 zlib 版本，不同环境
+# （本机 Python 3.13 / runner 的 Python 3.12）产出体积相同但 sha256 不同的包，
+# 而 sha256 是 app 下载后做完整性校验的硬编码常量。故 zip 一律在本地构建、
+# gh release upload 上传，本 workflow 只校验已上传资产与常量一致。
+# 本地构建与上传：
+#   python tools/build_native_libs.py
+#   python tools/build_native_libs.py --verify palyerlibrary/.../NativeLibManager.java
+#   gh release upload vX.Y.Z build/native-libs/*.zip --clobber
 
 on:
   push:
@@ -15,7 +24,7 @@ permissions:
   contents: write
 
 jobs:
-  build-native-libs:
+  verify-native-libs:
     runs-on: ubuntu-latest
 
     steps:
@@ -36,32 +45,17 @@ jobs:
             exit 1
           fi
 
-      - name: Build component zips
-        # --fetch 直连官方源取源工件（版本在脚本里 pin，与 app/build.gradle 一致），
-        # 不依赖 Gradle 缓存；产物是可复现的（zip 内时间戳固定为 2024-01-01）。
-        run: python3 tools/build_native_libs.py --fetch --out build/native-libs
-
-      - name: Verify NativeLibManager constants match the built zips
-        # 体积/sha256 是硬编码常量，换包必须同步更新；不一致则下载后哈希校验必然失败。
-        run: |
-          python3 tools/build_native_libs.py --verify \
-            palyerlibrary/src/main/java/com/orange/playerlibrary/tool/NativeLibManager.java
-
-      - name: Show manifest
-        run: |
-          cat build/native-libs/manifest.json
-          ls -lh build/native-libs/*.zip
-
-      - name: Upload zips to artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-libs
-          path: build/native-libs/*.zip
-
-      - name: Upload to GitHub Release
+      - name: Verify release assets match NativeLibManager constants
+        # 资产 sha256/size 是硬编码常量，不一致则用户下载后哈希校验必然失败。
+        # 资产由本地构建后上传（见文件头说明）。
         if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: build/native-libs/*.zip
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 tools/build_native_libs.py --check-release "${GITHUB_REF_NAME}"
+
+      - name: List release assets
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view "${GITHUB_REF_NAME}" --json assets -q '.assets[] | "\(.name)  \(.size)"'
