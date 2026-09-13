@@ -379,6 +379,33 @@
                     android:background="@drawable/btn_subtitle_bg" />
             </LinearLayout>
 
+            <!-- 分隔线 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp" />
+
+            <!-- 扩展包管理：按需下载的 native 组件（种子/语音/文字识别/翻译） -->
+            <TextView
+                android:id="@+id/tv_native_libs_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="扩展包"
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btn_native_libs"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="扩展包管理"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
         </LinearLayout>
     </ScrollView>
 </FrameLayout>

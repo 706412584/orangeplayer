@@ -2,6 +2,7 @@ package com.orange.playerlibrary;
 
 import android.app.Dialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Handler;
@@ -63,6 +64,20 @@ public class DownloadProgressDialog {
     }
 
     /**
+     * 允许用返回键取消（点击外部始终不取消：弹窗压在视频上，误触会打断任务）。
+     * 默认不可取消。
+     *
+     * @param onCancel 取消回调；取消只关 UI，后台任务仍会跑完（调用方自行决定语义）
+     */
+    public void setCancelable(boolean cancelable, DialogInterface.OnCancelListener onCancel) {
+        if (mDialog == null) {
+            return;
+        }
+        mDialog.setCancelable(cancelable);
+        mDialog.setOnCancelListener(onCancel);
+    }
+
+    /**
      * 显示对话框，使用真实进度
      */
     public void showWithRealProgress(String title) {
@@ -86,6 +101,11 @@ public class DownloadProgressDialog {
     public void setProgress(int progress) {
         mCurrentProgress = progress;
         updateProgress(progress);
+    }
+
+    /** 当前进度百分比（调用方只需改状态文字时用） */
+    public int getProgress() {
+        return mCurrentProgress;
     }
 
     /**
@@ -113,9 +133,14 @@ public class DownloadProgressDialog {
      * 完成下载，显示 100% 并关闭
      */
     public void complete() {
+        complete("下载完成");
+    }
+
+    /** 完成并指定提示语（非下载场景，如字幕生成/翻译） */
+    public void complete(String hint) {
         mHandler.post(() -> {
             updateProgress(100);
-            if (mHintText != null) mHintText.setText("下载完成");
+            if (mHintText != null) mHintText.setText(hint);
             mHandler.postDelayed(this::dismiss, 500);
         });
     }
@@ -127,8 +152,13 @@ public class DownloadProgressDialog {
      * 停留 {@link #FAIL_DISPLAY_MS} 让「为什么失败」可见。
      */
     public void fail(String error) {
+        fail("下载失败", error);
+    }
+
+    /** 失败并指定标题（非下载场景） */
+    public void fail(String title, String error) {
         mHandler.post(() -> {
-            if (mTitleText != null) mTitleText.setText("下载失败");
+            if (mTitleText != null) mTitleText.setText(title);
             if (mProgressText != null) mProgressText.setText("!");
             if (mHintText != null && error != null) mHintText.setText(error);
             mHandler.postDelayed(this::dismiss, FAIL_DISPLAY_MS);

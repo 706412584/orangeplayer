@@ -2,6 +2,8 @@ package com.orange.playerlibrary.torrent;
 
 import android.content.Context;
 
+import com.orange.playerlibrary.tool.NativeLibManager;
+
 import org.libtorrent4j.LibTorrent;
 import org.libtorrent4j.SessionManager;
 
@@ -10,6 +12,12 @@ import java.io.File;
 public final class TorrentSupport {
 
     private TorrentSupport() {
+    }
+
+    /** 种子播放组件是否可用（类存在 && so 已按需下载安装） */
+    public static boolean isTorrentPlayable() {
+        return NativeLibManager.isInstalled(NativeLibManager.BUNDLE_TORRENT)
+                && getJlibtorrentMissingReason() == null;
     }
 
     public static boolean isTorrentUrl(String url) {
@@ -61,6 +69,10 @@ public final class TorrentSupport {
     public static String getJlibtorrentMissingReason() {
         if (!isJlibtorrentClassAvailable()) {
             return "libtorrent4j classes not found. Please add dependencies org.libtorrent4j:libtorrent4j and ABI artifacts.";
+        }
+        // so 不再随 APK 分发：未下载时给出可操作的提示，而不是「ABI 不支持」
+        if (!NativeLibManager.isInstalled(NativeLibManager.BUNDLE_TORRENT)) {
+            return "种子播放组件未下载（约 4.3MB），请在「设置 → 扩展包管理」中下载";
         }
         if (!isJlibtorrentNativeAvailable()) {
             return "libtorrent4j native library not available for current ABI. Please add the correct libtorrent4j-android-* artifact.";

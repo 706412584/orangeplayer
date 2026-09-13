@@ -1,0 +1,67 @@
+name: Release Native Libs
+
+# 按需安装的组件包（torrent / asr / ocr / translate 的 so），与 APK 同 tag 发布为
+# release 资产，由 app 侧 NativeLibManager 运行时下载。
+# 详见 palyerlibrary/.../tool/NativeLibManager.java 与 tools/build_native_libs.py。
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '1.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-native-libs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify RELEASE_TAG matches the pushed tag
+        # 组件 URL 是硬编码 tag 的（NativeLibManager.RELEASE_TAG），若与本次 tag
+        # 不一致，app 会去一个不存在的地址下载。这里提前失败，避免发出坏包。
+        if: github.ref_type == 'tag'
+        run: |
+          set -e
+          JAVA=palyerlibrary/src/main/java/com/orange/playerlibrary/tool/NativeLibManager.java
+          JAVA_TAG=$(grep -oP 'RELEASE_TAG\s*=\s*"\K[^"]+' "$JAVA")
+          echo "Java RELEASE_TAG=$JAVA_TAG, pushed tag=${GITHUB_REF_NAME}"
+          if [ "$JAVA_TAG" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::NativeLibManager.RELEASE_TAG ($JAVA_TAG) != tag (${GITHUB_REF_NAME})；请先更新常量再打 tag"
+            exit 1
+          fi
+
+      - name: Build component zips
+        # --fetch 直连官方源取源工件（版本在脚本里 pin，与 app/build.gradle 一致），
+        # 不依赖 Gradle 缓存；产物是可复现的（zip 内时间戳固定为 2024-01-01）。
+        run: python3 tools/build_native_libs.py --fetch --out build/native-libs
+
+      - name: Verify NativeLibManager constants match the built zips
+        # 体积/sha256 是硬编码常量，换包必须同步更新；不一致则下载后哈希校验必然失败。
+        run: |
+          python3 tools/build_native_libs.py --verify \
+            palyerlibrary/src/main/java/com/orange/playerlibrary/tool/NativeLibManager.java
+
+      - name: Show manifest
+        run: |
+          cat build/native-libs/manifest.json
+          ls -lh build/native-libs/*.zip
+
+      - name: Upload zips to artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs
+          path: build/native-libs/*.zip
+
+      - name: Upload to GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: build/native-libs/*.zip
+          fail_on_unmatched_files: true

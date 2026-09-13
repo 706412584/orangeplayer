@@ -22,6 +22,20 @@ public class AiTranslationEngine {
     public interface ProgressListener {
         /** 每成功翻译一批（含缓存命中批次计入）后回调 */
         void onProgress(int translatedCount, int totalCount);
+
+        /**
+         * 一批失败、即将退避重试时回调。
+         *
+         * 存在的理由：网络不可达时 {@code HttpURLConnection} 要等满读超时（默认 30s）
+         * 才抛错，退避后再等一轮，期间 onProgress 一次都不触发。没有这个回调，UI
+         * 只能一直停在 0%，用户无法区分「在工作」和「死了」。
+         *
+         * @param attempt 第几次尝试失败（从 1 开始）
+         * @param maxAttempts 含首次在内的总尝试次数上限
+         * @param message 失败原因
+         */
+        default void onBatchRetry(int attempt, int maxAttempts, String message) {
+        }
     }
 
     public static class Result {
@@ -148,6 +162,10 @@ public class AiTranslationEngine {
                     lastError = e;
                     if (!e.isRetryable() || attempts > settings.getMaxRetries()) {
                         break;
+                    }
+                    if (listener != null) {
+                        listener.onBatchRetry(attempts, settings.getMaxRetries() + 1,
+                                e.getMessage());
                     }
                     sleepBackoff(attempts);
                 }

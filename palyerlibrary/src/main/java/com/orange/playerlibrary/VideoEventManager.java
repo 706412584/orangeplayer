@@ -391,6 +391,9 @@ public class VideoEventManager {
                 case "ocr_settings":
                     showOcrTranslateSettings();
                     break;
+                case "native_libs":
+                    showNativeLibsDialog();
+                    break;
                 default:
                     Log.w(TAG, "未知测试命令: " + command);
             }
@@ -398,10 +401,10 @@ public class VideoEventManager {
             Log.e(TAG, "handleTestCommand(" + command + ") 执行异常", e);
         }
     }
-    
+
     /**
      * 检查是否需要为 OCR 拦截全屏切换
-     * 
+     *
      * @return false - 不再需要拦截（MediaCodecTexture 已修复横竖屏切换问题）
      */
     public boolean shouldInterceptFullscreenForOcr() {
@@ -3585,16 +3588,32 @@ public class VideoEventManager {
                 }
                 
                 if (!ocrAvailable || !translateAvailable) {
-                    // 功能不可用，显示安装提示
-                    if (ocrStatus != null) {
-                        ocrStatus.setText("需要安装额外依赖");
-                        ocrStatus.setTextColor(0xFFFF6B6B);
+                    // 组件未下载：区分「宿主未引依赖」（只能改 gradle）与「按需下载」
+                    boolean ocrSupported = com.orange.playerlibrary.tool.NativeLibManager
+                            .isSupported(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_OCR);
+                    boolean translateSupported = com.orange.playerlibrary.tool.NativeLibManager
+                            .isSupported(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_TRANSLATE);
+                    if (ocrSupported && translateSupported) {
+                        if (ocrStatus != null) {
+                            ocrStatus.setText("需要先下载文字识别与翻译组件");
+                            ocrStatus.setTextColor(0xFFFF8F3F);
+                        }
+                        ((android.widget.Button) btnOcrTranslate).setText("去下载组件");
+                        btnOcrTranslate.setOnClickListener(v -> {
+                            dialog.dismiss();
+                            showNativeLibsDialog();
+                        });
+                    } else {
+                        if (ocrStatus != null) {
+                            ocrStatus.setText("需要安装额外依赖");
+                            ocrStatus.setTextColor(0xFFFF6B6B);
+                        }
+                        ((android.widget.Button) btnOcrTranslate).setText("查看安装说明");
+                        btnOcrTranslate.setOnClickListener(v -> {
+                            dialog.dismiss();
+                            showOcrInstallGuide();
+                        });
                     }
-                    ((android.widget.Button) btnOcrTranslate).setText("查看安装说明");
-                    btnOcrTranslate.setOnClickListener(v -> {
-                        dialog.dismiss();
-                        showOcrInstallGuide();
-                    });
                 } else {
                     // 功能可用
                     if (ocrStatus != null) {
@@ -3735,12 +3754,31 @@ public class VideoEventManager {
                 boolean modelReady = com.orange.playerlibrary.speech.AsrSubtitleGenerator
                         .isModelReady(mContext);
                 if (!sherpaOk) {
-                    if (asrStatus != null) {
-                        asrStatus.setText("未安装 ASR 引擎");
-                        asrStatus.setTextColor(0xFFFF6B6B);
+                    boolean asrSupported = com.orange.playerlibrary.tool.NativeLibManager
+                            .isSupported(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_ASR);
+                    if (asrSupported) {
+                        // 引擎类在，但 so 未下载（组件不再随 APK 分发）
+                        long asrSize = com.orange.playerlibrary.tool.NativeLibManager
+                                .getBundle(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_ASR).size();
+                        if (asrStatus != null) {
+                            asrStatus.setText("语音识别组件未下载（约 "
+                                    + com.orange.playerlibrary.tool.NativeLibManager.formatSize(asrSize)
+                                    + "，支持中/英/日/韩）");
+                            asrStatus.setTextColor(0xFFFF8F3F);
+                        }
+                        ((android.widget.Button) btnAsrGenerate).setText("去下载组件");
+                        btnAsrGenerate.setOnClickListener(v -> {
+                            dialog.dismiss();
+                            showNativeLibsDialog();
+                        });
+                    } else {
+                        if (asrStatus != null) {
+                            asrStatus.setText("未安装 ASR 引擎");
+                            asrStatus.setTextColor(0xFFFF6B6B);
+                        }
+                        btnAsrGenerate.setOnClickListener(v ->
+                                showToast("未安装 ASR 引擎模块"));
                     }
-                    btnAsrGenerate.setOnClickListener(v ->
-                            showToast("未安装 ASR 引擎模块"));
                 } else if (!modelReady) {
                     if (asrStatus != null) {
                         asrStatus.setText("ASR 模型未下载（约 228MB，支持中/英/日/韩）");
@@ -3771,6 +3809,35 @@ public class VideoEventManager {
                         startAsrGenerateUi();
                     });
                 }
+            }
+
+            // 扩展包管理入口：按需下载的 native 组件
+            android.widget.TextView tvNativeLibsStatus =
+                    dialogView.findViewById(R.id.tv_native_libs_status);
+            if (tvNativeLibsStatus != null) {
+                int installed = 0;
+                int supported = 0;
+                for (com.orange.playerlibrary.tool.NativeLibManager.BundleInfo b
+                        : com.orange.playerlibrary.tool.NativeLibManager.getBundles()) {
+                    if (!com.orange.playerlibrary.tool.NativeLibManager.isSupported(b.id)) {
+                        continue;
+                    }
+                    supported++;
+                    if (com.orange.playerlibrary.tool.NativeLibManager.isInstalled(b.id)) {
+                        installed++;
+                    }
+                }
+                tvNativeLibsStatus.setText(supported == 0
+                        ? "本版本未集成扩展组件"
+                        : "扩展包：已安装 " + installed + "/" + supported
+                        + "（种子/语音/文字识别/翻译）");
+            }
+            View btnNativeLibs = dialogView.findViewById(R.id.btn_native_libs);
+            if (btnNativeLibs != null) {
+                btnNativeLibs.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    showNativeLibsDialog();
+                });
             }
 
         } catch (Exception e) {
@@ -3961,6 +4028,9 @@ public class VideoEventManager {
                         && !target.equals(previousTarget == null ? "" : previousTarget.trim());
                 if (langChanged) {
                     retargetProgressiveTranslation(target);
+                    // 没有在途识别会话时（外挂字幕 / ASR 已整片识别完），上面那句
+                    // 直接返回，屏幕上的仍是旧语言译文。此处显式用原文重译。
+                    maybeRetranslateLoadedSubtitles(target);
                 }
                 // 先明确「已保存」，再分别说明两条翻译链路的可用性——
                 // 旧文案只提 AI 未配置，用户会误以为设置没保存成功
@@ -4362,12 +4432,12 @@ public class VideoEventManager {
         }
 
         mIsAiTranslating = true;
-        final android.app.ProgressDialog progress = new android.app.ProgressDialog(mActivity);
-        progress.setMessage("AI 翻译中 0%");
-        progress.setCancelable(false);
-        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
-        progress.setMax(100);
-        progress.show();
+        final DownloadProgressDialog progress = new DownloadProgressDialog(mActivity);
+        // 返回键可取消：网络不通时每批要等满读超时再重试，整片可能数分钟没进度；
+        // 不可取消的话用户只能杀进程。取消仅关弹窗，翻译线程仍会跑完并回写结果。
+        progress.setCancelable(true, null);
+        progress.showWithRealProgress("AI 翻译中",
+                "共 " + snapshot.size() + " 条字幕 · 网络异常会自动重试");
 
         new Thread(() -> {
             try {
@@ -4380,10 +4450,12 @@ public class VideoEventManager {
                                 .build();
 
                 // SubtitleEntry -> SubtitleLine
+                // 取原文而不是 getText()：上一次翻译已把译文覆盖进 text，
+                // 换语言重译时必须回到原文，否则会把「中→英」的英文再拿去译
                 java.util.List<com.orange.playerlibrary.ai.SubtitleLine> lines =
                         new java.util.ArrayList<>();
                 for (int i = 0; i < snapshot.size(); i++) {
-                    String text = snapshot.get(i).getText();
+                    String text = snapshot.get(i).getOriginalText();
                     lines.add(new com.orange.playerlibrary.ai.SubtitleLine(i,
                             text == null ? "" : text.trim()));
                 }
@@ -4402,24 +4474,35 @@ public class VideoEventManager {
 
                 com.orange.playerlibrary.ai.AiTranslationEngine.Result result =
                         engine.translateAll(cacheRoot, cacheKey, lines, settings,
-                                (done, totalCount) -> {
-                                    int pct = totalCount > 0
-                                            ? (int) (done * 100L / totalCount) : 100;
-                                    mActivity.runOnUiThread(() -> {
-                                        if (progress.isShowing()) {
-                                            progress.setProgress(pct);
-                                            progress.setMessage("AI 翻译中 " + pct + "%"
-                                                    + "（" + done + "/" + totalCount + "）");
-                                        }
-                                    });
+                                new com.orange.playerlibrary.ai.AiTranslationEngine.ProgressListener() {
+                                    @Override
+                                    public void onProgress(int done, int totalCount) {
+                                        int pct = totalCount > 0
+                                                ? (int) (done * 100L / totalCount) : 100;
+                                        mActivity.runOnUiThread(() -> {
+                                            if (progress.isShowing()) {
+                                                progress.setProgress(pct, "已完成 "
+                                                        + done + "/" + totalCount + " 条");
+                                            }
+                                        });
+                                    }
+
+                                    @Override
+                                    public void onBatchRetry(int attempt, int maxAttempts,
+                                                             String message) {
+                                        mActivity.runOnUiThread(() -> {
+                                            if (progress.isShowing()) {
+                                                progress.setProgress(progress.getProgress(),
+                                                        "第 " + attempt + "/" + maxAttempts
+                                                                + " 次失败，重试中…");
+                                            }
+                                        });
+                                    }
                                 });
 
                 // 主线程回写：校验字幕未被替换（路径/数量一致才回写）
                 mActivity.runOnUiThread(() -> {
-                    try {
-                        progress.dismiss();
-                    } catch (Exception ignored) {
-                    }
+                    progress.complete("翻译完成");
                     if (subtitleManager.getSubtitleCount() == snapshot.size()
                             && (subtitlePath == null
                             || subtitlePath.equals(subtitleManager.getCurrentSubtitlePath()))) {
@@ -4455,10 +4538,7 @@ public class VideoEventManager {
             } catch (Throwable t) {
                 Log.e(TAG, "AI 翻译失败", t);
                 mActivity.runOnUiThread(() -> {
-                    try {
-                        progress.dismiss();
-                    } catch (Exception ignored) {
-                    }
+                    progress.fail("翻译失败", t.getMessage());
                     showToast("AI 翻译失败: " + t.getMessage());
                     mIsAiTranslating = false;
                 });
@@ -4569,6 +4649,39 @@ public class VideoEventManager {
         sProgressiveTranslator.retarget(
                 mVideoView != null ? mVideoView.getUrl() : null,
                 newTargetLang, buildAiSettings(newTargetLang));
+    }
+
+    /**
+     * 目标语言变更后，对屏幕上已加载的字幕按新语言重译。
+     *
+     * 只在「没有在途渐进识别会话」时兜底：有会话时 {@link #retargetProgressiveTranslation}
+     * 已经接管（它会重译已识别字幕），两条链路都跑会重复请求同一批文本。
+     *
+     * 仅在线引擎可批量重译——本地 MLKit 不提供整片批量翻译（与
+     * {@link #startAiTranslate} 的门禁一致），此时不动屏幕内容，只提示原因，
+     * 避免用户以为设置没生效。
+     */
+    private void maybeRetranslateLoadedSubtitles(String newTargetLang) {
+        if (sProgressiveAsr != null && sProgressiveAsr.isRunning()) {
+            return;
+        }
+        if (mIsAiTranslating) {
+            showToast("AI 翻译进行中，新语言将在下次翻译时生效");
+            return;
+        }
+        com.orange.playerlibrary.subtitle.SubtitleManager subtitleManager =
+                mController != null ? mController.getSubtitleManager() : null;
+        if (subtitleManager == null || subtitleManager.getSubtitleCount() == 0) {
+            return;
+        }
+        if (!isRemoteTranslationEnabled()) {
+            // 未配置在线 Key / 引擎选了「仅本地」：批量翻译不可用，明说而不是静默
+            showToast("已切换目标语言「" + newTargetLang
+                    + "」；批量重译需在线大模型，当前字幕保持原译文");
+            return;
+        }
+        showToast("目标语言已切换为「" + newTargetLang + "」，正在重译当前字幕…");
+        startAiTranslate();
     }
 
     // ===== AI 语音生成字幕（离线 ASR）=====
@@ -4751,18 +4864,14 @@ public class VideoEventManager {
             showToast("字幕生成已在运行");
             return;
         }
-        final android.app.ProgressDialog progress;
+        final DownloadProgressDialog progress;
         if (background) {
             progress = null;
             showAsrRing();
             updateAsrRing(0, "下载字幕素材");
         } else {
-            progress = new android.app.ProgressDialog(mActivity);
-            progress.setMessage("下载 HLS 中 0%");
-            progress.setCancelable(false);
-            progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
-            progress.setMax(100);
-            progress.show();
+            progress = new DownloadProgressDialog(mActivity);
+            progress.showWithRealProgress("下载字幕素材", "正在下载 HLS 分片");
         }
 
         com.orange.playerlibrary.download.M3U8Downloader downloader =
@@ -4777,8 +4886,7 @@ public class VideoEventManager {
                         }
                         mActivity.runOnUiThread(() -> {
                             if (progress.isShowing()) {
-                                progress.setProgress(p);
-                                progress.setMessage(msg + " " + p + "%");
+                                progress.setProgress(p, msg);
                             }
                         });
                     }
@@ -4787,10 +4895,9 @@ public class VideoEventManager {
                     public void onSuccess(String filePath) {
                         mActivity.runOnUiThread(() -> {
                             if (progress != null) {
-                                try {
-                                    progress.dismiss();
-                                } catch (Exception ignored) {
-                                }
+                                // 交接给识别阶段：立刻关，别用 complete() 的停留延迟，
+                                // 否则会和紧随其后的识别进度弹窗叠在一起
+                                progress.dismiss();
                             }
                             Log.d(TAG, "HLS 下载完成: " + filePath);
                             // ASR 临时下载产物：识别完即删，避免堆积
@@ -4802,10 +4909,7 @@ public class VideoEventManager {
                     public void onError(String error) {
                         mActivity.runOnUiThread(() -> {
                             if (progress != null) {
-                                try {
-                                    progress.dismiss();
-                                } catch (Exception ignored) {
-                                }
+                                progress.fail(error);
                             }
                             if (background) {
                                 dismissAsrRing();
@@ -4880,20 +4984,16 @@ public class VideoEventManager {
         }
 
         sIsAsrGenerating = true;
-        final android.app.ProgressDialog progress;
+        final DownloadProgressDialog progress;
         if (floating) {
             progress = null;
             showAsrRing();
             updateAsrRing(0, "准备中");
         } else {
-            progress = new android.app.ProgressDialog(mActivity);
-            progress.setMessage("准备中...");
-            progress.setCancelable(true);
-            progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
-            progress.setMax(100);
-            progress.setCanceledOnTouchOutside(false);
-            progress.setOnCancelListener(d -> sIsAsrGenerating = false);   // 取消仅停 UI，生成线程尽力完成
-            progress.show();
+            progress = new DownloadProgressDialog(mActivity);
+            // 取消仅停 UI，生成线程尽力完成
+            progress.setCancelable(true, d -> sIsAsrGenerating = false);
+            progress.showWithRealProgress("语音字幕生成", "准备中…");
         }
 
         final com.orange.playerlibrary.speech.AsrSubtitleGenerator generator =
@@ -4906,8 +5006,7 @@ public class VideoEventManager {
                             if (progress == null) {
                                 updateAsrRing(percent, stage);
                             } else if (progress.isShowing()) {
-                                progress.setProgress(percent);
-                                progress.setMessage(stage + " " + percent + "%");
+                                progress.setProgress(percent, stage);
                             }
                         });
                     }
@@ -4916,10 +5015,7 @@ public class VideoEventManager {
                     public void onSuccess(java.io.File srtFile, int subtitleCount) {
                         mActivity.runOnUiThread(() -> {
                             if (progress != null) {
-                                try {
-                                    progress.dismiss();
-                                } catch (Exception ignored) {
-                                }
+                                progress.complete("字幕生成完成");
                             } else {
                                 dismissAsrRing();
                             }
@@ -4942,10 +5038,7 @@ public class VideoEventManager {
                     public void onError(int code, String message) {
                         mActivity.runOnUiThread(() -> {
                             if (progress != null) {
-                                try {
-                                    progress.dismiss();
-                                } catch (Exception ignored) {
-                                }
+                                progress.fail("字幕生成失败", message);
                             } else {
                                 dismissAsrRing();
                             }
@@ -5795,6 +5888,181 @@ public class VideoEventManager {
     }
     
     // ===== OCR 翻译字幕功能 =====
+
+    /**
+     * 扩展包管理面板：按需下载 native 组件（种子/语音/文字识别/翻译）。
+     *
+     * 这些 so 不再随 APK 分发（见 NativeLibManager）。每个条目按状态显示：
+     * 未支持（宿主未引依赖）/ 未安装（显示体积）/ 已安装。
+     * 下载完成后组件的 so 会被 System.load 进当前进程，功能立即可用；
+     * 若加载失败（部分 ROM 限制），提示需重启应用。
+     */
+    private void showNativeLibsDialog() {
+        View dialogView = View.inflate(mActivity, R.layout.dialog_native_libs, null);
+
+        final AlertDialog dialog = DialogUtils.showCustomDialog(mActivity, dialogView,
+                DialogUtils.DialogPosition.RIGHT, null, null);
+
+        View layout = dialogView.findViewById(R.id.layout);
+        if (layout != null) {
+            layout.setOnClickListener(v -> dialog.dismiss());
+        }
+
+        final int[] rowIds = {
+                R.id.btn_bundle_torrent, R.id.btn_bundle_asr,
+                R.id.btn_bundle_ocr, R.id.btn_bundle_translate,
+        };
+        final int[] statusIds = {
+                R.id.tv_bundle_torrent_status, R.id.tv_bundle_asr_status,
+                R.id.tv_bundle_ocr_status, R.id.tv_bundle_translate_status,
+        };
+        final String[] bundleIds = {
+                com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_TORRENT,
+                com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_ASR,
+                com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_OCR,
+                com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_TRANSLATE,
+        };
+
+        for (int i = 0; i < bundleIds.length; i++) {
+            final String bundleId = bundleIds[i];
+            final android.widget.Button btn = dialogView.findViewById(rowIds[i]);
+            final android.widget.TextView status = dialogView.findViewById(statusIds[i]);
+            if (btn == null) {
+                continue;
+            }
+            bindBundleRow(dialog, bundleId, btn, status);
+        }
+
+        android.widget.TextView hint = dialogView.findViewById(R.id.tv_native_libs_hint);
+        if (hint != null) {
+            String abi = com.orange.playerlibrary.tool.NativeLibManager.currentAbi();
+            hint.setText(abi == null
+                    ? "当前设备架构（" + android.os.Build.SUPPORTED_ABIS[0]
+                      + "）不提供这些组件，相关功能不可用。"
+                    : "以下功能组件不再随安装包分发，用到时按需下载（支持断点续传，"
+                      + "解压后占用约 " + com.orange.playerlibrary.tool.NativeLibManager
+                            .formatSize(totalRawSize()) + "）。");
+        }
+    }
+
+    /** 单个组件行的状态绑定与下载按钮 */
+    private void bindBundleRow(final AlertDialog dialog, final String bundleId,
+                               final android.widget.Button btn,
+                               final android.widget.TextView status) {
+        final com.orange.playerlibrary.tool.NativeLibManager.BundleInfo info =
+                com.orange.playerlibrary.tool.NativeLibManager.getBundle(bundleId);
+        if (info == null) {
+            return;
+        }
+        final String sizeText = com.orange.playerlibrary.tool.NativeLibManager
+                .formatSize(info.size());
+
+        if (!com.orange.playerlibrary.tool.NativeLibManager.isSupported(bundleId)) {
+            if (status != null) {
+                status.setText("本版本未集成该组件");
+                status.setTextColor(0xFFFF6B6B);
+            }
+            btn.setText("不可用");
+            btn.setEnabled(false);
+            return;
+        }
+        if (com.orange.playerlibrary.tool.NativeLibManager.isInstalled(bundleId)) {
+            if (status != null) {
+                status.setText("已安装（占用 " + com.orange.playerlibrary.tool.NativeLibManager
+                        .formatSize(info.rawSize()) + "）");
+                status.setTextColor(0xFF4CAF50);
+            }
+            btn.setText("删除");
+            btn.setEnabled(true);
+            btn.setOnClickListener(v -> {
+                new AlertDialog.Builder(mActivity)
+                        .setTitle("删除组件")
+                        .setMessage("删除后相关功能将不可用，需要时可重新下载。")
+                        .setPositiveButton("删除", (d, w) -> {
+                            com.orange.playerlibrary.tool.NativeLibManager
+                                    .remove(mContext, bundleId);
+                            bindBundleRow(dialog, bundleId, btn, status);
+                        })
+                        .setNegativeButton("取消", null)
+                        .show();
+            });
+            return;
+        }
+        if (status != null) {
+            status.setText("未安装 · 下载约 " + sizeText
+                    + " · 安装后占用 " + com.orange.playerlibrary.tool.NativeLibManager
+                            .formatSize(info.rawSize()));
+            status.setTextColor(0xFFFF8F3F);
+        }
+        btn.setText("下载（" + sizeText + "）");
+        btn.setEnabled(true);
+        btn.setOnClickListener(v -> startBundleDownload(dialog, bundleId, btn, status));
+    }
+
+    /** 下载并安装单个组件，进度写入该行状态文本 */
+    private void startBundleDownload(final AlertDialog dialog, final String bundleId,
+                                     final android.widget.Button btn,
+                                     final android.widget.TextView status) {
+        btn.setEnabled(false);
+        btn.setText("下载中…");
+        if (status != null) {
+            status.setText("准备下载…");
+            status.setTextColor(0xFFFF8F3F);
+        }
+        com.orange.playerlibrary.tool.NativeLibManager.download(mContext, bundleId,
+                new com.orange.playerlibrary.tool.NativeLibManager.InstallCallback() {
+                    @Override
+                    public void onProgress(final int percent, final long downloaded,
+                                           final long total, final String stage) {
+                        mActivity.runOnUiThread(() -> {
+                            if (status != null) {
+                                status.setText(String.format(java.util.Locale.US,
+                                        "%d%%（%.1f/%.1f MB）%s", percent,
+                                        downloaded / 1048576.0, total / 1048576.0,
+                                        stage == null || stage.isEmpty() ? "" : " · " + stage));
+                            }
+                            btn.setText(percent + "%");
+                        });
+                    }
+
+                    @Override
+                    public void onSuccess(final boolean loaded) {
+                        mActivity.runOnUiThread(() -> {
+                            // 重新绑定：状态变「已安装」，按钮变「删除」
+                            bindBundleRow(dialog, bundleId, btn, status);
+                            if (status != null && !loaded) {
+                                status.setText("已安装，但本次未能加载，请重启应用后生效");
+                                status.setTextColor(0xFFFF8F3F);
+                            }
+                            showToast(loaded ? "组件已安装，可立即使用" : "组件已安装，重启应用后生效");
+                        });
+                    }
+
+                    @Override
+                    public void onError(final String error) {
+                        mActivity.runOnUiThread(() -> {
+                            if (status != null) {
+                                status.setText("下载失败：" + error + "（可重试，支持续传）");
+                                status.setTextColor(0xFFFF6B6B);
+                            }
+                            btn.setText("重试下载");
+                            btn.setEnabled(true);
+                        });
+                    }
+                });
+    }
+
+    /** 已支持组件的解压后总占用（提示文案用） */
+    private static long totalRawSize() {
+        long sum = 0;
+        for (com.orange.playerlibrary.tool.NativeLibManager.BundleInfo b
+                : com.orange.playerlibrary.tool.NativeLibManager.getBundles()) {
+            if (com.orange.playerlibrary.tool.NativeLibManager.isSupported(b.id)) {
+                sum += b.rawSize();
+            }
+        }
+        return sum;
+    }
     
     /**
      * 显示 OCR 安装指南
@@ -6069,8 +6337,15 @@ public class VideoEventManager {
         
         // 初始化 OCR
         if (!ocrManager.initOcr(sourceLang)) {
-            showToast("OCR 初始化失败，请检查语言包是否已安装");
-            showOcrLanguagePackHint(sourceLang);
+            // 失败可能是组件未下载（so 不再随 APK 分发），也可能是语言包缺失，
+            // 两者给的操作完全不同，需分别提示
+            if (!com.orange.playerlibrary.ocr.OcrAvailabilityChecker.isOcrTranslateAvailable()) {
+                showToast("文字识别组件未下载，请先下载");
+                showNativeLibsDialog();
+            } else {
+                showToast("OCR 初始化失败，请检查语言包是否已安装");
+                showOcrLanguagePackHint(sourceLang);
+            }
             return;
         }
         

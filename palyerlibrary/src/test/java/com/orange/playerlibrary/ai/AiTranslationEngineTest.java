@@ -154,6 +154,64 @@ public class AiTranslationEngineTest {
         assertEquals(2, provider.callCount);   // 1 失败 + 1 成功
     }
 
+    /**
+     * 网络不可达时 HttpURLConnection 要等满读超时（默认 30s）才抛错，退避后再等
+     * 一轮——期间 onProgress 一次都不触发，UI 只能停在 0%，用户无法区分「在工作」
+     * 和「死了」。onBatchRetry 就是为这段空窗期存在的。
+     */
+    @Test
+    public void retryNotifiesListenerWithAttemptAndReason() throws Exception {
+        FakeAiProvider provider = new FakeAiProvider();
+        provider.failNextCall = true;
+        AiTranslationEngine engine = new AiTranslationEngine(provider);
+        List<SubtitleLine> input = lines(5);
+
+        final List<String> retries = new ArrayList<>();
+        final int[] progressCalls = {0};
+
+        engine.translateAll(cacheDir(), "k", input, settings(),
+                new AiTranslationEngine.ProgressListener() {
+                    @Override
+                    public void onProgress(int done, int total) {
+                        progressCalls[0]++;
+                    }
+
+                    @Override
+                    public void onBatchRetry(int attempt, int maxAttempts, String message) {
+                        retries.add(attempt + "/" + maxAttempts + ":" + message);
+                    }
+                });
+
+        assertEquals("应恰好通知一次重试", 1, retries.size());
+        assertTrue("重试提示应含失败原因: " + retries.get(0),
+                retries.get(0).contains("网络抖动"));
+        assertTrue("首次失败 attempt 应为 1: " + retries.get(0),
+                retries.get(0).startsWith("1/"));
+    }
+
+    /** 永久失败（如 key 失效）不重试，因此不该有重试通知 */
+    @Test
+    public void permanentFailureDoesNotNotifyRetry() throws Exception {
+        FakeAiProvider provider = new FakeAiProvider();
+        provider.permanentFails = 1;
+        AiTranslationEngine engine = new AiTranslationEngine(provider);
+
+        final int[] retries = {0};
+        engine.translateAll(cacheDir(), "k", lines(3), settings(),
+                new AiTranslationEngine.ProgressListener() {
+                    @Override
+                    public void onProgress(int done, int total) {
+                    }
+
+                    @Override
+                    public void onBatchRetry(int attempt, int maxAttempts, String message) {
+                        retries[0]++;
+                    }
+                });
+
+        assertEquals(0, retries[0]);
+    }
+
     @Test
     public void permanentErrorSkipsBatchAndContinues() throws Exception {
         FakeAiProvider provider = new FakeAiProvider();

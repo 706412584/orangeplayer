@@ -40,6 +40,15 @@ public class OrangeApplication extends Application {
             initPlayCache();
         }
 
+        // 加载已按需下载的 native 组件（种子/语音/文字识别/翻译的 so 不再随
+        // APK 分发，见 NativeLibManager）。幂等且只对已存在的 so 做 System.load，
+        // 不下载、不阻塞；未下载的组件在此处静默跳过。
+        try {
+            com.orange.playerlibrary.tool.NativeLibManager.install(this);
+        } catch (Throwable t) {
+            Log.w(TAG, "按需组件加载失败（忽略，功能入口会提示下载）", t);
+        }
+
         // 清扫 ASR 工作目录孤儿临时文件（崩溃/杀进程时 finally 清理未执行，
         // 真机实测可残留 70MB+ 的 _raw.pcm）
         try {

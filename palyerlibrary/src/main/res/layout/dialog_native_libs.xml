@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 扩展包管理：按需下载的 native 组件（种子/语音识别/文字识别/翻译）。
+     与 subtitle_dialog 同为右侧滑出面板，样式保持一致。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/op_scrim">
+
+    <ScrollView
+        android:layout_width="@dimen/op_panel_width"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="@drawable/setup_panel_bg"
+        android:clickable="true"
+        android:focusable="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="扩展包管理"
+                android:textColor="@color/op_text_primary"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tv_native_libs_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="以下功能组件不再随安装包分发，用到时按需下载（支持断点续传）。"
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginBottom="16dp" />
+
+            <!-- 种子播放 -->
+            <TextView
+                android:id="@+id/tv_bundle_torrent_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="种子播放组件"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_bundle_torrent_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="6dp" />
+
+            <Button
+                android:id="@+id/btn_bundle_torrent"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="下载"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="14dp" />
+
+            <!-- 语音识别 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="语音识别组件"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_bundle_asr_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="6dp" />
+
+            <Button
+                android:id="@+id/btn_bundle_asr"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="下载"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="14dp" />
+
+            <!-- 文字识别 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="文字识别组件"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_bundle_ocr_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="6dp" />
+
+            <Button
+                android:id="@+id/btn_bundle_ocr"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="下载"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="14dp" />
+
+            <!-- 翻译 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="翻译组件"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_bundle_translate_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="6dp" />
+
+            <Button
+                android:id="@+id/btn_bundle_translate"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="下载"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>

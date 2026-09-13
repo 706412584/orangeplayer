@@ -6,12 +6,21 @@ package com.orange.playerlibrary.subtitle;
 public class SubtitleEntry {
     private long startTime;  // 开始时间（毫秒）
     private long endTime;    // 结束时间（毫秒）
-    private String text;     // 字幕文本
+    private String text;     // 字幕文本（AI 翻译后此处是译文）
+    /**
+     * 翻译前的原文；未翻译时与 {@link #text} 同引用。
+     *
+     * AI 批翻译是**覆盖式**回写（见 SubtitleManager.applyAiTranslationFrom），译文
+     * 直接写进 text。若不单独留一份原文，切换翻译语言时就没有可译的源文本，只能
+     * 重新加载字幕或重启播放——真机实测的「换语言不生效」即由此而来。
+     */
+    private String originalText;
 
     public SubtitleEntry(long startTime, long endTime, String text) {
         this.startTime = startTime;
         this.endTime = endTime;
         this.text = text;
+        this.originalText = text;
     }
 
     public long getStartTime() {
@@ -36,6 +45,11 @@ public class SubtitleEntry {
 
     public void setText(String text) {
         this.text = text;
+    }
+
+    /** 翻译前的原文（未翻译时即 {@link #getText()}） */
+    public String getOriginalText() {
+        return originalText;
     }
 
     public long getDuration() {

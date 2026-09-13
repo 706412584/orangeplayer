@@ -63,6 +63,29 @@ android {
         }
     }
 
+    // 按需安装：这四个功能组件的 so 不打进 APK，改为运行时下载
+    // （NativeLibManager + GitHub Release 资产，见 .github/workflows/release-native-libs.yml）。
+    // 剔的只是「打包」，编译期依赖照旧：Java 类仍在 APK 里，可用性门禁
+    // （SherpaAvailabilityChecker / OcrAvailabilityChecker / TorrentSupport）
+    // 会额外判断 so 是否已安装。arm64 可省约 24MB（zip 后体积）。
+    packaging {
+        jniLibs {
+            // 模式匹配的是 APK 内路径（lib/<abi>/xxx.so），故用 **/ 前缀
+            excludes += [
+                    '**/libonnxruntime.so',
+                    '**/libsherpa-onnx-jni.so',
+                    '**/libsherpa-onnx-c-api.so',
+                    '**/libsherpa-onnx-cxx-api.so',
+                    '**/libtorrent4j.so',
+                    '**/libtranslate_jni.so',
+                    '**/libtesseract.so',
+                    '**/libleptonica.so',
+                    '**/libjpeg.so',
+                    '**/libpngx.so',
+            ]
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11

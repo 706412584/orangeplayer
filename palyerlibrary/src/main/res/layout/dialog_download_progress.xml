@@ -60,11 +60,14 @@
 
     </FrameLayout>
 
-    <!-- 提示文字 -->
+    <!-- 提示文字：失败时这里放的是原始错误串，可能很长，限高避免撑爆弹窗 -->
     <TextView
         android:id="@+id/tv_hint"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:maxLines="3"
+        android:ellipsize="end"
+        android:gravity="center"
         android:text="首次使用需要下载"
         android:textColor="@color/op_text_secondary"
         android:textSize="12sp" />
