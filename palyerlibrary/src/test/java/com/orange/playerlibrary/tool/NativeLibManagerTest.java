@@ -61,7 +61,7 @@ public class NativeLibManagerTest {
     @Test
     public void bundlesCoverFourComponentsWithBothAbis() {
         NativeLibManager.BundleInfo[] bundles = NativeLibManager.getBundles();
-        assertEquals(4, bundles.length);
+        assertEquals(8, bundles.length);
         for (NativeLibManager.BundleInfo b : bundles) {
             assertNotNull(b.id + " 缺少显示名", b.displayName);
             assertTrue(b.id + " arm64 体积应为正", b.sizeArm64 > 0);
@@ -76,7 +76,41 @@ public class NativeLibManagerTest {
         assertNotNull(NativeLibManager.getBundle(NativeLibManager.BUNDLE_TORRENT));
         assertNotNull(NativeLibManager.getBundle(NativeLibManager.BUNDLE_OCR));
         assertNotNull(NativeLibManager.getBundle(NativeLibManager.BUNDLE_TRANSLATE));
+        assertNotNull(NativeLibManager.getBundle(NativeLibManager.BUNDLE_IJK));
+        assertNotNull(NativeLibManager.getBundle(NativeLibManager.BUNDLE_ALI));
+        assertNotNull(NativeLibManager.getBundle(NativeLibManager.BUNDLE_MPV));
+        assertNotNull(NativeLibManager.getBundle(NativeLibManager.BUNDLE_FFMPEG));
         assertNull(NativeLibManager.getBundle("nope"));
+    }
+
+    @Test
+    public void ijkLibsAreOrderedByDependency() {
+        // IjkMediaPlayer.loadLibrariesOnce 的硬编码顺序：ffmpeg → sdl → player；
+        // libijksdl/libijkplayer 的 DT_NEEDED 都指向 libijkffmpeg，反了会 dlopen 失败
+        String[] libs = NativeLibManager.getBundle(NativeLibManager.BUNDLE_IJK).libs;
+        assertEquals("libijkffmpeg.so", libs[0]);
+        assertEquals("libijkplayer.so", libs[libs.length - 1]);
+    }
+
+    @Test
+    public void aliLibsAreOrderedByDependency() {
+        // NativeLoader.loadPlayer 顺序；libsaasDownloader 依赖前两者
+        String[] libs = NativeLibManager.getBundle(NativeLibManager.BUNDLE_ALI).libs;
+        assertEquals("libalivcffmpeg.so", libs[0]);
+        assertEquals("libsaasCorePlayer.so", libs[1]);
+    }
+
+    @Test
+    public void mpvLibsPutAvCodecBeforeMpvAndPlayerLast() {
+        // libmpv 依赖全部 av*；libplayer 依赖 libmpv
+        String[] libs = NativeLibManager.getBundle(NativeLibManager.BUNDLE_MPV).libs;
+        java.util.List<String> list = Arrays.asList(libs);
+        assertTrue("libavcodec 必须在 libmpv 之前",
+                list.indexOf("libavcodec.so") < list.indexOf("libmpv.so"));
+        assertTrue("libavutil 必须在 libavcodec 之前",
+                list.indexOf("libavutil.so") < list.indexOf("libavcodec.so"));
+        assertEquals("libplayer.so", libs[libs.length - 1]);
+        assertEquals(10, libs.length);
     }
 
     @Test

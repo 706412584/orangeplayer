@@ -395,6 +395,21 @@ public class MainActivity extends AppCompatActivity {
         btnSwitchPlayer.setOnClickListener(v -> showPlayerSwitchDialog());
         btnSubtitleTest.setOnClickListener(v -> testSubtitle());
         btnPipTest.setOnClickListener(v -> enterPictureInPicture());
+
+        // 扩展包管理：按需下载的 native 组件与播放内核（种子/ASR/OCR/翻译/内核）。
+        // 面板在 SDK 内（NativeLibManager），宿主只负责入口——故放设置面板而非字幕面板。
+        Button btnNativeLibs = findViewById(R.id.btn_native_libs);
+        if (btnNativeLibs != null) {
+            btnNativeLibs.setOnClickListener(v -> {
+                com.orange.playerlibrary.OrangeVideoController controller = mController;
+                if (controller == null || controller.getVideoEventManager() == null) {
+                    android.widget.Toast.makeText(this, "播放器尚未就绪，请稍后再试",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                controller.getVideoEventManager().showNativeLibsDialog();
+            });
+        }
         
         // 按设置恢复去广告状态（不再写死开启）
         boolean adRemovalEnabled = com.orange.playerlibrary.PlayerSettingsManager

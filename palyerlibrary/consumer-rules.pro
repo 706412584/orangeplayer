@@ -21,3 +21,14 @@
 
 # 文字翻译：OcrAvailabilityChecker 探测 Translator
 -keep class com.google.mlkit.nl.translate.** { *; }
+
+# ===== 播放内核（同样只被反射探测，so 改为按需下载）=====
+# 这些类只出现在 NativeLibManager.PROBE_CLASSES / PlayerEngineAvailability 里，
+# 代码中没有静态引用，R8 会判为不可达而裁掉或改名——一旦被裁，「依赖在、so 未下载」
+# 就会被误判成「宿主未引入」，引擎按钮直接消失，用户无从下载。
+# 注意：ali 的探针是 AliPlayerFactory 而非 NativePlayerBase（后者 <clinit> 会触发
+# NativeLoader.loadPlayer()，那一步失败会把 playerLoaded 永久置位、进程内不再重试）。
+-keep class tv.danmaku.ijk.media.player.** { *; }
+-keep class com.aliyun.player.AliPlayerFactory { *; }
+-keep class com.orange.player.mpv.MpvPlayerManager { *; }
+-keep class com.orange.ffmpeg.FFmpegKit { *; }

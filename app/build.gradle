@@ -63,11 +63,11 @@ android {
         }
     }
 
-    // 按需安装：这四个功能组件的 so 不打进 APK，改为运行时下载
+    // 按需安装：这些 so 不打进 APK，改为运行时下载
     // （NativeLibManager + GitHub Release 资产，见 .github/workflows/release-native-libs.yml）。
     // 剔的只是「打包」，编译期依赖照旧：Java 类仍在 APK 里，可用性门禁
-    // （SherpaAvailabilityChecker / OcrAvailabilityChecker / TorrentSupport）
-    // 会额外判断 so 是否已安装。arm64 可省约 24MB（zip 后体积）。
+    // （SherpaAvailabilityChecker / OcrAvailabilityChecker / TorrentSupport /
+    //  PlayerEngineAvailability）会额外判断 so 是否已安装。
     packaging {
         jniLibs {
             // 模式匹配的是 APK 内路径（lib/<abi>/xxx.so），故用 **/ 前缀
@@ -82,6 +82,27 @@ android {
                     '**/libleptonica.so',
                     '**/libjpeg.so',
                     '**/libpngx.so',
+                    // 播放内核（可选内核，按需下载）
+                    '**/libijkffmpeg.so',
+                    '**/libijksdl.so',
+                    '**/libijkplayer.so',
+                    '**/libalivcffmpeg.so',
+                    '**/libsaasCorePlayer.so',
+                    '**/libsaasDownloader.so',
+                    '**/libmpv.so',
+                    '**/libplayer.so',
+                    '**/libavutil.so',
+                    '**/libswresample.so',
+                    '**/libswscale.so',
+                    '**/libavfilter.so',
+                    '**/libavcodec.so',
+                    '**/libavformat.so',
+                    '**/libavdevice.so',
+                    // 仅被 libmpv/libplayer 依赖（ijk/ali 用的是系统 libstdc++），
+                    // 实测 APK 内该 so 只出现一次，可随 mpv 一起移出
+                    '**/libc++_shared.so',
+                    // m3u8 合并用的 FFmpeg 精简版
+                    '**/liborangeffmpegkit.so',
             ]
         }
     }

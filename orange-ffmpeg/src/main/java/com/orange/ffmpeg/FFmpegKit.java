@@ -119,6 +119,23 @@ public final class FFmpegKit {
         return sStubMode.get();
     }
 
+    /**
+     * 清空初始化状态，使 {@link #init()} 能重新尝试加载 so。
+     *
+     * <p>so 改为按需下载后，首次 {@code init()} 时 so 尚未落盘会走进 stub 模式并
+     * 把 {@code sInitialized} 置位——此后本进程内不再重试，用户下载完组件仍要
+     * 重启。下载成功后调用本方法即可立即生效。
+     *
+     * <p>仅清除状态位；已成功加载的 so 由 linker 保持映射，{@code sLibraryLoaded}
+     * 一并清除只是让 {@code ensureLibraryLoaded} 重新走一次（会命中已映射的库）。
+     */
+    public static synchronized void resetForRetry() {
+        sInitialized.set(false);
+        sStubMode.set(false);
+        sLibraryLoaded.set(false);
+        sCancelled.set(false);
+    }
+
     public static int trim(String inputPath, String outputPath, String start, String end) {
         if (isEmpty(inputPath) || isEmpty(outputPath)) {
             return RESULT_EXECUTE_FAILED;

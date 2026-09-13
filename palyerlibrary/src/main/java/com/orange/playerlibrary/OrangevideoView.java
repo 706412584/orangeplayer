@@ -625,8 +625,15 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 // 纪律：仅用户显式选择，不可用时提示回退（不做静默自动回退到达）。
                 if (Build.VERSION.SDK_INT >= 26) {
                     Class<?> mpvManager = findClass("com.orange.player.mpv.MpvPlayerManager");
-                    if (mpvManager != null) {
+                    // so 按需下载：类在但 so 未就位时必须挡在这里，否则 MpvMediaPlayer
+                    // 会触发 MPVLib.<clinit>，其 loadLibrary 无 try/catch，失败将
+                    // ExceptionInInitializerError 永久污染 MPVLib。
+                    boolean mpvReady = com.orange.playerlibrary.utils.PlayerEngineAvailability
+                            .isUsable(PlayerConstants.ENGINE_MPV);
+                    if (mpvManager != null && mpvReady) {
                         try {
+                            com.orange.playerlibrary.tool.NativeLibManager
+                                    .load(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_MPV);
                             PlayerFactory.setPlayManager((Class<? extends IPlayerManager>) mpvManager);
                             // mpv 走 TextureView 渲染（GSY 默认路径，surface 事件时序最成熟；
                             // MpvPlayerManager.showDisplay 已处理 TextureView 的 SurfaceTexture 包装）
@@ -638,7 +645,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                             fallbackToSystem = true;
                         }
                     } else {
-                        android.util.Log.w(TAG, "initPlayerFactory: orangeplayer-mpv 工件未引入，回退到系统播放器");
+                        android.util.Log.w(TAG, "initPlayerFactory: mpv 不可用"
+                                + (mpvManager != null ? "（so 未下载）" : "（工件未引入）")
+                                + "，回退到系统播放器");
                         fallbackToSystem = true;
                     }
                 } else {
@@ -650,9 +659,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             case PlayerConstants.ENGINE_IJK:
                 // IJK 播放器需要 Android 4.1+ (API 16)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-                    // 检查 IJK so 库是否可用
+                    // 检查 IJK 可用性（Java 类 + so 是否已按需下载）
                     if (isIjkPlayerAvailable()) {
                         try {
+                            com.orange.playerlibrary.tool.NativeLibManager
+                                    .load(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_IJK);
                             PlayerFactory.setPlayManager(com.orange.playerlibrary.player.OrangeIjkPlayerManager.class);
                             android.util.Log.d(TAG, "initPlayerFactory: 使用 Orange IJK 播放器（支持本地文件）");
                             // IJK 播放器使用 TextureView 模式（更稳定）
@@ -663,7 +674,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                             fallbackToSystem = true;
                         }
                     } else {
-                        android.util.Log.w(TAG, "initPlayerFactory: IJK so 库未找到，回退到系统播放器");
+                        android.util.Log.w(TAG, "initPlayerFactory: IJK 不可用（so 未下载或类缺失），回退到系统播放器");
                         fallbackToSystem = true;
                     }
                 } else {
@@ -710,8 +721,20 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             case PlayerConstants.ENGINE_ALI:
                 // 阿里云播放器需要 Android 5.0+ (API 21)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    // so 按需下载：必须先确认就位。ali 的 NativeLoader.loadPlayer()
+                    // 在 try 之前就置 playerLoaded=true 且只 catch Exception
+                    // （UnsatisfiedLinkError 是 Error），so 缺失时状态位已置、
+                    // 本进程永不重试。
+                    if (!com.orange.playerlibrary.utils.PlayerEngineAvailability
+                            .isUsable(PlayerConstants.ENGINE_ALI)) {
+                        android.util.Log.w(TAG, "initPlayerFactory: 阿里云 so 未下载，回退到系统播放器");
+                        fallbackToSystem = true;
+                        break;
+                    }
                     // GSY AliPlayer 类名: com.shuyu.aliplay.AliPlayerManager
                     try {
+                        com.orange.playerlibrary.tool.NativeLibManager
+                                .load(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_ALI);
                         @SuppressWarnings("unchecked")
                         Class<? extends IPlayerManager> aliClass = (Class<? extends IPlayerManager>) Class
                                 .forName("com.shuyu.aliplay.AliPlayerManager");
@@ -778,33 +801,15 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     /**
-     * 检查 IJK 播放器是否可用
-     * 同时检查 Java 类和 native 库
+     * 检查 IJK 播放器是否可用（Java 类存在 && so 已按需下载）。
+     *
+     * 本方法只做判定，**不触发加载**：ijk 的 so 已不再随 APK 分发，此前这里的
+     * 三段 loadLibrary 在未下载时必然抛错（虽被 catch，但会绕过 NativeLibManager
+     * 的记账并刷日志）。加载统一交给 NativeLibManager.install()/load()。
      */
     private boolean isIjkPlayerAvailable() {
-        // 1. 先检查 Java 类是否存在
-        try {
-            Class.forName("tv.danmaku.ijk.media.player.IjkMediaPlayer");
-        } catch (ClassNotFoundException e) {
-            android.util.Log.d(TAG, "isIjkPlayerAvailable: IJK Java 类未找到");
-            return false;
-        }
-
-        // 2. 再检查 SO 库是否可用
-        try {
-            // 尝试加载 IJK 的 native 库
-            System.loadLibrary("ijkffmpeg");
-            System.loadLibrary("ijksdl");
-            System.loadLibrary("ijkplayer");
-            return true;
-        } catch (UnsatisfiedLinkError e) {
-            // so 库未找到
-            android.util.Log.d(TAG, "isIjkPlayerAvailable: IJK so 库未找到 - " + e.getMessage());
-            return false;
-        } catch (Exception e) {
-            android.util.Log.w(TAG, "isIjkPlayerAvailable: 检查 IJK 可用性时出错", e);
-            return false;
-        }
+        return com.orange.playerlibrary.utils.PlayerEngineAvailability
+                .isUsable(PlayerConstants.ENGINE_IJK);
     }
 
     /**
@@ -2600,18 +2605,39 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             case PlayerConstants.ENGINE_MPV:
                 // mpv 内核（可选工件，反射加载）：SurfaceView 渲染（GPU VO）
                 Class<?> mpvCls = findClass("com.orange.player.mpv.MpvPlayerManager");
-                if (mpvCls != null && Build.VERSION.SDK_INT >= 26) {
+                // so 已改为按需下载：类在但 so 未就位时不能进 mpv 分支，
+                // 否则 MpvMediaPlayer.create() 会触发 MPVLib.<clinit>，其
+                // loadLibrary 无 try/catch，失败将 ExceptionInInitializerError
+                // 永久污染该类（此后即便下载完成也用不了）。
+                boolean mpvReady = com.orange.playerlibrary.utils.PlayerEngineAvailability
+                        .isUsable(PlayerConstants.ENGINE_MPV);
+                if (mpvCls != null && mpvReady && Build.VERSION.SDK_INT >= 26) {
+                    com.orange.playerlibrary.tool.NativeLibManager
+                            .load(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_MPV);
                     PlayerFactory.setPlayManager((Class<? extends IPlayerManager>) mpvCls);
                     com.shuyu.gsyvideoplayer.utils.GSYVideoType.setRenderType(
                             com.shuyu.gsyvideoplayer.utils.GSYVideoType.TEXTURE);
                     android.util.Log.d(TAG, "selectPlayerFactory: 使用 mpv 内核（TextureView 渲染）");
                 } else {
-                    android.util.Log.w(TAG, "selectPlayerFactory: mpv 不可用，回退到系统播放器");
+                    android.util.Log.w(TAG, "selectPlayerFactory: mpv 不可用"
+                            + (mpvCls != null && !mpvReady ? "（so 未下载）" : "") + "，回退到系统播放器");
                     PlayerFactory.setPlayManager(com.orange.playerlibrary.player.OrangeSystemPlayerManager.class);
                     engineType = PlayerConstants.ENGINE_DEFAULT;
                 }
                 break;
             case PlayerConstants.ENGINE_IJK:
+                // 改造前这里没有任何检查：so 被剔出 APK 后会直接设成 IJK 工厂，
+                // 直到播放时才在 prepare 阶段抛 UnsatisfiedLinkError（且因
+                // EngineFallbackTracker 要求 prepared==true，自动换核不会触发）。
+                if (!com.orange.playerlibrary.utils.PlayerEngineAvailability
+                        .isUsable(PlayerConstants.ENGINE_IJK)) {
+                    android.util.Log.w(TAG, "selectPlayerFactory: IJK so 未下载，回退到系统播放器");
+                    PlayerFactory.setPlayManager(com.orange.playerlibrary.player.OrangeSystemPlayerManager.class);
+                    engineType = PlayerConstants.ENGINE_DEFAULT;
+                    break;
+                }
+                com.orange.playerlibrary.tool.NativeLibManager
+                        .load(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_IJK);
                 PlayerFactory.setPlayManager(com.orange.playerlibrary.player.OrangeIjkPlayerManager.class);
                 // IJK 播放器使用 TextureView 模式（更稳定）
                 com.shuyu.gsyvideoplayer.utils.GSYVideoType.setRenderType(
@@ -2642,8 +2668,21 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 }
                 break;
             case PlayerConstants.ENGINE_ALI:
+                // so 已改为按需下载。ali 的 NativeLoader.loadPlayer() 会把
+                // playerLoaded 置 true 之后才 loadLibrary 且只 catch Exception
+                // （UnsatisfiedLinkError 是 Error）——so 缺失时状态位已置、
+                // 本进程永不重试，故必须先确认就位再触碰阿里云类。
+                if (!com.orange.playerlibrary.utils.PlayerEngineAvailability
+                        .isUsable(PlayerConstants.ENGINE_ALI)) {
+                    android.util.Log.w(TAG, "selectPlayerFactory: 阿里云 so 未下载，回退到系统播放器");
+                    PlayerFactory.setPlayManager(com.orange.playerlibrary.player.OrangeSystemPlayerManager.class);
+                    engineType = PlayerConstants.ENGINE_DEFAULT;
+                    break;
+                }
                 // GSY AliPlayer 类名: com.shuyu.aliplay.AliPlayerManager
                 try {
+                    com.orange.playerlibrary.tool.NativeLibManager
+                            .load(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_ALI);
                     Class<?> aliClass = Class.forName("com.shuyu.aliplay.AliPlayerManager");
                     PlayerFactory.setPlayManager((Class<? extends IPlayerManager>) aliClass);
                     com.shuyu.gsyvideoplayer.utils.GSYVideoType.setRenderType(
@@ -3061,42 +3100,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
      * @return true 可用，false 不可用
      */
     public boolean isEngineAvailable(String engine) {
-        try {
-            if (PlayerConstants.ENGINE_EXO.equals(engine)) {
-                // 检查 ExoPlayer 依赖（GSY ExoPlayer 或 Media3）
-                try {
-                    Class.forName("tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer");
-                    return true;
-                } catch (ClassNotFoundException e) {
-                    // 尝试检测 Media3
-                    Class.forName("androidx.media3.exoplayer.ExoPlayer");
-                    return true;
-                }
-            } else if (PlayerConstants.ENGINE_IJK.equals(engine)) {
-                // 检查 IJK 依赖（Java 类 + SO 库）
-                Class.forName("tv.danmaku.ijk.media.player.IjkMediaPlayer");
-                try {
-                    tv.danmaku.ijk.media.player.IjkMediaPlayer.loadLibrariesOnce(null);
-                    return true;
-                } catch (UnsatisfiedLinkError e) {
-                    android.util.Log.w(TAG, "IJK SO 库未加载: " + e.getMessage());
-                    return false;
-                }
-            } else if (PlayerConstants.ENGINE_ALI.equals(engine)) {
-                // 检查阿里云播放器依赖
-                Class.forName("com.aliyun.player.AliPlayer");
-                return true;
-            } else if (PlayerConstants.ENGINE_DEFAULT.equals(engine)) {
-                // 系统播放器总是可用
-                return true;
-            }
-            return false;
-        } catch (ClassNotFoundException e) {
-            android.util.Log.w(TAG, "播放器内核不可用: " +
-                    com.orange.playerlibrary.utils.PlayerEngineSelector.getEngineName(engine) +
-                    " (依赖未导入)");
-            return false;
-        }
+        // 统一走 PlayerEngineAvailability：Java 类存在 && so 已按需下载 && 平台约束。
+        // 改造前这里三处各写各的——ijk 分支会真去 loadLibrariesOnce（本方法被
+        // EngineFallbackTracker 当探针高频调用，不该有加载副作用），ali 只查类，
+        // mpv 干脆没有分支恒返回 false。
+        return com.orange.playerlibrary.utils.PlayerEngineAvailability.isUsable(engine);
     }
 
     public void addOnStateChangeListener(OnStateChangeListener listener) {

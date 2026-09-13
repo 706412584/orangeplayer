@@ -71,6 +71,12 @@ public final class NativeLibManager {
     public static final String BUNDLE_ASR = "asr";
     public static final String BUNDLE_OCR = "ocr";
     public static final String BUNDLE_TRANSLATE = "translate";
+    /** 播放内核（可选内核，按需下载） */
+    public static final String BUNDLE_IJK = "ijk";
+    public static final String BUNDLE_ALI = "ali";
+    public static final String BUNDLE_MPV = "mpv";
+    /** m3u8 合并用的 FFmpeg 精简版（仅下载合并需要） */
+    public static final String BUNDLE_FFMPEG = "ffmpeg";
 
     /** 支持的 ABI（demo 实际分发范围） */
     private static final String[] SUPPORTED_ABIS = {"arm64-v8a", "armeabi-v7a"};
@@ -79,7 +85,7 @@ public final class NativeLibManager {
      * 组件包所属的 release tag。发版时需与 APK 同步更新：
      * 资产地址为 releases/download/&lt;tag&gt;/&lt;bundle&gt;-&lt;abi&gt;.zip。
      */
-    private static final String RELEASE_TAG = "v1.5.2";
+    private static final String RELEASE_TAG = "v1.5.3";
 
     private static final String RELEASE_URL_PREFIX =
             "https://github.com/706412584/orangeplayer/releases/download/";
@@ -103,6 +109,13 @@ public final class NativeLibManager {
             {BUNDLE_ASR, "com.k2fsa.sherpa.onnx.OfflineRecognizer"},
             {BUNDLE_OCR, "com.googlecode.tesseract.android.TessBaseAPI"},
             {BUNDLE_TRANSLATE, "com.google.mlkit.nl.translate.Translator"},
+            {BUNDLE_IJK, "tv.danmaku.ijk.media.player.IjkMediaPlayer"},
+            // 不能用 NativePlayerBase：它的 <clinit> 立即调 NativeLoader.loadPlayer()，
+            // 而后者把 playerLoaded 置 true 后才 loadLibrary 且只 catch Exception，
+            // so 缺失时状态位已置、本进程永不重试。AliPlayerFactory 的 <clinit> 不碰加载器。
+            {BUNDLE_ALI, "com.aliyun.player.AliPlayerFactory"},
+            {BUNDLE_MPV, "com.orange.player.mpv.MpvPlayerManager"},
+            {BUNDLE_FFMPEG, "com.orange.ffmpeg.FFmpegKit"},
     };
 
     /** 按 DT_NEEDED 依赖顺序排列：被依赖者在前 */
@@ -120,6 +133,31 @@ public final class NativeLibManager {
     };
 
     private static final String[] LIBS_TRANSLATE = {"libtranslate_jni.so"};
+
+    /**
+     * IJK 顺序与 {@code IjkMediaPlayer.loadLibrariesOnce()} 硬编码的一致；
+     * libijksdl/libijkplayer 的 DT_NEEDED 都指向 libijkffmpeg，反了会直接 dlopen 失败。
+     */
+    private static final String[] LIBS_IJK = {
+            "libijkffmpeg.so", "libijksdl.so", "libijkplayer.so",
+    };
+
+    /** 阿里云 SDK 的 NativeLoader.loadPlayer() 顺序，且 libsaasDownloader 依赖前两者 */
+    private static final String[] LIBS_ALI = {
+            "libalivcffmpeg.so", "libsaasCorePlayer.so", "libsaasDownloader.so",
+    };
+
+    /**
+     * mpv 的 10 个 so 强互依赖：libmpv 依赖全部 av*，libplayer 依赖 libmpv。
+     * 按 DT_NEEDED 拓扑序（被依赖者在前）；libc++_shared 只被 libmpv/libplayer 依赖。
+     */
+    private static final String[] LIBS_MPV = {
+            "libavutil.so", "libswresample.so", "libswscale.so", "libavfilter.so",
+            "libavcodec.so", "libavformat.so", "libavdevice.so",
+            "libc++_shared.so", "libmpv.so", "libplayer.so",
+    };
+
+    private static final String[] LIBS_FFMPEG = {"liborangeffmpegkit.so"};
 
     /**
      * 组件清单。体积与 sha256 均按 ABI 区分（v7a 的 so 比 arm64 略小），
@@ -147,6 +185,27 @@ public final class NativeLibManager {
                     "e0346609caa0f21d5dc52681f76f3fa9229f190ac533c057826d978689dd0a7b",
                     "dae86ac6bf88a8397e3fa3a5a0c0c60c6569cb33ffe685a8d3eb03218e7685af",
                     LIBS_TRANSLATE),
+            // ===== 播放内核 =====
+            new BundleInfo(BUNDLE_IJK, "IJK 播放内核",
+                    3_052_344L, 2_741_769L, 7_145_712L, 5_604_944L,
+                    "b441ca06be12fc74f437cc420b9214dfdb41c8f08a5bdb3908b785e9d139519f",
+                    "3acf9985808316db9180baa2a2f0f87171e6ab5990f50613c89e1b91383e93c8",
+                    LIBS_IJK),
+            new BundleInfo(BUNDLE_ALI, "阿里云播放内核",
+                    4_361_846L, 4_109_824L, 11_828_288L, 9_048_916L,
+                    "9147e6d358ed09fc220b39d6eaffc5ec27216cee9c5f19755d376a2a97983063",
+                    "2369aa253405ac279be162b9553032352fcc182893c66e66bc2fae4a2fe09021",
+                    LIBS_ALI),
+            new BundleInfo(BUNDLE_MPV, "MPV 播放内核",
+                    11_558_670L, 11_124_397L, 24_951_312L, 22_638_892L,
+                    "8cdc4ffda645238387155c24b914611543359ee9e3104abb4b66eff4042e5f77",
+                    "4ce30d24c2a643369fafb748b48008863d78cd008b7805c734e5b20d3f9aa10e",
+                    LIBS_MPV),
+            new BundleInfo(BUNDLE_FFMPEG, "FFmpeg 合并组件",
+                    2_447_803L, 2_520_273L, 5_250_696L, 5_391_500L,
+                    "98ec6245dcd7e499a427638cbeedae1ee0c18428a3c63ceea6ba1634fcbf6c7f",
+                    "cb9565c362bc1838912e1e2b0a3b58278833c4f8fcc9ba2cadcabfd7c770d2ce",
+                    LIBS_FFMPEG),
     };
 
     /** 应用私有目录；由 {@link #install(Context)} 设置，so 必须落在此目录内 */
@@ -543,6 +602,9 @@ public final class NativeLibManager {
                 }
                 // 解压完成且校验通过后才加载（见 load 的注意事项）
                 boolean loaded = load(bundleId);
+                if (loaded) {
+                    resetEngineAfterInstall(bundleId);
+                }
                 notifyProgress(callback, 100, bundleSize, bundleSize, "完成");
                 notifySuccess(callback, loaded);
             }
@@ -553,6 +615,26 @@ public final class NativeLibManager {
                 notifyError(callback, error);
             }
         });
+    }
+
+    /**
+     * 组件安装完成后，重置那些「失败即永久锁定」的引擎缓存。
+     *
+     * <p>目前只有 FFmpegKit：它的 {@code init()} 在 so 缺失时进入 stub 模式并置位
+     * {@code sInitialized}，此后本进程内不再重试。下载完成后重置即可免重启生效。
+     * 其余内核的加载走 {@code loadLibrary}，失败不会锁死，无需处理。
+     */
+    private static void resetEngineAfterInstall(String bundleId) {
+        if (!BUNDLE_FFMPEG.equals(bundleId)) {
+            return;
+        }
+        try {
+            com.orange.ffmpeg.FFmpegKit.resetForRetry();
+            Log.d(TAG, "已重置 FFmpegKit，下载的组件本次运行即可用");
+        } catch (Throwable t) {
+            // 宿主未引入 ffmpeg 模块时类不存在，属正常情况
+            Log.d(TAG, "FFmpegKit 不可用，跳过重置: " + t.getMessage());
+        }
     }
 
     /**

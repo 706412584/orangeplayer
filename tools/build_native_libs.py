@@ -2,27 +2,41 @@
 """抽出按需下载的 native so 并打包成 zip，打印 sha256/体积供 NativeLibManager 清单使用。
 
 用法：
-  python tools/build_native_libs.py                    # 本地：从 Gradle 缓存取源
+  python tools/build_native_libs.py                    # 本地：从 Gradle 缓存 / 仓库内产物取源
   python tools/build_native_libs.py --fetch            # CI：直连官方源下载（不依赖 Gradle）
   python tools/build_native_libs.py --verify <file>    # 校验 NativeLibManager 里的常量与本地产物一致
+  python tools/build_native_libs.py --only ijk         # 只构建指定 bundle（逗号分隔）
+  python tools/build_native_libs.py --skip ffmpeg      # 跳过指定 bundle
 
 数据来源（版本已 pin，与 APK 构建用的是同一批工件）：
-  sherpa-onnx AAR  -> libonnxruntime / libsherpa-onnx-*
-  tesseract4android AAR -> libtesseract / libleptonica / libjpeg / libpngx
+  sherpa-onnx AAR        -> libonnxruntime / libsherpa-onnx-*
+  tesseract4android AAR  -> libtesseract / libleptonica / libjpeg / libpngx
   libtorrent4j-android-* jar -> libtorrent4j
-  mlkit translate AAR -> libtranslate_jni
+  mlkit translate AAR    -> libtranslate_jni
+  gsyVideoPlayer-ex_so   -> libijk*（仓库内 jniLibs，需 strip）
+  AliyunPlayer AAR       -> libalivcffmpeg / libsaas*
+  libmpv AAR             -> libmpv / libav* / libc++_shared / libplayer
+  tools/prebuilt/ffmpeg  -> liborangeffmpegkit（CI 编不出，见下）
 """
-import argparse, glob, hashlib, json, os, re, sys, urllib.request, zipfile
+import argparse, glob, hashlib, json, os, subprocess, sys, urllib.request, zipfile
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GC = os.path.expanduser('~/.gradle/caches')
 FETCH_DIR = 'build/native-libs-src'
 
+# 每个 bundle 的 so 清单，按 DT_NEEDED 拓扑序（被依赖者在前），与 NativeLibManager 一致
 BUNDLES = {
     'torrent': ['libtorrent4j.so'],
     'asr': ['libonnxruntime.so', 'libsherpa-onnx-jni.so',
             'libsherpa-onnx-c-api.so', 'libsherpa-onnx-cxx-api.so'],
     'ocr': ['libtesseract.so', 'libleptonica.so', 'libjpeg.so', 'libpngx.so'],
     'translate': ['libtranslate_jni.so'],
+    'ijk': ['libijkffmpeg.so', 'libijksdl.so', 'libijkplayer.so'],
+    'ali': ['libalivcffmpeg.so', 'libsaasCorePlayer.so', 'libsaasDownloader.so'],
+    'mpv': ['libavutil.so', 'libswresample.so', 'libswscale.so', 'libavfilter.so',
+            'libavcodec.so', 'libavformat.so', 'libavdevice.so', 'libc++_shared.so',
+            'libmpv.so', 'libplayer.so'],
+    'ffmpeg': ['liborangeffmpegkit.so'],
 }
 ABIS = ['arm64-v8a', 'armeabi-v7a']
 
@@ -37,7 +51,28 @@ REMOTE = {
                 'libtorrent4j-android-arm64/2.0.6-26/libtorrent4j-android-arm64-2.0.6-26.jar',
     'tr-arm': 'https://repo1.maven.org/maven2/org/libtorrent4j/'
               'libtorrent4j-android-arm/2.0.6-26/libtorrent4j-android-arm-2.0.6-26.jar',
+    # 阿里云 SDK 只在阿里云 maven 有（Maven Central 返 404）
+    'ali': 'https://maven.aliyun.com/repository/public/com/aliyun/sdk/android/'
+           'AliyunPlayer/5.4.7.1-full/AliyunPlayer-5.4.7.1-full.aar',
+    'mpv': 'https://repo1.maven.org/maven2/io/github/706412584/libmpv/1.0.0/libmpv-1.0.0.aar',
 }
+
+# 本地源（无网络时用；与 REMOTE 指向同一版本）
+LOCAL_PATHS = {
+    'sherpa': GC + '/8.13/transforms/*/transformed/jetified-sherpa-onnx-1.13.7',
+    'tess': GC + '/modules-2/files-2.1/cz.adaptech.tesseract4android/'
+            'tesseract4android/4.7.0/*/tesseract4android-4.7.0.aar',
+    'mlk': GC + '/modules-2/files-2.1/com.google.mlkit/translate/17.0.2/*/translate-17.0.2.aar',
+    'ali': GC + '/modules-2/files-2.1/com.aliyun.sdk.android/AliyunPlayer/'
+           '5.4.7.1-full/*/*.aar',
+    'mpv': GC + '/modules-2/files-2.1/io.github.706412584/libmpv/1.0.0/*/*.aar',
+}
+
+# ijk 的 so 在仓库内（submodule），源文件带调试符号（26.5MB），必须 strip 后打包
+IJK_DIR = 'GSYVideoPlayer-source/gsyVideoPlayer-ex_so/src/main/jniLibs'
+# ffmpeg 的 so 由本地 CMake 构建产出，CI 无法构建（45MB FFmpeg 静态库不入库、CI 无 NDK），
+# 因此把 stripped 产物提交到仓库，本地与 CI 都从这里取，保证逐字节一致
+FFMPEG_PREBUILT = 'tools/prebuilt/ffmpeg'
 
 
 def _glob1(pat, what):
@@ -58,43 +93,115 @@ def _fetch(key):
     return dest
 
 
-def sources(fetch):
-    if fetch:
-        tr = {'arm64-v8a': _fetch('tr-arm64'), 'armeabi-v7a': _fetch('tr-arm')}
-        # sherpa 的 so 在 AAR 里是 jni/<abi>/ 布局；这里解包到目录以复用 read_lib
-        sherpa_dir = os.path.join(FETCH_DIR, 'sherpa')
-        if not os.path.isdir(sherpa_dir):
-            with zipfile.ZipFile(_fetch('sherpa')) as z:
-                for n in z.namelist():
-                    if n.startswith('jni/') and n.endswith('.so'):
-                        z.extract(n, sherpa_dir)
-        return sherpa_dir, _fetch('tess'), _fetch('mlk'), tr
+def _find_llvm_strip():
+    """定位 NDK 的 llvm-strip。strip 结果必须与 AGP 一致（已实测两者逐字节相同）。"""
+    candidates = []
+    for var in ('ANDROID_NDK_HOME', 'ANDROID_NDK_ROOT', 'NDK_HOME'):
+        root = os.environ.get(var)
+        if root:
+            candidates.append(root)
+    # 从 local.properties 的 sdk.dir 推 NDK
+    try:
+        with open(os.path.join(ROOT, 'local.properties')) as f:
+            for line in f:
+                if line.startswith('sdk.dir'):
+                    sdk = line.split('=', 1)[1].strip().replace('\\:', ':').replace('\\', '/')
+                    candidates += glob.glob(sdk + '/ndk/*')
+    except IOError:
+        pass
+    for root in candidates:
+        for exe in ('llvm-strip', 'llvm-strip.exe'):
+            hits = glob.glob(os.path.join(root, 'toolchains/llvm/prebuilt/*/bin', exe))
+            if hits:
+                return sorted(hits)[-1]
+    sys.exit('未找到 llvm-strip：请设置 ANDROID_NDK_HOME 或确认 SDK 下已安装 NDK')
 
-    sherpa_dir = _glob1(GC + '/8.13/transforms/*/transformed/jetified-sherpa-onnx-1.13.7', 'sherpa AAR')
-    tess = _glob1(GC + '/modules-2/files-2.1/cz.adaptech.tesseract4android/tesseract4android/4.7.0/*/tesseract4android-4.7.0.aar', 'tesseract AAR')
-    mlk = _glob1(GC + '/modules-2/files-2.1/com.google.mlkit/translate/17.0.2/*/translate-17.0.2.aar', 'mlkit translate AAR')
-    tr = {}
-    for suffix, abi in (('arm64', 'arm64-v8a'), ('arm', 'armeabi-v7a')):
-        tr[abi] = _glob1(GC + '/modules-2/files-2.1/org.libtorrent4j/libtorrent4j-android-%s/2.0.6-26/*/*.jar' % suffix,
-                         'libtorrent4j-android-%s' % suffix)
-    return sherpa_dir, tess, mlk, tr
+
+_STRIP = None
 
 
-def read_lib(name, abi, sherpa_dir, tess, mlk, tr):
-    """返回 so 字节。"""
-    p = os.path.join(sherpa_dir, 'jni', abi, name)
-    if os.path.exists(p):
-        return open(p, 'rb').read()
-    if name == 'libtorrent4j.so':
-        with zipfile.ZipFile(tr[abi]) as z:
-            return z.read('lib/%s/%s' % (abi, name))
-    for aar, member in ((tess, 'jni/%s/%s' % (abi, name)), (mlk, 'jni/%s/%s' % (abi, name))):
-        with zipfile.ZipFile(aar) as z:
-            try:
-                return z.read(member)
-            except KeyError:
-                pass
-    sys.exit('未找到 %s (%s)' % (name, abi))
+def _strip_bytes(name, data):
+    """strip 一份 so（只对未 strip 的源做；上游已 strip 的不要重复处理）。"""
+    global _STRIP
+    if _STRIP is None:
+        _STRIP = _find_llvm_strip()
+    tmp = os.path.join(FETCH_DIR, '_strip_tmp.so')
+    os.makedirs(FETCH_DIR, exist_ok=True)
+    with open(tmp, 'wb') as f:
+        f.write(data)
+    subprocess.check_call([_STRIP, '--strip-unneeded', tmp])
+    with open(tmp, 'rb') as f:
+        return f.read()
+
+
+def _aar_bytes(aar_path, abi, name):
+    with zipfile.ZipFile(aar_path) as z:
+        member = 'jni/%s/%s' % (abi, name)
+        try:
+            return z.read(member)
+        except KeyError:
+            sys.exit('AAR %s 内缺少 %s' % (os.path.basename(aar_path), member))
+
+
+def _jar_bytes(jar_path, abi, name):
+    with zipfile.ZipFile(jar_path) as z:
+        return z.read('lib/%s/%s' % (abi, name))
+
+
+class Sources(object):
+    """按需解析各 bundle 的源工件（--fetch 走网络，否则走本地缓存/仓库）。"""
+
+    def __init__(self, fetch):
+        self.fetch = fetch
+        self._cache = {}
+
+    def _get(self, key):
+        if key not in self._cache:
+            if self.fetch:
+                self._cache[key] = _fetch(key)
+            else:
+                pat = LOCAL_PATHS[key]
+                if key == 'sherpa':
+                    # sherpa 的 so 在 AAR 内是 jni/<abi>/ 布局，解包成目录以复用
+                    d = _glob1(pat, 'sherpa AAR')
+                    self._cache[key] = d
+                else:
+                    self._cache[key] = _glob1(pat, key + ' AAR')
+        return self._cache[key]
+
+    def lib(self, bundle, abi, name):
+        if bundle == 'asr':
+            d = self._get('sherpa')
+            if os.path.isdir(d):
+                return open(os.path.join(d, 'jni', abi, name), 'rb').read()
+            return _aar_bytes(d, abi, name)
+        if bundle == 'ocr':
+            return _aar_bytes(self._get('tess'), abi, name)
+        if bundle == 'translate':
+            return _aar_bytes(self._get('mlk'), abi, name)
+        if bundle == 'ali':
+            return _aar_bytes(self._get('ali'), abi, name)
+        if bundle == 'mpv':
+            return _aar_bytes(self._get('mpv'), abi, name)
+        if bundle == 'torrent':
+            suffix = 'arm64' if abi == 'arm64-v8a' else 'arm'
+            jar = (self._get('tr-' + suffix) if self.fetch else _glob1(
+                GC + '/modules-2/files-2.1/org.libtorrent4j/libtorrent4j-android-%s/'
+                     '2.0.6-26/*/*.jar' % suffix, 'libtorrent4j-android-' + suffix))
+            return _jar_bytes(jar, abi, name)
+        if bundle == 'ijk':
+            # 源文件带 19MB 调试符号，必须 strip 才能得到与 APK 一致的体积
+            path = os.path.join(ROOT, IJK_DIR, abi, name)
+            if not os.path.exists(path):
+                sys.exit('未找到 %s（GSYVideoPlayer-source submodule 是否已初始化？）' % path)
+            return _strip_bytes(name, open(path, 'rb').read())
+        if bundle == 'ffmpeg':
+            path = os.path.join(ROOT, FFMPEG_PREBUILT, abi, name)
+            if not os.path.exists(path):
+                sys.exit('未找到 %s\n请先构建 :orange-ffmpeg 并从 build/intermediates 拷贝 '
+                         'stripped 产物到 %s/<abi>/' % (path, FFMPEG_PREBUILT))
+            return open(path, 'rb').read()
+        sys.exit('未知 bundle: %s' % bundle)
 
 
 def verify(manifest_path, java_path):
@@ -121,6 +228,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default='build/native-libs')
     ap.add_argument('--fetch', action='store_true', help='直连官方源下载源工件（CI 用）')
+    ap.add_argument('--only', help='只构建指定 bundle（逗号分隔）')
+    ap.add_argument('--skip', help='跳过指定 bundle（逗号分隔）')
     ap.add_argument('--verify', metavar='JAVA',
                     help='校验 NativeLibManager 常量与 --out/manifest.json 一致')
     args = ap.parse_args()
@@ -132,16 +241,32 @@ def main():
         print('verify %s: %d 处不一致' % (args.verify, len(errors)))
         sys.exit(1 if errors else 0)
 
-    sherpa_dir, tess, mlk, tr = sources(args.fetch)
+    wanted = list(BUNDLES)
+    if args.only:
+        wanted = [b.strip() for b in args.only.split(',') if b.strip()]
+        unknown = [b for b in wanted if b not in BUNDLES]
+        if unknown:
+            sys.exit('未知 bundle: %s' % unknown)
+    if args.skip:
+        skip = {b.strip() for b in args.skip.split(',') if b.strip()}
+        wanted = [b for b in wanted if b not in skip]
+
+    src = Sources(args.fetch)
     os.makedirs(args.out, exist_ok=True)
+    manifest_path = os.path.join(args.out, 'manifest.json')
+    # 增量：--only/--skip 时保留其余 bundle 的既有结果，避免整表重算
     manifest = {}
-    for bundle, libs in BUNDLES.items():
+    if os.path.exists(manifest_path) and (args.only or args.skip):
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+
+    for bundle in wanted:
         for abi in ABIS:
             fname = '%s-%s.zip' % (bundle, abi)
             path = os.path.join(args.out, fname)
             with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
-                for lib in libs:
-                    data = read_lib(lib, abi, sherpa_dir, tess, mlk, tr)
+                for lib in BUNDLES[bundle]:
+                    data = src.lib(bundle, abi, lib)
                     # 只存文件名（无目录），落位时直接解到 native-libs/<abi>/
                     zi = zipfile.ZipInfo(lib, date_time=(2024, 1, 1, 0, 0, 0))
                     zi.compress_type = zipfile.ZIP_DEFLATED
@@ -159,9 +284,9 @@ def main():
             print('%-9s %-12s %7.1f MiB  sha256=%s' % (
                 bundle, abi, len(raw) / 1048576, manifest[bundle][abi]['sha256']))
 
-    with open(os.path.join(args.out, 'manifest.json'), 'w') as f:
+    with open(manifest_path, 'w') as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
-    print('\nmanifest: %s' % os.path.join(args.out, 'manifest.json'))
+    print('\nmanifest: %s' % manifest_path)
 
 
 if __name__ == '__main__':

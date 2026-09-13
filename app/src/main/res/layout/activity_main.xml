@@ -149,6 +149,10 @@
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:layout_marginTop="6dp">
                     <Button android:id="@+id/btn_exit_portrait_fullscreen" style="@style/OrangeButtonSecondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="退出竖屏全屏" android:textSize="11sp" />
                 </LinearLayout>
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:layout_marginTop="6dp">
+                    <Button android:id="@+id/btn_native_libs" style="@style/OrangeButtonSecondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="扩展包管理" android:textSize="11sp" />
+                </LinearLayout>
             </LinearLayout>
 
             <!-- ===== 下载与投屏 ===== -->

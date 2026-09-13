@@ -173,6 +173,168 @@
                 android:textSize="13sp"
                 android:background="@drawable/btn_subtitle_bg" />
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="14dp" />
+
+            <!-- 以下为播放内核（可选内核，按需下载） -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="播放内核"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="不同内核兼容性不同，可按需下载后在「播放核心」中切换"
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="8dp" />
+
+            <!-- IJK -->
+            <TextView
+                android:id="@+id/tv_bundle_ijk_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="IJK 播放内核"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_bundle_ijk_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="6dp" />
+
+            <Button
+                android:id="@+id/btn_bundle_ijk"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="下载"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="14dp" />
+
+            <!-- 阿里云 -->
+            <TextView
+                android:id="@+id/tv_bundle_ali_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="阿里云播放内核"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_bundle_ali_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="6dp" />
+
+            <Button
+                android:id="@+id/btn_bundle_ali"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="下载"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="14dp" />
+
+            <!-- MPV -->
+            <TextView
+                android:id="@+id/tv_bundle_mpv_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="MPV 播放内核"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_bundle_mpv_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="6dp" />
+
+            <Button
+                android:id="@+id/btn_bundle_mpv"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="下载"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/op_divider"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="14dp" />
+
+            <!-- FFmpeg 合并组件 -->
+            <TextView
+                android:id="@+id/tv_bundle_ffmpeg_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="FFmpeg 合并组件"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_bundle_ffmpeg_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="6dp" />
+
+            <Button
+                android:id="@+id/btn_bundle_ffmpeg"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="下载"
+                android:textColor="@color/op_text_primary"
+                android:textSize="13sp"
+                android:background="@drawable/btn_subtitle_bg" />
+
         </LinearLayout>
     </ScrollView>
 </FrameLayout>

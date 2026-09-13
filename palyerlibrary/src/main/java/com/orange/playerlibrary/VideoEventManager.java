@@ -1056,28 +1056,41 @@ public class VideoEventManager {
     private void setupEngineButtons(android.widget.TextView aliBtn, android.widget.TextView exoBtn,
                                    android.widget.TextView ijkBtn, android.widget.TextView systemBtn,
                                    android.widget.TextView mpvBtn) {
-        // 检查核心是否可用
-        boolean isAliPlayerAvailable = isClassPresent("com.aliyun.player.AliPlayer");
-        boolean isIjkPlayerAvailable = isIjkPlayerAvailable(); // 使用新的检测方法，同时检查 Java 类和 SO 库
+        // 检查核心是否可用。so 已改为按需下载，故分三态：
+        //   宿主未引入（类缺失）→ 隐藏按钮
+        //   已引入但 so 未下载   → 显示按钮，点击进下载流程
+        //   已就绪               → 显示按钮，点击直接切换
+        boolean aliSupported = com.orange.playerlibrary.utils.PlayerEngineAvailability
+                .isSupported(PlayerConstants.ENGINE_ALI);
+        boolean ijkSupported = com.orange.playerlibrary.utils.PlayerEngineAvailability
+                .isSupported(PlayerConstants.ENGINE_IJK);
+        boolean mpvSupported = com.orange.playerlibrary.utils.PlayerEngineAvailability
+                .isSupported(PlayerConstants.ENGINE_MPV);
+
+        boolean isAliReady = com.orange.playerlibrary.utils.PlayerEngineAvailability
+                .isUsable(PlayerConstants.ENGINE_ALI);
+        boolean isIjkReady = isIjkPlayerAvailable();
+        boolean isMpvReady = com.orange.playerlibrary.utils.PlayerEngineAvailability
+                .isUsable(PlayerConstants.ENGINE_MPV);
+
         // ExoPlayer 检测：GSY 11.x 使用 Media3，也检测旧版 ExoPlayer2
         boolean isExoPlayerAvailable = isClassPresent("com.shuyu.gsyvideoplayer.player.Exo2PlayerManager") ||
                                        isClassPresent("com.google.android.exoplayer2.ExoPlayer") ||
                                        isClassPresent("com.google.android.exoplayer2.Player") ||
                                        isClassPresent("androidx.media3.exoplayer.ExoPlayer");
-        // mpv 内核检测：可选工件 orangeplayer-mpv 存在且系统 API 26+
-        boolean isMpvAvailable = android.os.Build.VERSION.SDK_INT >= 26
-                && isClassPresent("com.orange.player.mpv.MpvPlayerManager");
 
         // 调试日志：显示内核可用性
-        android.util.Log.d("VideoEventManager", "setupEngineButtons: Ali=" + isAliPlayerAvailable +
-            ", IJK=" + isIjkPlayerAvailable + ", Exo=" + isExoPlayerAvailable + ", MPV=" + isMpvAvailable);
+        android.util.Log.d("VideoEventManager", "setupEngineButtons: Ali=" + aliSupported
+                + "(ready=" + isAliReady + "), IJK=" + ijkSupported + "(ready=" + isIjkReady
+                + "), Exo=" + isExoPlayerAvailable + ", MPV=" + mpvSupported
+                + "(ready=" + isMpvReady + ")");
 
-        // 设置可见性
-        if (aliBtn != null) aliBtn.setVisibility(isAliPlayerAvailable ? View.VISIBLE : View.GONE);
-        if (ijkBtn != null) ijkBtn.setVisibility(isIjkPlayerAvailable ? View.VISIBLE : View.GONE);
+        // 设置可见性：未引入才隐藏；已引入但缺 so 仍显示（否则用户无从发现与下载）
+        if (aliBtn != null) aliBtn.setVisibility(aliSupported ? View.VISIBLE : View.GONE);
+        if (ijkBtn != null) ijkBtn.setVisibility(ijkSupported ? View.VISIBLE : View.GONE);
         if (exoBtn != null) exoBtn.setVisibility(isExoPlayerAvailable ? View.VISIBLE : View.GONE);
         if (systemBtn != null) systemBtn.setVisibility(View.VISIBLE); // 系统核心始终可用
-        if (mpvBtn != null) mpvBtn.setVisibility(isMpvAvailable ? View.VISIBLE : View.GONE);
+        if (mpvBtn != null) mpvBtn.setVisibility(mpvSupported ? View.VISIBLE : View.GONE);
 
         // 获取当前引擎
         String currentEngine = mSettingsManager.getPlayerEngine();
@@ -1085,27 +1098,38 @@ public class VideoEventManager {
         // 调试日志：显示当前引擎
         android.util.Log.d("VideoEventManager", "setupEngineButtons: currentEngine=" + currentEngine);
 
-        // 高亮当前引擎
+        // 高亮当前引擎；未下载的内核用暗色暗示「需要先下载」（点击会引导下载）。
+        // 颜色优先级：当前引擎 > 未就绪 > 普通。
         if (aliBtn != null) {
-            aliBtn.setTextColor(PlayerConstants.ENGINE_ALI.equals(currentEngine) ? COLOR_HIGHLIGHT : COLOR_NORMAL);
+            aliBtn.setTextColor(engineTextColor(currentEngine, PlayerConstants.ENGINE_ALI, isAliReady));
             aliBtn.setOnClickListener(v -> selectEngine(PlayerConstants.ENGINE_ALI));
         }
         if (exoBtn != null) {
-            exoBtn.setTextColor(PlayerConstants.ENGINE_EXO.equals(currentEngine) ? COLOR_HIGHLIGHT : COLOR_NORMAL);
+            exoBtn.setTextColor(engineTextColor(currentEngine, PlayerConstants.ENGINE_EXO, true));
             exoBtn.setOnClickListener(v -> selectEngine(PlayerConstants.ENGINE_EXO));
         }
         if (ijkBtn != null) {
-            ijkBtn.setTextColor(PlayerConstants.ENGINE_IJK.equals(currentEngine) ? COLOR_HIGHLIGHT : COLOR_NORMAL);
+            ijkBtn.setTextColor(engineTextColor(currentEngine, PlayerConstants.ENGINE_IJK, isIjkReady));
             ijkBtn.setOnClickListener(v -> selectEngine(PlayerConstants.ENGINE_IJK));
         }
         if (systemBtn != null) {
-            systemBtn.setTextColor(PlayerConstants.ENGINE_DEFAULT.equals(currentEngine) ? COLOR_HIGHLIGHT : COLOR_NORMAL);
+            systemBtn.setTextColor(engineTextColor(currentEngine, PlayerConstants.ENGINE_DEFAULT, true));
             systemBtn.setOnClickListener(v -> selectEngine(PlayerConstants.ENGINE_DEFAULT));
         }
-        if (mpvBtn != null && isMpvAvailable) {
-            mpvBtn.setTextColor(PlayerConstants.ENGINE_MPV.equals(currentEngine) ? COLOR_HIGHLIGHT : COLOR_NORMAL);
+        if (mpvBtn != null && mpvSupported) {
+            mpvBtn.setTextColor(engineTextColor(currentEngine, PlayerConstants.ENGINE_MPV, isMpvReady));
             mpvBtn.setOnClickListener(v -> selectEngine(PlayerConstants.ENGINE_MPV));
         }
+    }
+
+    /** 未下载的内核比普通态更暗，提示「还需要先下载」 */
+    private static final int COLOR_NOT_READY = Color.parseColor("#6B6B6B");
+
+    private static int engineTextColor(String currentEngine, String engine, boolean ready) {
+        if (engine.equals(currentEngine)) {
+            return COLOR_HIGHLIGHT;
+        }
+        return ready ? COLOR_NORMAL : COLOR_NOT_READY;
     }
     
     /**
@@ -1155,6 +1179,12 @@ public class VideoEventManager {
      * 选择播放引擎
      */
     private void selectEngine(String engine) {
+        // so 已改为按需下载：未就绪的内核不能直接切（会静默回退却谎报切换成功），
+        // 也不该写入偏好（否则下次启动又走一遍回退）。改为引导下载。
+        if (com.orange.playerlibrary.utils.PlayerEngineAvailability.needsDownload(engine)) {
+            promptDownloadEngine(engine);
+            return;
+        }
         String oldEngine = mSettingsManager.getPlayerEngine();
         // 保存播放核心设置
         mSettingsManager.setPlayerEngine(engine);
@@ -1191,6 +1221,71 @@ public class VideoEventManager {
         // 提示用户
         showToast("播放核心已切换为 " + getEngineName(engine));
     }
+
+    /**
+     * 内核的 so 未下载时引导下载，完成后自动切过去。
+     *
+     * 不走「先写偏好再切」：写进去的偏好下次启动会被 initPlayerFactory 判为不可用
+     * 而回退，用户会看到「设置了却不生效」。这里下载成功才落偏好。
+     */
+    private void promptDownloadEngine(final String engine) {
+        final String bundleId = com.orange.playerlibrary.utils.PlayerEngineAvailability
+                .bundleIdFor(engine);
+        if (bundleId == null) {
+            return;
+        }
+        final com.orange.playerlibrary.tool.NativeLibManager.BundleInfo info =
+                com.orange.playerlibrary.tool.NativeLibManager.getBundle(bundleId);
+        if (info == null) {
+            return;
+        }
+        final String sizeText = com.orange.playerlibrary.tool.NativeLibManager.formatSize(info.size());
+        new AlertDialog.Builder(mActivity)
+                .setTitle("下载 " + getEngineName(engine) + " 内核")
+                .setMessage("该内核不再随安装包分发，首次使用需下载（约 " + sizeText
+                        + "，支持断点续传）。\n\n下载完成后将自动切换。")
+                .setPositiveButton("下载", (d, w) -> {
+                    final DownloadProgressDialog progress =
+                            new DownloadProgressDialog(mActivity);
+                    progress.showWithRealProgress("下载 " + getEngineName(engine) + " 内核",
+                            "共约 " + sizeText);
+                    com.orange.playerlibrary.tool.NativeLibManager.download(mContext, bundleId,
+                            new com.orange.playerlibrary.tool.NativeLibManager.InstallCallback() {
+                                @Override
+                                public void onProgress(final int percent, final long downloaded,
+                                                       final long total, final String stage) {
+                                    mActivity.runOnUiThread(() -> progress.setProgress(percent,
+                                            String.format(java.util.Locale.US, "%.1f/%.1f MB",
+                                                    downloaded / 1048576.0, total / 1048576.0)));
+                                }
+
+                                @Override
+                                public void onSuccess(final boolean loaded) {
+                                    mActivity.runOnUiThread(() -> {
+                                        progress.complete("下载完成");
+                                        if (loaded) {
+                                            // so 已加载，直接切（selectEngine 此时能通过门禁）
+                                            selectEngine(engine);
+                                        } else {
+                                            // 内核类的 <clinit> 可能已被污染（ali/mpv），
+                                            // 本进程内加载不回来，只能提示重启
+                                            showToast("内核已下载，请重启应用后生效");
+                                        }
+                                    });
+                                }
+
+                                @Override
+                                public void onError(final String error) {
+                                    mActivity.runOnUiThread(() -> {
+                                        progress.fail("下载失败", error);
+                                        showToast("下载失败：" + error);
+                                    });
+                                }
+                            });
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
     
     /**
      * 获取播放核心名称
@@ -1212,25 +1307,28 @@ public class VideoEventManager {
     }
     
     /**
-     * 检查类是否存在
+     * 检查类是否存在。
+     *
+     * <p>必须用 {@code initialize=false}：内核类（尤其 ali 的 NativePlayerBase、
+     * mpv 的 MPVLib）的静态块会 loadLibrary，而 so 已改为按需下载——触发初始化
+     * 会抛错并把该类永久污染（ali 更隐蔽：状态位先置 true 再加载，之后永不重试）。
      */
     private boolean isClassPresent(String className) {
         try {
-            Class.forName(className);
+            Class.forName(className, false, getClass().getClassLoader());
             return true;
-        } catch (ClassNotFoundException e) {
+        } catch (Throwable t) {
             return false;
         }
     }
-    
+
     /**
-     * 检查 IJK 播放器是否可用
-     * 只检查 Java 类是否存在，SO 库由 GSY 内部处理
+     * 检查 IJK 播放器是否可用（Java 类存在 && so 已按需下载）。
+     * 改造前只查类，so 剔出 APK 后会误判可用。
      */
     private boolean isIjkPlayerAvailable() {
-        // 只检查 Java 类是否存在
-        // SO 库由 GSY 内部加载，不需要手动检测
-        boolean available = isClassPresent("tv.danmaku.ijk.media.player.IjkMediaPlayer");
+        boolean available = com.orange.playerlibrary.utils.PlayerEngineAvailability
+                .isUsable(PlayerConstants.ENGINE_IJK);
         android.util.Log.d("VideoEventManager", "isIjkPlayerAvailable: " + available);
         return available;
     }
@@ -3811,35 +3909,6 @@ public class VideoEventManager {
                 }
             }
 
-            // 扩展包管理入口：按需下载的 native 组件
-            android.widget.TextView tvNativeLibsStatus =
-                    dialogView.findViewById(R.id.tv_native_libs_status);
-            if (tvNativeLibsStatus != null) {
-                int installed = 0;
-                int supported = 0;
-                for (com.orange.playerlibrary.tool.NativeLibManager.BundleInfo b
-                        : com.orange.playerlibrary.tool.NativeLibManager.getBundles()) {
-                    if (!com.orange.playerlibrary.tool.NativeLibManager.isSupported(b.id)) {
-                        continue;
-                    }
-                    supported++;
-                    if (com.orange.playerlibrary.tool.NativeLibManager.isInstalled(b.id)) {
-                        installed++;
-                    }
-                }
-                tvNativeLibsStatus.setText(supported == 0
-                        ? "本版本未集成扩展组件"
-                        : "扩展包：已安装 " + installed + "/" + supported
-                        + "（种子/语音/文字识别/翻译）");
-            }
-            View btnNativeLibs = dialogView.findViewById(R.id.btn_native_libs);
-            if (btnNativeLibs != null) {
-                btnNativeLibs.setOnClickListener(v -> {
-                    dialog.dismiss();
-                    showNativeLibsDialog();
-                });
-            }
-
         } catch (Exception e) {
         }
     }
@@ -5890,14 +5959,21 @@ public class VideoEventManager {
     // ===== OCR 翻译字幕功能 =====
 
     /**
-     * 扩展包管理面板：按需下载 native 组件（种子/语音/文字识别/翻译）。
+     * 扩展包管理面板：按需下载 native 组件（功能组件 + 播放内核）。
      *
      * 这些 so 不再随 APK 分发（见 NativeLibManager）。每个条目按状态显示：
      * 未支持（宿主未引依赖）/ 未安装（显示体积）/ 已安装。
      * 下载完成后组件的 so 会被 System.load 进当前进程，功能立即可用；
      * 若加载失败（部分 ROM 限制），提示需重启应用。
+     *
+     * <p>宿主可在设置面板等任意位置调用（入口不再局限于字幕面板）。
+     *
+     * <p>渲染前先确保 NativeLibManager 已初始化：{@code isInstalled} 在未初始化
+     * 时会返回 false，而 {@code download} 会惰性补初始化——两者判定不一致时，
+     * 面板会把已下载的组件显示成「未安装」，点下载却瞬间完成。
      */
-    private void showNativeLibsDialog() {
+    public void showNativeLibsDialog() {
+        com.orange.playerlibrary.tool.NativeLibManager.install(mContext);
         View dialogView = View.inflate(mActivity, R.layout.dialog_native_libs, null);
 
         final AlertDialog dialog = DialogUtils.showCustomDialog(mActivity, dialogView,
@@ -5911,16 +5987,24 @@ public class VideoEventManager {
         final int[] rowIds = {
                 R.id.btn_bundle_torrent, R.id.btn_bundle_asr,
                 R.id.btn_bundle_ocr, R.id.btn_bundle_translate,
+                R.id.btn_bundle_ijk, R.id.btn_bundle_ali,
+                R.id.btn_bundle_mpv, R.id.btn_bundle_ffmpeg,
         };
         final int[] statusIds = {
                 R.id.tv_bundle_torrent_status, R.id.tv_bundle_asr_status,
                 R.id.tv_bundle_ocr_status, R.id.tv_bundle_translate_status,
+                R.id.tv_bundle_ijk_status, R.id.tv_bundle_ali_status,
+                R.id.tv_bundle_mpv_status, R.id.tv_bundle_ffmpeg_status,
         };
         final String[] bundleIds = {
                 com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_TORRENT,
                 com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_ASR,
                 com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_OCR,
                 com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_TRANSLATE,
+                com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_IJK,
+                com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_ALI,
+                com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_MPV,
+                com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_FFMPEG,
         };
 
         for (int i = 0; i < bundleIds.length; i++) {
@@ -5939,7 +6023,7 @@ public class VideoEventManager {
             hint.setText(abi == null
                     ? "当前设备架构（" + android.os.Build.SUPPORTED_ABIS[0]
                       + "）不提供这些组件，相关功能不可用。"
-                    : "以下功能组件不再随安装包分发，用到时按需下载（支持断点续传，"
+                    : "以下组件不再随安装包分发，用到时按需下载（支持断点续传，"
                       + "解压后占用约 " + com.orange.playerlibrary.tool.NativeLibManager
                             .formatSize(totalRawSize()) + "）。");
         }
@@ -5988,15 +6072,28 @@ public class VideoEventManager {
             });
             return;
         }
+        // 播放内核比功能组件多一层平台约束（如 mpv 需 API 26+）：先下载再提示
+        // 也用不了会白下，故在未安装状态下把约束一并说明。
+        String platformNote = platformNoteFor(bundleId);
         if (status != null) {
             status.setText("未安装 · 下载约 " + sizeText
                     + " · 安装后占用 " + com.orange.playerlibrary.tool.NativeLibManager
-                            .formatSize(info.rawSize()));
+                            .formatSize(info.rawSize())
+                    + (platformNote == null ? "" : " · " + platformNote));
             status.setTextColor(0xFFFF8F3F);
         }
         btn.setText("下载（" + sizeText + "）");
         btn.setEnabled(true);
         btn.setOnClickListener(v -> startBundleDownload(dialog, bundleId, btn, status));
+    }
+
+    /** 内核包在该设备上的额外约束说明；无约束返回 null */
+    private static String platformNoteFor(String bundleId) {
+        if (com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_MPV.equals(bundleId)
+                && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
+            return "当前系统版本低于 Android 8.0，下载后仍不可用";
+        }
+        return null;
     }
 
     /** 下载并安装单个组件，进度写入该行状态文本 */
