@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 扩展包管理：按需下载的 native 组件（种子/语音识别/文字识别/翻译）。
+<!-- 扩展包管理：按需下载的 native 组件与播放内核。
+     每行紧凑排布（左侧名称+状态，右侧小按钮），按「功能组件 / 播放内核」
+     分两张卡片，8 行一屏内可览，避免纵向长列表要滚两屏。
      与 subtitle_dialog 同为右侧滑出面板，样式保持一致。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/layout"
@@ -27,313 +29,152 @@
                 android:text="扩展包管理"
                 android:textColor="@color/op_text_primary"
                 android:textSize="18sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="8dp" />
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/tv_native_libs_hint"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="以下功能组件不再随安装包分发，用到时按需下载（支持断点续传）。"
+                android:text="以下组件不再随安装包分发，用到时按需下载。"
                 android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginBottom="16dp" />
+                android:textSize="11sp"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="12dp" />
 
-            <!-- 种子播放 -->
+            <!-- ========== 功能组件 ========== -->
             <TextView
-                android:id="@+id/tv_bundle_torrent_name"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="种子播放组件"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tv_bundle_torrent_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="6dp" />
-
-            <Button
-                android:id="@+id/btn_bundle_torrent"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="下载"
+                android:text="功能组件"
                 android:textColor="@color/op_text_primary"
                 android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/op_divider"
-                android:layout_marginTop="14dp"
-                android:layout_marginBottom="14dp" />
-
-            <!-- 语音识别 -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="语音识别组件"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tv_bundle_asr_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp"
+                android:textStyle="bold"
                 android:layout_marginBottom="6dp" />
 
-            <Button
-                android:id="@+id/btn_bundle_asr"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="下载"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/op_divider"
-                android:layout_marginTop="14dp"
-                android:layout_marginBottom="14dp" />
-
-            <!-- 文字识别 -->
-            <TextView
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="文字识别组件"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                android:orientation="vertical"
+                android:background="@drawable/setup_card_bg"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
 
+                <!-- 种子播放 -->
+                <LinearLayout style="@style/BundleRow">
+                    <LinearLayout style="@style/BundleRowText">
+                        <TextView style="@style/BundleRowName" android:text="种子播放" />
+                        <TextView android:id="@+id/tv_bundle_torrent_status" style="@style/BundleRowStatus" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btn_bundle_torrent" style="@style/BundleRowButton" />
+                </LinearLayout>
+
+                <View style="@style/BundleRowDivider" />
+
+                <!-- 语音识别 -->
+                <LinearLayout style="@style/BundleRow">
+                    <LinearLayout style="@style/BundleRowText">
+                        <TextView style="@style/BundleRowName" android:text="语音识别" />
+                        <TextView android:id="@+id/tv_bundle_asr_status" style="@style/BundleRowStatus" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btn_bundle_asr" style="@style/BundleRowButton" />
+                </LinearLayout>
+
+                <View style="@style/BundleRowDivider" />
+
+                <!-- 文字识别 -->
+                <LinearLayout style="@style/BundleRow">
+                    <LinearLayout style="@style/BundleRowText">
+                        <TextView style="@style/BundleRowName" android:text="文字识别" />
+                        <TextView android:id="@+id/tv_bundle_ocr_status" style="@style/BundleRowStatus" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btn_bundle_ocr" style="@style/BundleRowButton" />
+                </LinearLayout>
+
+                <View style="@style/BundleRowDivider" />
+
+                <!-- 翻译 -->
+                <LinearLayout style="@style/BundleRow">
+                    <LinearLayout style="@style/BundleRowText">
+                        <TextView style="@style/BundleRowName" android:text="翻译" />
+                        <TextView android:id="@+id/tv_bundle_translate_status" style="@style/BundleRowStatus" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btn_bundle_translate" style="@style/BundleRowButton" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ========== 播放内核 ========== -->
             <TextView
-                android:id="@+id/tv_bundle_ocr_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="6dp" />
-
-            <Button
-                android:id="@+id/btn_bundle_ocr"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="下载"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/op_divider"
-                android:layout_marginTop="14dp"
-                android:layout_marginBottom="14dp" />
-
-            <!-- 翻译 -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="翻译组件"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tv_bundle_translate_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="6dp" />
-
-            <Button
-                android:id="@+id/btn_bundle_translate"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="下载"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/op_divider"
-                android:layout_marginTop="14dp"
-                android:layout_marginBottom="14dp" />
-
-            <!-- 以下为播放内核（可选内核，按需下载） -->
-            <TextView
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="播放内核"
                 android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="不同内核兼容性不同，可按需下载后在「播放核心」中切换"
-                android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="8dp" />
-
-            <!-- IJK -->
-            <TextView
-                android:id="@+id/tv_bundle_ijk_name"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="IJK 播放内核"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tv_bundle_ijk_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="6dp" />
-
-            <Button
-                android:id="@+id/btn_bundle_ijk"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="下载"
-                android:textColor="@color/op_text_primary"
                 android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/op_divider"
+                android:textStyle="bold"
                 android:layout_marginTop="14dp"
-                android:layout_marginBottom="14dp" />
-
-            <!-- 阿里云 -->
-            <TextView
-                android:id="@+id/tv_bundle_ali_name"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="阿里云播放内核"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tv_bundle_ali_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp"
                 android:layout_marginBottom="6dp" />
 
-            <Button
-                android:id="@+id/btn_bundle_ali"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="下载"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/op_divider"
-                android:layout_marginTop="14dp"
-                android:layout_marginBottom="14dp" />
-
-            <!-- MPV -->
             <TextView
-                android:id="@+id/tv_bundle_mpv_name"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="MPV 播放内核"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tv_bundle_mpv_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text=""
+                android:text="兼容性不同，下载后在「播放核心」中切换"
                 android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp"
+                android:textSize="11sp"
                 android:layout_marginBottom="6dp" />
 
-            <Button
-                android:id="@+id/btn_bundle_mpv"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="下载"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/op_divider"
-                android:layout_marginTop="14dp"
-                android:layout_marginBottom="14dp" />
-
-            <!-- FFmpeg 合并组件 -->
-            <TextView
-                android:id="@+id/tv_bundle_ffmpeg_name"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="FFmpeg 合并组件"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                android:orientation="vertical"
+                android:background="@drawable/setup_card_bg"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
 
-            <TextView
-                android:id="@+id/tv_bundle_ffmpeg_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textColor="@color/op_text_secondary"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="6dp" />
+                <!-- IJK -->
+                <LinearLayout style="@style/BundleRow">
+                    <LinearLayout style="@style/BundleRowText">
+                        <TextView style="@style/BundleRowName" android:text="IJK 内核" />
+                        <TextView android:id="@+id/tv_bundle_ijk_status" style="@style/BundleRowStatus" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btn_bundle_ijk" style="@style/BundleRowButton" />
+                </LinearLayout>
 
-            <Button
-                android:id="@+id/btn_bundle_ffmpeg"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="下载"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
+                <View style="@style/BundleRowDivider" />
+
+                <!-- 阿里云 -->
+                <LinearLayout style="@style/BundleRow">
+                    <LinearLayout style="@style/BundleRowText">
+                        <TextView style="@style/BundleRowName" android:text="阿里云内核" />
+                        <TextView android:id="@+id/tv_bundle_ali_status" style="@style/BundleRowStatus" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btn_bundle_ali" style="@style/BundleRowButton" />
+                </LinearLayout>
+
+                <View style="@style/BundleRowDivider" />
+
+                <!-- MPV -->
+                <LinearLayout style="@style/BundleRow">
+                    <LinearLayout style="@style/BundleRowText">
+                        <TextView style="@style/BundleRowName" android:text="MPV 内核" />
+                        <TextView android:id="@+id/tv_bundle_mpv_status" style="@style/BundleRowStatus" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btn_bundle_mpv" style="@style/BundleRowButton" />
+                </LinearLayout>
+
+                <View style="@style/BundleRowDivider" />
+
+                <!-- FFmpeg 合并 -->
+                <LinearLayout style="@style/BundleRow">
+                    <LinearLayout style="@style/BundleRowText">
+                        <TextView style="@style/BundleRowName" android:text="FFmpeg 合并" />
+                        <TextView android:id="@+id/tv_bundle_ffmpeg_status" style="@style/BundleRowStatus" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btn_bundle_ffmpeg" style="@style/BundleRowButton" />
+                </LinearLayout>
+            </LinearLayout>
 
         </LinearLayout>
     </ScrollView>

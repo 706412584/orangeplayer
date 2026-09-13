@@ -394,6 +394,9 @@ public class VideoEventManager {
                 case "native_libs":
                     showNativeLibsDialog();
                     break;
+                case "setup_dialog":
+                    showSetupDialog();
+                    break;
                 default:
                     Log.w(TAG, "未知测试命令: " + command);
             }
@@ -969,6 +972,9 @@ public class VideoEventManager {
         // 设置播放核心按钮（MPV 可选内核）
         android.widget.TextView mpvEngineBtn = dialogView.findViewById(R.id.mpvhx);
         setupEngineButtons(aliEngineBtn, exoEngineBtn, ijkEngineBtn, systemEngineBtn, mpvEngineBtn);
+
+        // 扩展包管理入口：紧邻播放核心——内核缺 so 时按钮变暗，用户据此进来下载
+        bindNativeLibsEntry(dialogView, mCurrentSetupDialog);
         
         // 设置解码方式按钮
         setupDecodeModeButtons(decodeHardwareBtn, decodeSoftwareBtn);
@@ -5959,6 +5965,45 @@ public class VideoEventManager {
     // ===== OCR 翻译字幕功能 =====
 
     /**
+     * 全屏设置弹窗里的扩展包入口：显示「已安装 N/M」并跳转到管理面板。
+     *
+     * @param dialog 宿主设置弹窗，跳转前先关掉，避免面板叠在设置上
+     */
+    private void bindNativeLibsEntry(View dialogView, final AlertDialog dialog) {
+        android.widget.TextView status =
+                dialogView.findViewById(R.id.tv_setup_native_libs_status);
+        if (status != null) {
+            int installed = 0;
+            int supported = 0;
+            for (com.orange.playerlibrary.tool.NativeLibManager.BundleInfo b
+                    : com.orange.playerlibrary.tool.NativeLibManager.getBundles()) {
+                if (!com.orange.playerlibrary.tool.NativeLibManager.isSupported(b.id)) {
+                    continue;
+                }
+                supported++;
+                if (com.orange.playerlibrary.tool.NativeLibManager.isInstalled(b.id)) {
+                    installed++;
+                }
+            }
+            if (supported == 0) {
+                status.setText("本版本未集成扩展组件");
+            } else {
+                status.setText("已安装 " + installed + "/" + supported
+                        + (installed < supported ? " · 有组件可按需下载" : ""));
+            }
+        }
+        View btn = dialogView.findViewById(R.id.btn_setup_native_libs);
+        if (btn != null) {
+            btn.setOnClickListener(v -> {
+                if (dialog != null) {
+                    dialog.dismiss();
+                }
+                showNativeLibsDialog();
+            });
+        }
+    }
+
+    /**
      * 扩展包管理面板：按需下载 native 组件（功能组件 + 播放内核）。
      *
      * 这些 so 不再随 APK 分发（见 NativeLibManager）。每个条目按状态显示：
@@ -6029,7 +6074,7 @@ public class VideoEventManager {
         }
     }
 
-    /** 单个组件行的状态绑定与下载按钮 */
+    /** 单个组件行的状态绑定与下载按钮（紧凑单行：左状态、右小按钮） */
     private void bindBundleRow(final AlertDialog dialog, final String bundleId,
                                final android.widget.Button btn,
                                final android.widget.TextView status) {
@@ -6043,21 +6088,24 @@ public class VideoEventManager {
 
         if (!com.orange.playerlibrary.tool.NativeLibManager.isSupported(bundleId)) {
             if (status != null) {
-                status.setText("本版本未集成该组件");
+                status.setText("本版本未集成");
                 status.setTextColor(0xFFFF6B6B);
             }
             btn.setText("不可用");
             btn.setEnabled(false);
+            btn.setBackgroundResource(R.drawable.btn_bundle_delete_bg);
             return;
         }
         if (com.orange.playerlibrary.tool.NativeLibManager.isInstalled(bundleId)) {
             if (status != null) {
-                status.setText("已安装（占用 " + com.orange.playerlibrary.tool.NativeLibManager
-                        .formatSize(info.rawSize()) + "）");
+                status.setText("已安装 · " + com.orange.playerlibrary.tool.NativeLibManager
+                        .formatSize(info.rawSize()));
                 status.setTextColor(0xFF4CAF50);
             }
             btn.setText("删除");
             btn.setEnabled(true);
+            // 删除是破坏性操作，用弱化描边样式，不与「下载」抢注意力
+            btn.setBackgroundResource(R.drawable.btn_bundle_delete_bg);
             btn.setOnClickListener(v -> {
                 new AlertDialog.Builder(mActivity)
                         .setTitle("删除组件")
@@ -6076,14 +6124,15 @@ public class VideoEventManager {
         // 也用不了会白下，故在未安装状态下把约束一并说明。
         String platformNote = platformNoteFor(bundleId);
         if (status != null) {
-            status.setText("未安装 · 下载约 " + sizeText
-                    + " · 安装后占用 " + com.orange.playerlibrary.tool.NativeLibManager
-                            .formatSize(info.rawSize())
-                    + (platformNote == null ? "" : " · " + platformNote));
+            status.setText(platformNote == null
+                    ? "未安装 · " + sizeText
+                    : "未安装 · " + sizeText + " · " + platformNote);
             status.setTextColor(0xFFFF8F3F);
         }
-        btn.setText("下载（" + sizeText + "）");
+        // 体积已在上方状态行给出，按钮只留动作词，避免窄按钮里塞长文案
+        btn.setText("下载");
         btn.setEnabled(true);
+        btn.setBackgroundResource(R.drawable.btn_bundle_action_bg);
         btn.setOnClickListener(v -> startBundleDownload(dialog, bundleId, btn, status));
     }
 
@@ -6091,7 +6140,7 @@ public class VideoEventManager {
     private static String platformNoteFor(String bundleId) {
         if (com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_MPV.equals(bundleId)
                 && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
-            return "当前系统版本低于 Android 8.0，下载后仍不可用";
+            return "系统低于 8.0，不可用";
         }
         return null;
     }
@@ -6114,7 +6163,7 @@ public class VideoEventManager {
                         mActivity.runOnUiThread(() -> {
                             if (status != null) {
                                 status.setText(String.format(java.util.Locale.US,
-                                        "%d%%（%.1f/%.1f MB）%s", percent,
+                                        "下载中 %d%% · %.1f/%.1f MB%s", percent,
                                         downloaded / 1048576.0, total / 1048576.0,
                                         stage == null || stage.isEmpty() ? "" : " · " + stage));
                             }
@@ -6128,7 +6177,7 @@ public class VideoEventManager {
                             // 重新绑定：状态变「已安装」，按钮变「删除」
                             bindBundleRow(dialog, bundleId, btn, status);
                             if (status != null && !loaded) {
-                                status.setText("已安装，但本次未能加载，请重启应用后生效");
+                                status.setText("已安装 · 重启后生效");
                                 status.setTextColor(0xFFFF8F3F);
                             }
                             showToast(loaded ? "组件已安装，可立即使用" : "组件已安装，重启应用后生效");
@@ -6139,11 +6188,12 @@ public class VideoEventManager {
                     public void onError(final String error) {
                         mActivity.runOnUiThread(() -> {
                             if (status != null) {
-                                status.setText("下载失败：" + error + "（可重试，支持续传）");
+                                status.setText("下载失败 · 可重试");
                                 status.setTextColor(0xFFFF6B6B);
                             }
-                            btn.setText("重试下载");
+                            btn.setText("重试");
                             btn.setEnabled(true);
+                            btn.setBackgroundResource(R.drawable.btn_bundle_action_bg);
                         });
                     }
                 });

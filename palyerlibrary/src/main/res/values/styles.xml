@@ -66,4 +66,58 @@
         <item name="android:backgroundDimEnabled">true</item>
         <item name="android:backgroundDimAmount">0.6</item>
     </style>
+
+    <!-- ===== 扩展包管理面板：紧凑单行组件行 ===== -->
+    <!-- 每行 56dp：左侧「名称 + 状态」两行文字，右侧一个小按钮。
+         8 行共约 450dp，一屏可览，替代原先每项约 190dp 的纵向长列表。 -->
+    <style name="BundleRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:minHeight">56dp</item>
+    </style>
+
+    <style name="BundleRowText">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <style name="BundleRowName">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/op_text_primary</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <style name="BundleRowStatus">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/op_text_secondary</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:layout_marginTop">1dp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <!-- 行内小按钮：固定最小宽度，避免「下载(11.0MB)」与「删除」宽度差异过大 -->
+    <style name="BundleRowButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">32dp</item>
+        <item name="android:minWidth">68dp</item>
+        <item name="android:paddingStart">10dp</item>
+        <item name="android:paddingEnd">10dp</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:textColor">@color/op_text_primary</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:background">@drawable/btn_bundle_action_bg</item>
+    </style>
+
+    <style name="BundleRowDivider">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1dp</item>
+        <item name="android:background">@color/op_divider</item>
+    </style>
 </resources>
