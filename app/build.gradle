@@ -68,10 +68,18 @@ android {
     // 剔的只是「打包」，编译期依赖照旧：Java 类仍在 APK 里，可用性门禁
     // （SherpaAvailabilityChecker / OcrAvailabilityChecker / TorrentSupport /
     //  PlayerEngineAvailability）会额外判断 so 是否已安装。
+    //
+    // 加 -PorangeFullNativeLibs=true 可构建「完整版」：so 照常打进 APK，
+    // 宿主装完即用、无需下载（NativeLibManager 会把它们识别为「已内置」）。
+    // 仅用于体积/行为对比，默认 false 保持按需下载。
+    def fullNativeLibs = (findProperty('orangeFullNativeLibs') ?: 'false').toString() == 'true'
+    if (fullNativeLibs) {
+        logger.lifecycle('[app] orangeFullNativeLibs=true → 完整版：so 全部打进 APK')
+    }
     packaging {
         jniLibs {
             // 模式匹配的是 APK 内路径（lib/<abi>/xxx.so），故用 **/ 前缀
-            excludes += [
+            excludes += fullNativeLibs ? [] : [
                     '**/libonnxruntime.so',
                     '**/libsherpa-onnx-jni.so',
                     '**/libsherpa-onnx-c-api.so',
