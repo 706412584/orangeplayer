@@ -786,6 +786,58 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <!-- ========== 去广告 ========== -->
+                <!-- M3U8 广告段清洗开关。与主界面「去广告」按钮同一份状态
+                     （M3U8AdManager + PlayerSettingsManager.adRemovalEnabled），
+                     全屏观看时也能直接切换。 -->
+                <LinearLayout
+                    android:id="@+id/ad_removal_card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/setup_card_bg"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="去广告"
+                                android:textColor="@color/op_text_primary"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tv_setup_ad_removal_status"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text=""
+                                android:textColor="@color/op_text_secondary"
+                                android:textSize="11sp"
+                                android:layout_marginTop="2dp"
+                                android:maxLines="1"
+                                android:ellipsize="end" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/btn_setup_ad_removal"
+                            style="@style/BundleRowButton"
+                            android:text="开启" />
+                    </LinearLayout>
+                </LinearLayout>
+
                 <!-- 分隔线 -->
                 <View
                     android:layout_width="match_parent"

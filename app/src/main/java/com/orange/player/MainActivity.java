@@ -1082,19 +1082,49 @@ public class MainActivity extends AppCompatActivity {
      * 切换播放器内核
      */
     private void showPlayerSwitchDialog() {
-        String[] players = {"系统播放器", "ExoPlayer", "IJK播放器", "阿里云播放器"};
-        String[] engines = {
+        // 内核清单由 PlayerEngineAvailability 决定，不硬编码——so 已改为按需下载，
+        // 「宿主引了依赖」不等于「现在能用」。与全屏设置里的播放核心按钮同一套判定：
+        //   不支持（宿主未引依赖）→ 不列出
+        //   支持但 so 未下载       → 列出并标注，点击引导去扩展包管理下载
+        //   可用                  → 正常可选
+        // 之前这里硬编码 4 项，既漏了 MPV，也会让未下载的 IJK/阿里云显示成可选，
+        // 选中后静默回退到系统内核。
+        String[] allEngines = {
             com.orange.playerlibrary.PlayerConstants.ENGINE_DEFAULT,
             com.orange.playerlibrary.PlayerConstants.ENGINE_EXO,
             com.orange.playerlibrary.PlayerConstants.ENGINE_IJK,
-            com.orange.playerlibrary.PlayerConstants.ENGINE_ALI
+            com.orange.playerlibrary.PlayerConstants.ENGINE_ALI,
+            com.orange.playerlibrary.PlayerConstants.ENGINE_MPV,
         };
-        
+
+        java.util.List<String> engineList = new java.util.ArrayList<>();
+        java.util.List<String> labelList = new java.util.ArrayList<>();
+        java.util.List<Boolean> readyList = new java.util.ArrayList<>();
+
+        for (String engine : allEngines) {
+            if (!com.orange.playerlibrary.utils.PlayerEngineAvailability.isSupported(engine)) {
+                continue;
+            }
+            boolean ready = com.orange.playerlibrary.utils.PlayerEngineAvailability.isUsable(engine);
+            engineList.add(engine);
+            labelList.add(engineLabel(engine) + (ready ? "" : "（需先下载）"));
+            readyList.add(ready);
+        }
+
+        final String[] engines = engineList.toArray(new String[0]);
+        final String[] players = labelList.toArray(new String[0]);
+        final boolean[] ready = new boolean[readyList.size()];
+        for (int i = 0; i < ready.length; i++) {
+            ready[i] = readyList.get(i);
+        }
+        android.util.Log.d("MainActivity", "内核清单: " + java.util.Arrays.toString(players)
+                + " ready=" + java.util.Arrays.toString(ready));
+
         // 获取当前播放器内核
-        com.orange.playerlibrary.PlayerSettingsManager settingsManager = 
+        com.orange.playerlibrary.PlayerSettingsManager settingsManager =
             com.orange.playerlibrary.PlayerSettingsManager.getInstance(this);
         String currentEngine = settingsManager.getPlayerEngine();
-        
+
         // 找到当前选中的索引
         int currentIndex = 0;
         for (int i = 0; i < engines.length; i++) {
@@ -1103,48 +1133,84 @@ public class MainActivity extends AppCompatActivity {
                 break;
             }
         }
-        
+
         new AlertDialog.Builder(this)
             .setTitle("选择播放器内核")
             .setSingleChoiceItems(players, currentIndex, (dialog, which) -> {
                 String engine = engines[which];
-                
+
+                // 未下载的内核：引导去扩展包管理，而不是切过去静默回退
+                if (!ready[which]) {
+                    dialog.dismiss();
+                    String bundleId =
+                            com.orange.playerlibrary.utils.PlayerEngineAvailability.bundleIdFor(engine);
+                    log("⚠️ " + engineLabel(engine) + " 尚未下载，请先在扩展包管理中安装");
+                    android.widget.Toast.makeText(this,
+                            engineLabel(engine) + " 需要先下载，请到「扩展包管理」安装",
+                            android.widget.Toast.LENGTH_LONG).show();
+                    if (bundleId != null && mController != null
+                            && mController.getVideoEventManager() != null) {
+                        mController.getVideoEventManager().showNativeLibsDialog();
+                    }
+                    return;
+                }
+
                 // 如果选择的是当前内核，不需要切换
                 if (engine.equals(currentEngine)) {
                     dialog.dismiss();
                     return;
                 }
-                
+
                 long currentPosition = mVideoView.getCurrentPositionWhenPlaying();
                 boolean wasPlaying = mVideoView.isPlaying();
-                
+
                 // 1. 保存播放器内核设置（持久化）
                 settingsManager.setPlayerEngine(engine);
-                
+
                 // 2. 完全释放旧播放器
                 mVideoView.release();
                 com.shuyu.gsyvideoplayer.GSYVideoManager.releaseAllVideos();
-                
+
                 // 3. 切换播放器工厂
                 mVideoView.selectPlayerFactory(engine);
-                
+
                 // 4. 重新设置视频
                 mVideoView.setUp(mCurrentUrl, true, mCurrentTitle);
-                
+
                 // 5. 从当前位置继续播放
                 if (currentPosition > 0) {
                     mVideoView.setSeekOnStart(currentPosition);
                 }
-                
+
                 if (wasPlaying) {
                     mVideoView.startPlayLogic();
                 }
-                
+
                 log("🔄 切换播放器: " + players[which] + " (已持久化)");
                 dialog.dismiss();
             })
             .setNegativeButton("取消", null)
             .show();
+    }
+
+    /** 内核的展示名，与全屏设置里的播放核心按钮保持一致 */
+    private static String engineLabel(String engine) {
+        if (com.orange.playerlibrary.PlayerConstants.ENGINE_DEFAULT.equals(engine)) {
+            return "系统播放器";
+        }
+        if (com.orange.playerlibrary.PlayerConstants.ENGINE_EXO.equals(engine)) {
+            return "ExoPlayer";
+        }
+        if (com.orange.playerlibrary.PlayerConstants.ENGINE_IJK.equals(engine)) {
+            return "IJK播放器";
+        }
+        if (com.orange.playerlibrary.PlayerConstants.ENGINE_ALI.equals(engine)) {
+            return "阿里云播放器";
+        }
+        if (com.orange.playerlibrary.PlayerConstants.ENGINE_MPV.equals(engine)) {
+            return "MPV播放器";
+        }
+        return engine;
     }
 
     /**

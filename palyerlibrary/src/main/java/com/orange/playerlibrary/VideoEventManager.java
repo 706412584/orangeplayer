@@ -975,6 +975,9 @@ public class VideoEventManager {
 
         // 扩展包管理入口：紧邻播放核心——内核缺 so 时按钮变暗，用户据此进来下载
         bindNativeLibsEntry(dialogView, mCurrentSetupDialog);
+
+        // 去广告开关：全屏观看时也能直接切换，与主界面按钮同状态
+        bindAdRemovalEntry(dialogView);
         
         // 设置解码方式按钮
         setupDecodeModeButtons(decodeHardwareBtn, decodeSoftwareBtn);
@@ -6000,6 +6003,51 @@ public class VideoEventManager {
                 }
                 showNativeLibsDialog();
             });
+        }
+    }
+
+    /**
+     * 全屏设置弹窗里的「去广告」开关。
+     *
+     * <p>与主界面同名按钮共用一份状态：{@link M3U8AdManager#setEnabled} 管本次运行，
+     * {@link PlayerSettingsManager#setAdRemovalEnabled} 负责持久化。两处入口都改这两者，
+     * 否则会出现「全屏里开了、回主界面看还是关」的割裂。
+     *
+     * <p>开关只影响之后发起的 m3u8 解析；正在播放的流需重新加载才生效，
+     * 这一点在副标题文案里说明，避免用户以为点了没反应。
+     */
+    private void bindAdRemovalEntry(View dialogView) {
+        final M3U8AdManager adManager = M3U8AdManager.getInstance(mContext);
+        final android.widget.TextView status =
+                dialogView.findViewById(R.id.tv_setup_ad_removal_status);
+        final android.widget.TextView btn =
+                dialogView.findViewById(R.id.btn_setup_ad_removal);
+        if (btn == null) {
+            return;
+        }
+        renderAdRemovalEntry(adManager, status, btn);
+        btn.setOnClickListener(v -> {
+            boolean enabled = !adManager.isEnabled();
+            adManager.setEnabled(enabled);
+            mSettingsManager.setAdRemovalEnabled(enabled);
+            if (enabled) {
+                // 开启时清缓存，否则旧的无广告清洗结果会被复用
+                adManager.clearCache();
+            }
+            renderAdRemovalEntry(adManager, status, btn);
+        });
+    }
+
+    /** 按当前开关状态刷新去广告条目的按钮文案与副标题 */
+    private void renderAdRemovalEntry(M3U8AdManager adManager,
+                                      android.widget.TextView status,
+                                      android.widget.TextView btn) {
+        boolean enabled = adManager.isEnabled();
+        btn.setText(enabled ? "已开启" : "已关闭");
+        if (status != null) {
+            status.setText(enabled
+                    ? "播放 m3u8 时自动跳过广告片段 · 重新加载后生效"
+                    : "当前不做广告片段清洗");
         }
     }
 
