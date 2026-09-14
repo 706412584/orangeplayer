@@ -51,6 +51,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     private boolean mAutoThumbnailEnabled = true;
     private Object mDefaultThumbnail = null;
     private boolean mIsLiveVideo = false;
+    /**
+     * {@link #mIsLiveVideo} 是否由「onPrepared 时 duration 未知」推断而来。
+     * 只在这种推断来源下才允许后续复查撤销——用户/调用方显式设置的直播态不能被改。
+     */
+    private boolean mLiveInferredFromDuration = false;
     private boolean mAutoRotateOnFullscreen = true;
 
     // 首帧加载状态
@@ -360,6 +365,12 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                         "onPrepared: url=" + url + ", duration=" + duration + "ms (" + (duration / 1000) + "s)");
                 if (duration <= 0) {
                     mIsLiveVideo = true;
+                    mLiveInferredFromDuration = true;
+                    // 引擎可能在 onPrepared 时还没解析出时长（真机实测 mpv 的
+                    // duration 属性事件晚于 FILE_LOADED，onPrepared 拿到 0）。
+                    // 误判为直播的后果是「没有进度条 + 自动生成字幕被拦」，
+                    // 故稍后复查一次，拿到正时长就撤销这个推断。
+                    scheduleLiveRecheck();
                 }
                 if (mVideoScaleManager != null) {
                     mVideoScaleManager.applyVideoScale();
@@ -1824,6 +1835,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         mUserPaused = false; // 清除用户暂停标记
         mSniffingDelegate.setSniffing(false);
         mIsLiveVideo = false;
+        mLiveInferredFromDuration = false;   // 新会话：清除上一轮的推断标记
         mIsLoadingThumbnail = false; // 重置首帧加载状态
         if (mSkipManager != null) {
             mSkipManager.reset();
@@ -3702,7 +3714,42 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     public void setLiveVideo(boolean isLive) {
         this.mIsLiveVideo = isLive;
+        // 显式设置即视为权威，撤销「由 duration 未知推断」的标记，避免被复查覆盖
+        mLiveInferredFromDuration = false;
     }
+
+    /**
+     * onPrepared 时 duration 未知 → 暂判为直播后，延迟复查撤销误判。
+     *
+     * <p>部分引擎（真机实测 mpv）在 onPrepared 时还没解析出时长，随后才回填。
+     * 若不复查，视频会一直带着「直播」标记：没有进度条，且
+     * VideoEventManager 的「直播不生成」会拦掉自动字幕。
+     *
+     * <p>只撤销**推断**来的直播态；用户显式设置的不动。
+     */
+    private void scheduleLiveRecheck() {
+        postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!mLiveInferredFromDuration) {
+                    return;   // 已被显式设置或已撤销
+                }
+                long d = getDuration();
+                if (d > 0) {
+                    mLiveInferredFromDuration = false;
+                    mIsLiveVideo = false;
+                    android.util.Log.d(TAG, "直播判定复查：duration=" + d
+                            + "ms，撤销误判（onPrepared 时时长未知）");
+                    if (mVideoScaleManager != null) {
+                        mVideoScaleManager.applyVideoScale();
+                    }
+                }
+            }
+        }, LIVE_RECHECK_DELAY_MS);
+    }
+
+    /** 直播误判复查延迟：给引擎留出解析时长的窗口 */
+    private static final long LIVE_RECHECK_DELAY_MS = 1200;
 
     /**
      * 获取网络速度（字节/秒）
