@@ -92,6 +92,12 @@ public class MainActivity extends AppCompatActivity {
                     handleAsrGenFile(cmd.substring("asr_gen_file:".length()));
                     return;
                 }
+                // asr_diar_smoke: 说话人分离冒烟（不依赖播放器）
+                // 格式 asr_diar_smoke:<lang>:<wav绝对路径>
+                if (cmd.startsWith("asr_diar_smoke:")) {
+                    handleAsrDiarSmoke(cmd.substring("asr_diar_smoke:".length()));
+                    return;
+                }
                 // play_file: 播放本地文件（测试用）；格式 play_file:<绝对路径>
                 if (cmd.startsWith("play_file:")) {
                     String path = cmd.substring("play_file:".length()).trim();
@@ -189,6 +195,103 @@ public class MainActivity extends AppCompatActivity {
             }, "asr-smoke").start();
         } catch (Exception e) {
             android.util.Log.e("MainActivity", "ASR 冒烟异常", e);
+        }
+    }
+
+    /**
+     * 【测试专用】说话人分离冒烟：识别 wav 并打印每段的说话人标签与耗时。
+     *
+     * <p>与 {@link #handleAsrSmoke} 的区别：日志里带说话人编号（S0/S1/…），
+     * 用来验证 diarization 是否真的生效、说话人切分是否合理。模型缺失时
+     * 引擎静默降级，日志会显示全部段为 S-（无归属）——这本身也是有效结论。
+     *
+     * <p>格式：asr_diar_smoke:&lt;lang&gt;:&lt;wav路径&gt;；模型目录固定 filesDir/asr_model
+     * 用法：
+     * <pre>
+     *   adb push docs/asr_model/ /sdcard/Android/data/com.orange.player/files/asr_model/
+     *   adb push docs/asr_samples/meeting.wav /sdcard/Android/data/com.orange.player/files/
+     *   adb shell am broadcast -a com.orange.player.TEST_CMD --es cmd \
+     *     "asr_diar_smoke:auto:/sdcard/Android/data/com.orange.player/files/meeting.wav"
+     * </pre>
+     */
+    private void handleAsrDiarSmoke(String spec) {
+        try {
+            int sep = spec.indexOf(':');
+            String lang = sep > 0 ? spec.substring(0, sep).trim() : "auto";
+            String wavPath = sep > 0 ? spec.substring(sep + 1).trim() : spec;
+            final java.io.File modelDir = new java.io.File(getExternalFilesDir(null), "asr_model");
+            if (!new java.io.File(modelDir, "model.int8.onnx").exists()) {
+                android.util.Log.w("MainActivity", "说话人冒烟: 模型缺失 " + modelDir);
+                return;
+            }
+            java.io.File diarDir = new java.io.File(modelDir, "diarization");
+            android.util.Log.d("MainActivity", "说话人冒烟开始 lang=" + lang + " wav=" + wavPath
+                    + " diarDir=" + (diarDir.isDirectory() ? "存在" : "缺失"));
+
+            final com.orange.playerlibrary.speech.BatchAsrEngine engine =
+                    com.orange.playerlibrary.speech.SherpaAvailabilityChecker.createEngine();
+            if (engine == null) {
+                android.util.Log.e("MainActivity", "说话人冒烟: 引擎不可用（模块未链接？）");
+                return;
+            }
+            final String finalLang = lang;
+            new Thread(() -> {
+                long t0 = System.currentTimeMillis();
+                final boolean ok = engine.init(modelDir.getAbsolutePath(), finalLang);
+                long tInit = System.currentTimeMillis() - t0;
+                if (!ok) {
+                    android.util.Log.e("MainActivity", "说话人冒烟: init 失败");
+                    engine.release();
+                    return;
+                }
+                final int[] speakerCount = {0};
+                final java.util.Set<Integer> seen = new java.util.TreeSet<>();
+                engine.transcribeFile(wavPath,
+                        new com.orange.playerlibrary.speech.BatchAsrEngine.BatchAsrCallback() {
+                            @Override
+                            public void onReady() {
+                            }
+
+                            @Override
+                            public void onSegment(String text, long startMs, long endMs) {
+                            }
+
+                            @Override
+                            public void onSegmentWithSpeaker(String text, long startMs,
+                                                             long endMs, String lg, int speaker) {
+                                speakerCount[0]++;
+                                seen.add(speaker);
+                                String tag = speaker < 0 ? "S-" : ("S" + speaker);
+                                android.util.Log.d("MainActivity", "说话人段 [" + startMs + "-"
+                                        + endMs + "ms] " + tag + " (" + lg + ") " + text);
+                            }
+
+                            @Override
+                            public void onProgress(int percent, String stage) {
+                                android.util.Log.d("MainActivity", "说话人冒烟进度 " + percent
+                                        + "% " + stage);
+                            }
+
+                            @Override
+                            public void onCompleted(int segmentCount) {
+                                long total = System.currentTimeMillis() - t0;
+                                android.util.Log.d("MainActivity", "说话人冒烟完成: 回调 "
+                                        + speakerCount[0] + " 段(引擎报 " + segmentCount
+                                        + "), 出现的说话人=" + seen
+                                        + ", init=" + tInit + "ms, total=" + total + "ms");
+                                engine.release();
+                            }
+
+                            @Override
+                            public void onError(int errorCode, String errorMessage) {
+                                android.util.Log.e("MainActivity", "说话人冒烟失败: code="
+                                        + errorCode + " msg=" + errorMessage);
+                                engine.release();
+                            }
+                        }, null);
+            }, "asr-diar-smoke").start();
+        } catch (Exception e) {
+            android.util.Log.e("MainActivity", "说话人冒烟异常", e);
         }
     }
 
@@ -323,9 +426,11 @@ public class MainActivity extends AppCompatActivity {
         // 视频链接播放按钮
         Button btnPlayUrl = findViewById(R.id.btn_play_url);
         Button btnSniffPlay = findViewById(R.id.btn_sniff_play);
+        Button btnPickLocal = findViewById(R.id.btn_pick_local);
 
         btnPlayUrl.setOnClickListener(v -> playInputUrl(false));
         btnSniffPlay.setOnClickListener(v -> playInputUrl(true));
+        btnPickLocal.setOnClickListener(v -> pickLocalVideo());
 
         // 播放控制按钮
         Button btnPlay = findViewById(R.id.btn_play);
@@ -551,6 +656,104 @@ public class MainActivity extends AppCompatActivity {
             return url.substring(0, 47) + "...";
         }
         return url;
+    }
+
+    /**
+     * 【demo 功能】选择本地视频文件播放。
+     *
+     * 走 SAF（ACTION_OPEN_DOCUMENT），无需存储权限、适配分区存储。
+     * 选中的 Uri 在 {@link #onActivityResult} 里转成可直接播放的路径。
+     */
+    private void pickLocalVideo() {
+        try {
+            android.content.Intent intent = new android.content.Intent(
+                    android.content.Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            intent.setType("video/*");
+            intent.putExtra(android.content.Intent.EXTRA_MIME_TYPES,
+                    new String[]{"video/*", "application/octet-stream"});
+            startActivityForResult(intent, REQUEST_CODE_PICK_LOCAL_VIDEO);
+        } catch (Exception e) {
+            android.util.Log.e("MainActivity", "选择本地文件失败", e);
+            log("❌ 无法打开文件选择器: " + e.getMessage());
+        }
+    }
+
+    /**
+     * SAF 返回的 content:// Uri → 播放器可直接读的路径。
+     *
+     * 优先取文件系统真实路径（/storage/...），取不到时回退到把内容复制进
+     * 应用私有目录——SAF 的 content Uri 播放器无法直接读，复制是最稳的兜底。
+     */
+    private String resolvePlayablePath(android.net.Uri uri) {
+        // 1) content://media/... 这类可直接查真实路径
+        try (android.database.Cursor c = getContentResolver().query(
+                uri, new String[]{android.provider.MediaStore.MediaColumns.DATA},
+                null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                String path = c.getString(0);
+                if (path != null && new java.io.File(path).exists()) {
+                    return path;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 分区存储下 DATA 列常被屏蔽，走下面的复制兜底
+        }
+
+        // 2) 复制到私有目录（保留扩展名，播放器按扩展名选解复用器）
+        try {
+            String name = "local_pick_" + System.currentTimeMillis();
+            String ext = android.webkit.MimeTypeMap.getSingleton()
+                    .getExtensionFromMimeType(getContentResolver().getType(uri));
+            java.io.File out = new java.io.File(getExternalFilesDir(null),
+                    name + (ext != null ? "." + ext : ".mp4"));
+            try (java.io.InputStream in = getContentResolver().openInputStream(uri);
+                 java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                if (in == null) {
+                    return null;
+                }
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    fos.write(buf, 0, n);
+                }
+            }
+            return out.getAbsolutePath();
+        } catch (Exception e) {
+            android.util.Log.e("MainActivity", "复制本地文件失败", e);
+            return null;
+        }
+    }
+
+    /** 请求码：选择本地视频 */
+    private static final int REQUEST_CODE_PICK_LOCAL_VIDEO = 0x4C56;   // "LV"
+
+    /** 处理本地视频选择结果 */
+    private void handlePickLocalVideoResult(int resultCode, android.content.Intent data) {
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            log("已取消选择");
+            return;
+        }
+        android.net.Uri uri = data.getData();
+        log("📁 已选择: " + uri);
+        String path = resolvePlayablePath(uri);
+        if (path == null || path.isEmpty()) {
+            log("❌ 无法解析所选文件的路径");
+            return;
+        }
+        log("📁 播放本地文件: " + path);
+        if (mEtVideoUrl != null) {
+            mEtVideoUrl.setText(path);
+        }
+        mCurrentUrl = path;
+        mCurrentTitle = new java.io.File(path).getName();
+        mVideoView.release();
+        com.shuyu.gsyvideoplayer.GSYVideoManager.releaseAllVideos();
+        mVideoView.setUrl(path);
+        mVideoView.post(() -> mVideoView.startPlayLogic());
+        if (mVideoView.getTitleView() != null) {
+            mVideoView.getTitleView().setTitle(mCurrentTitle);
+        }
     }
 
     /**
@@ -884,6 +1087,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        // 本地视频选择（demo 功能）
+        if (requestCode == REQUEST_CODE_PICK_LOCAL_VIDEO) {
+            handlePickLocalVideoResult(resultCode, data);
+            return;
+        }
         if (mController != null && mController.getVideoEventManager() != null) {
             // 字幕文件选择结果（REQUEST_CODE_SUBTITLE_FILE）
             mController.getVideoEventManager().handleActivityResult(requestCode, resultCode, data);
