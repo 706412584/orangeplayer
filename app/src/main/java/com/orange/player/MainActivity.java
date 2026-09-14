@@ -689,7 +689,9 @@ public class MainActivity extends AppCompatActivity {
                     if (playState != com.orange.playerlibrary.PlayerConstants.STATE_PREPARED) {
                         return;
                     }
-                    mVideoView.removeOnStateChangeListener(this);
+                    // 本回调正是在 OrangevideoView 遍历监听器列表时被调用的，
+                    // 此处直接解绑会在遍历中途改动列表。解绑推迟到本次通知结束后。
+                    mVideoView.post(() -> mVideoView.removeOnStateChangeListener(this));
                     mVideoView.postDelayed(() -> {
                         mVideoView.seekTo(restorePosition);
                         mPiPHelper.clearPendingSeekPosition();

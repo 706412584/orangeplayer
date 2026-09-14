@@ -15,6 +15,7 @@ import com.orange.playerlibrary.interfaces.OnPlayCompleteListener;
 import com.orange.playerlibrary.interfaces.OnProgressListener;
 import com.orange.playerlibrary.interfaces.OnStateChangeListener;
 import com.orange.playerlibrary.history.PlayHistoryManager;
+import com.orange.playerlibrary.utils.ListenerSnapshot;
 import com.shuyu.gsyvideoplayer.GSYVideoManager;
 import com.shuyu.gsyvideoplayer.listener.GSYSampleCallBack;
 import com.shuyu.gsyvideoplayer.listener.GSYVideoProgressListener;
@@ -268,11 +269,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             @Override
             public void onSniffingReceivedRaw(String contentType, java.util.HashMap<String, String> headers,
                                               String title, String url) {
-                if (mStateChangeListeners != null) {
-                    for (OnStateChangeListener listener : mStateChangeListeners) {
-                        if (listener instanceof OnSniffingListener) {
-                            ((OnSniffingListener) listener).onSniffingReceived(contentType, headers, title, url);
-                        }
+                for (OnStateChangeListener listener : snapshotStateListeners()) {
+                    if (listener instanceof OnSniffingListener) {
+                        ((OnSniffingListener) listener).onSniffingReceived(contentType, headers, title, url);
                     }
                 }
             }
@@ -321,11 +320,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                     });
                 }
 
-                if (mStateChangeListeners != null) {
-                    for (OnStateChangeListener listener : mStateChangeListeners) {
-                        if (listener instanceof OnSniffingListener) {
-                            ((OnSniffingListener) listener).onSniffingFinish(videoList, videoSize);
-                        }
+                for (OnStateChangeListener listener : snapshotStateListeners()) {
+                    if (listener instanceof OnSniffingListener) {
+                        ((OnSniffingListener) listener).onSniffingFinish(videoList, videoSize);
                     }
                 }
             }
@@ -3128,11 +3125,17 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         }
     }
 
+    /**
+     * 取监听器列表的快照后再遍历，避免回调内解绑导致的
+     * {@link java.util.ConcurrentModificationException}（详见 {@link ListenerSnapshot}）。
+     */
+    private List<OnStateChangeListener> snapshotStateListeners() {
+        return ListenerSnapshot.of(mStateChangeListeners);
+    }
+
     private void notifyPlayStateChanged(int playState) {
-        if (mStateChangeListeners != null) {
-            for (OnStateChangeListener listener : mStateChangeListeners) {
-                listener.onPlayStateChanged(playState);
-            }
+        for (OnStateChangeListener listener : snapshotStateListeners()) {
+            listener.onPlayStateChanged(playState);
         }
         if (mUseOrangeComponents) {
             notifyComponentsPlayStateChanged(playState);
@@ -3144,10 +3147,8 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     private void notifyPlayerStateChanged(int playerState) {
-        if (mStateChangeListeners != null) {
-            for (OnStateChangeListener listener : mStateChangeListeners) {
-                listener.onPlayerStateChanged(playerState);
-            }
+        for (OnStateChangeListener listener : snapshotStateListeners()) {
+            listener.onPlayerStateChanged(playerState);
         }
         if (mUseOrangeComponents) {
             notifyComponentsPlayerStateChanged(playerState);
