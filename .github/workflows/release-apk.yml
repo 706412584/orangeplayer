@@ -18,6 +18,8 @@ jobs:
       fail-fast: false
       matrix:
         abi: [arm64-v8a, armeabi-v7a, x86_64]
+        # slim = so 按需下载（默认）；full = so 打进 APK（宿主装完即用）
+        variant: [slim, full]
 
     steps:
       - name: Checkout code (with submodules)
@@ -30,6 +32,14 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+
+      - name: Install NDK
+        # AGP 的 stripReleaseDebugSymbols 在缺 NDK 时**静默跳过**（不报错），
+        # 结果 so 带调试符号进 APK——v1.5.2 的 arm64 包因此有 140MB（本地 125MB）。
+        # 版本与 AGP 8.12 内置默认值一致，保证与本地产出可复现。
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.0.12077973" >/dev/null
+          ls -d "$ANDROID_HOME/ndk/27.0.12077973"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -93,9 +103,10 @@ jobs:
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-1.13.7.aar
           echo "c4ef49e309f24fcee5c106b8a279481aaecaabb078cd37b2cd6e9a62cc8a73c8  $DEST" | sha256sum -c -
 
-      - name: Build Release APK (${{ matrix.abi }})
+      - name: Build Release APK (${{ matrix.abi }} / ${{ matrix.variant }})
         env:
           ORG_GRADLE_PROJECT_orangeAppReleaseAbis: ${{ matrix.abi }}
+          ORG_GRADLE_PROJECT_orangeFullNativeLibs: ${{ matrix.variant == 'full' }}
           APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
           APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
           APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
@@ -124,12 +135,35 @@ jobs:
           ls -lh "$APK_DIR"
           VERSION="${GITHUB_REF_NAME}"
           mv "$APK_DIR/app-release.apk" \
-             "OrangePlayer-${VERSION}-${{ matrix.abi }}.apk"
+             "OrangePlayer-${VERSION}-${{ matrix.variant }}-${{ matrix.abi }}.apk"
+
+      - name: Verify APK size sanity
+        # 守护 strip 未被静默跳过：slim 应远小于 full，full 里 ijk 应是 strip 后的
+        # 6.2MB 量级（若 CI 缺 NDK 会变 25MB，包体凭空大 20MB）。
+        run: |
+          APK="OrangePlayer-${GITHUB_REF_NAME}-${{ matrix.variant }}-${{ matrix.abi }}.apk"
+          SIZE=$(stat -c%s "$APK")
+          echo "$APK = $((SIZE/1048576)) MiB"
+          python3 - "$APK" "${{ matrix.variant }}" <<'PY'
+          import sys, zipfile
+          apk, variant = sys.argv[1], sys.argv[2]
+          z = zipfile.ZipFile(apk)
+          libs = {n: z.getinfo(n).file_size for n in z.namelist() if n.startswith('lib/')}
+          ijk = [v for k, v in libs.items() if k.endswith('libijkffmpeg.so')]
+          if variant == 'slim' and libs:
+              print('FAIL: slim 版不该带可选 so，却有 %d 项' % len(libs)); sys.exit(1)
+          if variant == 'full':
+              if not ijk:
+                  print('FAIL: full 版缺少 libijkffmpeg.so'); sys.exit(1)
+              if ijk[0] > 8 * 1024 * 1024:
+                  print('FAIL: libijkffmpeg.so 未 strip（%d B，应约 6.2MB）' % ijk[0]); sys.exit(1)
+          print('OK: %d libs, ijk=%s' % (len(libs), ijk[0] if ijk else 'n/a'))
+          PY
 
       - name: Upload APK to artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apk-${{ matrix.abi }}
+          name: apk-${{ matrix.variant }}-${{ matrix.abi }}
           path: OrangePlayer-*.apk
 
   release:
