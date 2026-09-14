@@ -136,4 +136,84 @@ public class AsrSubtitleCacheTest {
         assertTrue(f.exists());
         assertTrue(AsrSubtitleCache.parseSrt(f).isEmpty());
     }
+
+    // ===== 说话人标记往返：重看命中缓存时标签不能丢 =====
+
+    @Test
+    public void speakerRoundTrip_survivesWriteAndParse() throws Exception {
+        List<SubtitleEntry> entries = new ArrayList<>();
+        SubtitleEntry a = new SubtitleEntry(0, 3000, "第一句");
+        a.setSpeaker(0);
+        SubtitleEntry b = new SubtitleEntry(4000, 7000, "second line");
+        b.setSpeaker(1);
+        SubtitleEntry c = new SubtitleEntry(8000, 9000, "无归属");
+        entries.add(a);
+        entries.add(b);
+        entries.add(c);
+
+        File f = new File(tmp.getRoot(), "spk.srt");
+        AsrSubtitleCache.writeSrt(f, entries);
+        List<SubtitleEntry> back = AsrSubtitleCache.parseSrt(f);
+
+        assertEquals(3, back.size());
+        assertEquals(0, back.get(0).getSpeaker());
+        assertEquals(1, back.get(1).getSpeaker());
+        assertEquals(SubtitleEntry.NO_SPEAKER, back.get(2).getSpeaker());
+    }
+
+    @Test
+    public void speakerLabelIsWrittenToFile() throws Exception {
+        List<SubtitleEntry> entries = new ArrayList<>();
+        SubtitleEntry a = new SubtitleEntry(0, 3000, "第一句");
+        a.setSpeaker(0);
+        entries.add(a);
+
+        File f = new File(tmp.getRoot(), "label.srt");
+        AsrSubtitleCache.writeSrt(f, entries);
+        String content = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+
+        assertTrue("应写入 [S1] 标记: " + content, content.contains("[S1] 第一句"));
+    }
+
+    @Test
+    public void parsedTextStaysCleanOfSpeakerMarkers() throws Exception {
+        // 翻译取 getText()，标记必须被剥离干净
+        List<SubtitleEntry> entries = new ArrayList<>();
+        SubtitleEntry a = new SubtitleEntry(0, 3000, "第一句");
+        a.setSpeaker(0);
+        entries.add(a);
+
+        File f = new File(tmp.getRoot(), "clean.srt");
+        AsrSubtitleCache.writeSrt(f, entries);
+        List<SubtitleEntry> back = AsrSubtitleCache.parseSrt(f);
+
+        assertEquals("第一句", back.get(0).getText());
+    }
+
+    @Test
+    public void entriesWithoutSpeakerHaveNoMarker() throws Exception {
+        List<SubtitleEntry> entries = new ArrayList<>();
+        entries.add(new SubtitleEntry(0, 3000, "无说话人"));
+
+        File f = new File(tmp.getRoot(), "nospk.srt");
+        AsrSubtitleCache.writeSrt(f, entries);
+        String content = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+
+        assertTrue("不应出现标记: " + content, !content.contains("[S"));
+        assertEquals("无说话人", AsrSubtitleCache.parseSrt(f).get(0).getText());
+    }
+
+    @Test
+    public void bracketTextInBodyIsNotTreatedAsSpeakerMarker() throws Exception {
+        // 正文本身以方括号开头时不能被误当说话人标记吃掉
+        List<SubtitleEntry> entries = new ArrayList<>();
+        entries.add(new SubtitleEntry(0, 3000, "[音乐] 背景音"));
+
+        File f = new File(tmp.getRoot(), "bracket.srt");
+        AsrSubtitleCache.writeSrt(f, entries);
+        List<SubtitleEntry> back = AsrSubtitleCache.parseSrt(f);
+
+        assertEquals("[音乐] 背景音", back.get(0).getText());
+        assertEquals(SubtitleEntry.NO_SPEAKER, back.get(0).getSpeaker());
+    }
 }

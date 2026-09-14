@@ -255,7 +255,14 @@ public final class AsrSubtitleCache {
         return f.delete();
     }
 
-    /** 写 SRT；文本中的换行会让解析错位，写入前压成单行 */
+    /**
+     * 写 SRT；文本中的换行会让解析错位，写入前压成单行。
+     *
+     * <p>有说话人归属时在正文前加 {@code [S1] } 标记——这是**落盘格式的一部分**，
+     * 必须写：字幕显示走的是 SRT 回读（不是内存条目），不落盘则重看命中缓存时
+     * 说话人标签会整批丢失。回读端 {@link #parseSrt} 负责把标记剥回 speaker 字段，
+     * 保证 {@code getText()} 始终是纯文本（翻译输入不能被标记污染）。
+     */
     static void writeSrt(File file, List<SubtitleEntry> entries) throws IOException {
         try (OutputStreamWriter w = new OutputStreamWriter(
                 new FileOutputStream(file), StandardCharsets.UTF_8)) {
@@ -264,7 +271,8 @@ public final class AsrSubtitleCache {
                 w.write((i + 1) + "\n");
                 w.write(AsrSubtitleGenerator.formatSrtTime(e.getStartTime())
                         + " --> " + AsrSubtitleGenerator.formatSrtTime(e.getEndTime()) + "\n");
-                w.write(flatten(e.getText()) + "\n\n");
+                String label = e.speakerLabel();
+                w.write((label == null ? "" : "[" + label + "] ") + flatten(e.getText()) + "\n\n");
             }
         }
     }
@@ -274,7 +282,12 @@ public final class AsrSubtitleCache {
         return text == null ? "" : text.replaceAll("\\s+", " ").trim();
     }
 
-    /** 解析 SRT（仅需本类自写格式：序号 / 时间行 / 单行文本） */
+    /**
+     * 解析 SRT（仅需本类自写格式：序号 / 时间行 / 单行文本）。
+     *
+     * <p>行首的 {@code [S1]} 标记（{@link #writeSrt} 写入）在此剥回 speaker 字段，
+     * 正文保持纯净——翻译取的是 getText()，标记不能留在里面。
+     */
     public static List<SubtitleEntry> parseSrt(File file) throws IOException {
         List<SubtitleEntry> out = new ArrayList<>();
         String content = new String(java.nio.file.Files.readAllBytes(file.toPath()),
@@ -283,14 +296,16 @@ public final class AsrSubtitleCache {
         String line;
         long start = -1;
         long end = -1;
+        int speaker = SubtitleEntry.NO_SPEAKER;
         StringBuilder text = new StringBuilder();
         while ((line = reader.readLine()) != null) {
             String t = line.trim();
             if (t.isEmpty()) {
                 if (start >= 0 && text.length() > 0) {
-                    out.add(new SubtitleEntry(start, end, text.toString()));
+                    out.add(entry(start, end, text.toString(), speaker));
                 }
                 start = -1;
+                speaker = SubtitleEntry.NO_SPEAKER;
                 text.setLength(0);
                 continue;
             }
@@ -306,17 +321,26 @@ public final class AsrSubtitleCache {
                 }
             }
             if (start >= 0) {
-                if (text.length() > 0) {
-                    text.append(' ');
+                // 说话人标记只可能出现在正文首行
+                if (text.length() == 0) {
+                    speaker = SubtitleEntry.parseSpeakerPrefix(t);
+                    text.append(SubtitleEntry.stripSpeakerPrefix(t));
+                } else {
+                    text.append(' ').append(t);
                 }
-                text.append(t);
             }
             // start < 0 时是序号行，忽略
         }
         if (start >= 0 && text.length() > 0) {
-            out.add(new SubtitleEntry(start, end, text.toString()));
+            out.add(entry(start, end, text.toString(), speaker));
         }
         return out;
+    }
+
+    private static SubtitleEntry entry(long start, long end, String text, int speaker) {
+        SubtitleEntry e = new SubtitleEntry(start, end, text);
+        e.setSpeaker(speaker);
+        return e;
     }
 
     /** SRT 时间戳 HH:MM:SS,mmm → 毫秒；格式不识别返回 -1 */

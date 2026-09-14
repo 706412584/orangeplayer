@@ -2,19 +2,27 @@ package com.orange.player.sherpa;
 
 import android.util.Log;
 
+import com.k2fsa.sherpa.onnx.FastClusteringConfig;
 import com.k2fsa.sherpa.onnx.OfflineModelConfig;
 import com.k2fsa.sherpa.onnx.OfflineRecognizer;
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig;
 import com.k2fsa.sherpa.onnx.OfflineRecognizerResult;
 import com.k2fsa.sherpa.onnx.OfflineSenseVoiceModelConfig;
+import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization;
+import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationConfig;
+import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationSegment;
+import com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationModelConfig;
+import com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationPyannoteModelConfig;
 import com.k2fsa.sherpa.onnx.OfflineStream;
 import com.k2fsa.sherpa.onnx.FeatureConfig;
 import com.k2fsa.sherpa.onnx.SileroVadModelConfig;
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig;
 import com.k2fsa.sherpa.onnx.SpeechSegment;
 import com.k2fsa.sherpa.onnx.Vad;
 import com.k2fsa.sherpa.onnx.VadModelConfig;
 import com.orange.playerlibrary.speech.AsrSegmentSplitter;
 import com.orange.playerlibrary.speech.BatchAsrEngine;
+import com.orange.playerlibrary.speech.SpeakerTimeline;
 import com.orange.playerlibrary.subtitle.SubtitleEntry;
 
 import java.io.File;
@@ -22,14 +30,20 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * sherpa-onnx 批量 ASR 引擎实现（SenseVoice）。
+ * sherpa-onnx 批量 ASR 引擎实现（SenseVoice + 可选离线说话人分离）。
  *
  * 流程：整段 wav → silero-vad 切段 → 逐段 OfflineRecognizer.decode
  * → VAD 段边界即字幕时间轴。
+ *
+ * 若 {@code modelDir/diarization/} 下存在说话人分离模型，则额外先跑一遍
+ * pyannote 分段 + 声纹 embedding + 聚类，得到「时间区间 → 说话人」，
+ * 再按最大重叠把说话人挂到每个字幕段上。
  *
  * SenseVoice 输出可能含 <|NEUTRAL|> <|laughter|> 等事件标记，入字幕前清洗。
  */
@@ -43,10 +57,25 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
     // 语种标记：<|zh|> → 提取内部语种（与文本清洗相反，这里是取值）
     private static final Pattern LANG_TAG = Pattern.compile("<\\|([^|]*)\\|>");
 
+    /** 说话人分离模型子目录与文件名（缺失即降级为不含说话人） */
+    private static final String DIAR_DIR = "diarization";
+    private static final String DIAR_SEGMENTATION = "segmentation.onnx";
+    private static final String DIAR_EMBEDDING = "embedding.onnx";
+
     private final Object mLock = new Object();
     private OfflineRecognizer mRecognizer;
     private Vad mVad;
+    /** 可空：仅当 modelDir/diarization 下模型齐全时非空 */
+    private OfflineSpeakerDiarization mDiarizer;
+    /** 是否启用说话人分离（须在 init 前设置；分块识别场景应关闭） */
+    private volatile boolean mDiarizationEnabled = true;
     private String mModelDir;
+
+    @Override
+    public void setDiarizationEnabled(boolean enabled) {
+        // init 之前调用才有效：init 会据此决定是否加载分离模型
+        mDiarizationEnabled = enabled;
+    }
 
     // ===== 生命周期 =====
 
@@ -97,7 +126,12 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
                 recognizerConfig.setModelConfig(modelConfig);
                 recognizerConfig.setDecodingMethod("greedy_search");
                 mRecognizer = new OfflineRecognizer(null, recognizerConfig);
-                Log.d(TAG, "init 成功 modelDir=" + modelDir + " lang=" + language);
+
+                // 说话人分离（可选）：模型不齐时保持 null，识别照常但不带说话人
+                mDiarizer = createDiarizer(dir);
+
+                Log.d(TAG, "init 成功 modelDir=" + modelDir + " lang=" + language
+                        + " diarization=" + (mDiarizer != null));
                 return true;
             } catch (Throwable t) {
                 Log.e(TAG, "init 失败", t);
@@ -135,6 +169,61 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
             } catch (Throwable ignored) {
             }
             mVad = null;
+        }
+        if (mDiarizer != null) {
+            try {
+                mDiarizer.release();
+            } catch (Throwable ignored) {
+            }
+            mDiarizer = null;
+        }
+    }
+
+    /**
+     * 构建说话人分离器。模型不齐或加载失败时返回 null——**不得**让 init 失败：
+     * 说话人是增强项，缺失时应静默降级为原有的纯识别行为。
+     */
+    private OfflineSpeakerDiarization createDiarizer(File modelDir) {
+        try {
+            if (!mDiarizationEnabled) {
+                Log.d(TAG, "说话人分离已被调用方关闭（分块识别场景），跳过加载");
+                return null;
+            }
+            File seg = new File(new File(modelDir, DIAR_DIR), DIAR_SEGMENTATION);
+            File emb = new File(new File(modelDir, DIAR_DIR), DIAR_EMBEDDING);
+            if (!seg.exists() || !emb.exists()) {
+                Log.d(TAG, "未启用说话人分离（缺 " + DIAR_DIR + "/{" + DIAR_SEGMENTATION
+                        + "," + DIAR_EMBEDDING + "}）");
+                return null;
+            }
+
+            // 以下构造器参数均为显式全参：Kotlin 的默认值只在 Kotlin 侧可见，
+            // Java 调不到带 DefaultConstructorMarker 的合成构造器，省略即编译不过。
+            // 取值同 sherpa-onnx 上游默认（numThreads=1 / debug=false / provider="cpu"）。
+
+            // pyannote 分段：windowShiftRatio 0.5 为 sherpa 上游默认
+            OfflineSpeakerSegmentationPyannoteModelConfig pyannote =
+                    new OfflineSpeakerSegmentationPyannoteModelConfig(seg.getAbsolutePath(), 0.5f);
+            OfflineSpeakerSegmentationModelConfig segmentation =
+                    new OfflineSpeakerSegmentationModelConfig(pyannote, 1, false, "cpu");
+
+            // 声纹 embedding（3dspeaker eres2net 等）
+            SpeakerEmbeddingExtractorConfig embedding =
+                    new SpeakerEmbeddingExtractorConfig(emb.getAbsolutePath(), 1, false, "cpu");
+
+            // numClusters=0 → 用 threshold 自动判定人数（sherpa 约定）
+            FastClusteringConfig clustering = new FastClusteringConfig(0, 0.5f);
+
+            // minDurationOn/minDurationOff 取上游默认 0.3 / 0.5
+            OfflineSpeakerDiarizationConfig config = new OfflineSpeakerDiarizationConfig(
+                    segmentation, embedding, clustering, 0.3f, 0.5f);
+            OfflineSpeakerDiarization diarizer = new OfflineSpeakerDiarization(null, config);
+            Log.d(TAG, "说话人分离已启用: " + seg.getName() + " + " + emb.getName()
+                    + " (sampleRate=" + diarizer.sampleRate() + ")");
+            return diarizer;
+        } catch (Throwable t) {
+            Log.w(TAG, "说话人分离初始化失败，降级为不含说话人", t);
+            return null;
         }
     }
 
@@ -177,9 +266,11 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
     private void transcribeSamples(float[] samples, BatchAsrCallback callback, CancelToken cancelToken) {
         OfflineRecognizer recognizer;
         Vad vad;
+        OfflineSpeakerDiarization diarizer;
         synchronized (mLock) {
             recognizer = mRecognizer;
             vad = mVad;
+            diarizer = mDiarizer;
         }
         if (recognizer == null || vad == null) {
             callback.onError(-1, "引擎未初始化");
@@ -223,7 +314,12 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
                 return;
             }
 
-            // 阶段 2：逐段解码
+            // 阶段 2：说话人分离（可选，整段一次性跑）
+            SpeakerTimeline timeline = diarizer == null
+                    ? SpeakerTimeline.EMPTY
+                    : buildSpeakerTimeline(diarizer, samples, callback, cancelToken);
+
+            // 阶段 3：逐段解码
             int done = 0;
             for (SpeechSegment segment : segments) {
                 if (cancelled(cancelToken)) {
@@ -242,8 +338,9 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
                     // 会「好几秒一大段」。按标点/字数切分并用字数比例插值段内时间，
                     // 段首尾仍与 VAD 边界严格对齐（不累积漂移）。
                     for (SubtitleEntry entry : AsrSegmentSplitter.split(text, startMs, endMs)) {
-                        callback.onSegmentWithLang(entry.getText(), entry.getStartTime(),
-                                entry.getEndTime(), sanitizeLang(result.getLang()));
+                        callback.onSegmentWithSpeaker(entry.getText(), entry.getStartTime(),
+                                entry.getEndTime(), sanitizeLang(result.getLang()),
+                                timeline.speakerAt(entry.getStartTime(), entry.getEndTime()));
                     }
                 }
                 stream.release();
@@ -254,6 +351,62 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
         } catch (Throwable t) {
             Log.e(TAG, "识别异常", t);
             callback.onError(-4, "识别异常: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 跑一遍说话人分离并把区间转成 {@link SpeakerTimeline}。
+     *
+     * <p>分离失败**不**让整次识别失败：说话人是增强项，出错时返回空时间线，
+     * 结果退化为「不带说话人标签的识别」——与模型缺失时的降级路径一致。
+     */
+    private SpeakerTimeline buildSpeakerTimeline(OfflineSpeakerDiarization diarizer,
+                                                 float[] samples,
+                                                 BatchAsrCallback callback,
+                                                 CancelToken cancelToken) {
+        try {
+            int rate = diarizer.sampleRate();
+            if (rate != 16000) {
+                // 传入的是 16k 采样；采样率不符时时间轴会整体缩放错位，宁可不用
+                Log.w(TAG, "说话人分离采样率不符: " + rate + "，跳过说话人标注");
+                return SpeakerTimeline.EMPTY;
+            }
+            callback.onProgress(0, "说话人分离");
+            OfflineSpeakerDiarizationSegment[] segs = diarizer.process(samples);
+            if (segs == null || segs.length == 0) {
+                Log.d(TAG, "说话人分离无输出");
+                return SpeakerTimeline.EMPTY;
+            }
+            List<SpeakerTimeline.Span> spans = new ArrayList<>(segs.length);
+            for (OfflineSpeakerDiarizationSegment s : segs) {
+                if (s == null) {
+                    continue;
+                }
+                spans.add(new SpeakerTimeline.Span(
+                        Math.round(s.getStart() * 1000f),
+                        Math.round(s.getEnd() * 1000f),
+                        s.getSpeaker()));
+            }
+            // compact：把 sherpa 的任意编号压成 0..n-1（真机首个说话人是 1，
+            // 直接用会让单人字幕显示成 S2）
+            SpeakerTimeline timeline = SpeakerTimeline.of(spans).compact();
+            // 说话人编号不保证从 0 起也不保证连续（真机实测首个说话人为 1），
+            // 故按去重计数，不能用 max+1——那会把单个说话人报成 2 个。
+            java.util.Set<Integer> distinct = new java.util.HashSet<>();
+            for (SpeakerTimeline.Span sp : spans) {
+                distinct.add(sp.getSpeaker());
+            }
+            Log.d(TAG, "说话人分离完成: " + timeline.size() + " 区间, 说话人数="
+                    + distinct.size() + " " + distinct);
+            // 逐区间明细：排查「说话人串了 / 被切碎」时唯一的一手依据，量小常开
+            for (SpeakerTimeline.Span sp : spans) {
+                Log.d(TAG, "  S" + sp.getSpeaker() + " [" + sp.getStartMs()
+                        + "-" + sp.getEndMs() + "ms]");
+            }
+            return timeline;
+        } catch (Throwable t) {
+            Log.w(TAG, "说话人分离失败，本次结果不含说话人", t);
+            return SpeakerTimeline.EMPTY;
         }
     }
 

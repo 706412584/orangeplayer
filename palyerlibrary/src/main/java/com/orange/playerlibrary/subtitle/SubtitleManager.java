@@ -504,13 +504,23 @@ public class SubtitleManager {
                     
                     // 收集字幕文本（时间行之后的所有行）
                     StringBuilder text = new StringBuilder();
+                    int speaker = SubtitleEntry.NO_SPEAKER;
                     for (int j = i + 1; j < lines.length; j++) {
-                        if (text.length() > 0) text.append("\n");
-                        text.append(cleanSubtitleText(lines[j]));
+                        String cleaned = cleanSubtitleText(lines[j]);
+                        // 说话人标记只在正文首行，剥回 speaker 字段，
+                        // 不让 [S1] 留在 text 里（翻译取的就是 getText()）
+                        if (text.length() == 0) {
+                            speaker = SubtitleEntry.parseSpeakerPrefix(cleaned);
+                            text.append(SubtitleEntry.stripSpeakerPrefix(cleaned));
+                        } else {
+                            text.append("\n").append(cleaned);
+                        }
                     }
-                    
+
                     if (text.length() > 0) {
-                        entries.add(new SubtitleEntry(startTime, endTime, text.toString()));
+                        SubtitleEntry entry = new SubtitleEntry(startTime, endTime, text.toString());
+                        entry.setSpeaker(speaker);
+                        entries.add(entry);
                     }
                     break;
                 }
@@ -638,6 +648,11 @@ public class SubtitleManager {
             // 显示用清洗：去尾部标点（字幕惯例）。整条只有标点时清洗为空，
             // 按未命中处理（隐藏），避免出现空白字幕条。
             String text = SubtitleEntry.stripTrailingPunctuation(current.getText());
+            // 说话人标签只加在显示串上，不动 current.getText()（翻译输入必须纯净）
+            String label = current.speakerLabel();
+            if (text != null && !text.isEmpty() && label != null) {
+                text = "[" + label + "] " + text;
+            }
             if (text != null && !text.isEmpty()) {
                 if (text.equals(mLastShownText) && mSubtitleView.isSubtitleShowing()) {
                     // 内容未变且正在显示：跳过动画，防 100ms 轮询反复淡入导致闪烁
