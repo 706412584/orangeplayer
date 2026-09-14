@@ -53,10 +53,26 @@ $GiteeRepo = 'orangeplayer'
 $Api = "https://gitee.com/api/v5/repos/$GiteeOwner/$GiteeRepo"
 
 # ---------- 令牌 ----------
+# 查找顺序：
+#   1) 环境变量 GITEE_KEY
+#   2) 仓库外的令牌文件 %USERPROFILE%\.gitee_token
+#   3) 交互式输入
+# 令牌文件刻意放在仓库外：仓库内任何位置都有被 git add . 带走的可能。
 function Get-GiteeToken {
     $t = $env:GITEE_KEY
+
     if ([string]::IsNullOrWhiteSpace($t)) {
-        Write-Host '未检测到环境变量 GITEE_KEY。' -ForegroundColor Yellow
+        $tokenFile = Join-Path $env:USERPROFILE '.gitee_token'
+        if (Test-Path -LiteralPath $tokenFile) {
+            $t = (Get-Content -LiteralPath $tokenFile -Raw).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($t)) {
+                Write-Host "从 $tokenFile 读取令牌" -ForegroundColor DarkGray
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($t)) {
+        Write-Host '未找到令牌（环境变量 GITEE_KEY 与 ~/.gitee_token 都没有）。' -ForegroundColor Yellow
         Write-Host '请在 Gitee → 设置 → 私人令牌 生成（只需 projects 权限）。' -ForegroundColor Yellow
         $sec = Read-Host '粘贴令牌' -AsSecureString
         $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
@@ -79,22 +95,25 @@ function Invoke-Gitee {
         [switch]$Raw
     )
     # 注意：不要用 $args —— 它是 PowerShell 自动变量，赋值会报语法错误
-    $curlArgs = @('-sS', '-X', $Method, '-w', "`n__HTTP__%{http_code}", '--max-time', $MaxTime)
-    $curlArgs += $FormArgs
-    $curlArgs += $Url
-    if ($FormArgs.Count -eq 0 -and $Token) {
-        # GET/DELETE 用查询串
-        $sep = if ($Url.Contains('?')) { '&' } else { '?' }
-        $curlArgs[-1] = "$Url${sep}access_token=$Token"
-    }
+    # 输出写临时文件再按 UTF-8 读：走 PowerShell 管道时 curl 的 UTF-8 字节流
+    # 会被按控制台代码页（中文 Windows 是 GBK）解码，JSON 里的中文变成 '?'
+    # 导致 ConvertFrom-Json 失败（已实测）。
+    $tmp = [IO.Path]::GetTempFileName()
+    try {
+        $curlArgs = @('-sS', '-o', $tmp, '-w', '%{http_code}', '-X', $Method, '--max-time', $MaxTime)
+        $curlArgs += $FormArgs
+        $curlArgs += $Url
+        if ($FormArgs.Count -eq 0 -and $Token) {
+            # GET/DELETE 用查询串
+            $sep = if ($Url.Contains('?')) { '&' } else { '?' }
+            $curlArgs[-1] = "$Url${sep}access_token=$Token"
+        }
 
-    $out = & curl.exe @curlArgs 2>&1
-    $text = ($out | Out-String)
-    $code = ''
-    $m = [regex]::Match($text, '__HTTP__(\d+)')
-    if ($m.Success) {
-        $code = $m.Groups[1].Value
-        $text = $text.Substring(0, $m.Index)
+        $code = (& curl.exe @curlArgs 2>&1 | Out-String).Trim()
+        $text = [IO.File]::ReadAllText($tmp, [Text.Encoding]::UTF8)
+    }
+    finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
     }
     if ($Raw) { return @{ Code = $code; Body = $text } }
     if ([string]::IsNullOrWhiteSpace($text)) { return $null }
@@ -164,7 +183,9 @@ else {
         '-d', "access_token=$token",
         '-d', "tag_name=$Tag",
         '-d', "name=OrangePlayer $Tag",
-        '-d', 'body=APK 同步自 GitHub Release（国内下载用）',
+        # 用 ASCII：中文经 PowerShell 传给 curl.exe 会按控制台代码页编码，
+        # 在 GBK 环境下会变成乱码存进 release 描述
+        '-d', 'body=APKs synced from GitHub Release for users in mainland China',
         '-d', 'target_commitish=main'
     ) -Raw
     if ($r.Code -notin @('200', '201')) {
@@ -178,9 +199,23 @@ else {
 # 3. 上传（同名先删，保证可重跑）
 $existing = Invoke-Gitee -Method GET -Url "$Api/releases/$rid/attach_files" -Token $token
 
-$ok = 0; $fail = 0
+# Gitee Release 附件单文件上限 100MB（实测报错："验证失败，文件大小已超过限制：100 MB"）。
+# 超限时 Gitee 会返回 400，这里先预检，避免白等一次上传。
+# 注意：APK 本身已压缩到 ~95%，gzip 再压收益有限（实测 42.5%，因包内 so 是 STORED）。
+# 完整版（含 so）普遍超 100MB，留在 GitHub 即可——它是宿主内置 so 的对照验证包，
+# 不是面向用户的发行版；用户该下的是 slim。
+$SizeLimitMB = 100
+
+$ok = 0; $fail = 0; $skipped = @()
 foreach ($f in $files) {
-    Write-Host "=== $($f.Name) ($([math]::Round($f.Length/1MB,1)) MB)" -ForegroundColor Cyan
+    $mb = $f.Length / 1MB
+    Write-Host "=== $($f.Name) ($([math]::Round($mb,1)) MB)" -ForegroundColor Cyan
+
+    if ($mb -gt $SizeLimitMB) {
+        Write-Host ("  跳过：{0:N1} MB 超过 Gitee 的 {1} MB 单文件上限，保留在 GitHub" -f $mb, $SizeLimitMB) -ForegroundColor Yellow
+        $skipped += $f.Name
+        continue
+    }
 
     $old = $null
     if ($existing -and $existing -isnot [string]) {
@@ -216,9 +251,14 @@ if ($final -and $final -isnot [string]) {
     }
 }
 Write-Host ''
+if ($skipped.Count -gt 0) {
+    Write-Host "以下 $($skipped.Count) 个超过 Gitee 大小上限，未同步（保留在 GitHub Release）：" -ForegroundColor Yellow
+    foreach ($s in $skipped) { Write-Host "  $s" -ForegroundColor Yellow }
+    Write-Host ''
+}
 if ($fail -gt 0) {
-    Write-Host "完成：成功 $ok，失败 $fail" -ForegroundColor Yellow
+    Write-Host "完成：成功 $ok，失败 $fail，跳过 $($skipped.Count)" -ForegroundColor Yellow
     exit 1
 }
-Write-Host "完成：全部 $ok 个已同步" -ForegroundColor Green
+Write-Host "完成：同步 $ok 个，跳过 $($skipped.Count) 个" -ForegroundColor Green
 Write-Host "https://gitee.com/$GiteeOwner/$GiteeRepo/releases/tag/$Tag" -ForegroundColor DarkGray

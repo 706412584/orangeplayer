@@ -31,3 +31,28 @@
 上传前先跑 `--verify` 确认 size/sha256 与 `NativeLibManager` 常量一致（必须 0 处不一致）。
 
 发版后 gitee 需手动同步：`release.bat` 只推 origin。
+
+## Gitee 同步：只能本地跑，且 full 版传不上去
+
+**不能放 CI**：GitHub Actions 的海外 runner 往 Gitee 传文件会被跨境链路拖死，
+与文件大小无关。实测（runner 上直接测）：GET 8KB 是 200/1.7s，但 1MB 的
+multipart POST 就卡在 68% 后 90s 超时，9.7MB / 120MB 直接 0 字节超时。
+上传速率从 13.8KB/s 衰减到 0，换 curl 参数、加超时、重试都无用。
+
+**必须本地跑**（本机在国内，直连无此问题）：
+
+```powershell
+.\tools\sync-to-gitee.ps1 -Tag vX.Y.Z -DryRun   # 先看会传什么
+.\tools\sync-to-gitee.ps1 -Tag vX.Y.Z           # 实际同步
+```
+
+**Gitee Release 附件单文件上限 100MB**（实测报错：「验证失败，文件大小已超过限制：100 MB」）。
+所以 **full 版（含 so，114~118MB）传不上去，只能留在 GitHub** —— 这没问题，full 是
+宿主内置 so 的对照验证包，不是面向用户的发行版；用户该下的是 slim（9.7MB，可正常同步）。
+脚本已内置预检，超限的自动跳过并汇总，不会误报成失败。
+
+别指望压缩绕过：APK 本身已压到 ~95%，gzip 只能到 42.5%（因包内 so 是 STORED
+未压缩），压完 48MB 能传但要用户手动解压，得不偿失。
+
+令牌读 `%USERPROFILE%\.gitee_token`（**仓库外**，避免被 `git add .` 带走）或环境变量
+`GITEE_KEY`。`.gitignore` 另有 `gitee_token.txt` / `.gitee_token` / `*token.txt` 拦截规则作纵深防御。
