@@ -154,13 +154,28 @@ public class ExternalProxyCacheManager extends ProxyCacheManager {
             return;
         }
         
+        // 非网络 URL 不走代理：本地路径（/sdcard/...）与 file:// 交给播放器直接读。
+        // danikula 只实现了 HTTP 语义，把本地路径交给它会返回空响应，
+        // 表现为 ExoPlayer「unexpected end of stream」→ 本地视频完全无法播放。
+        // 上游 ProxyCacheManager 原本有 url.startsWith("http") 守卫，本类覆盖时丢了；
+        // 这里的口径与同类的 getProxyUrl() 保持一致。
+        if (!isProxyableUrl(url)) {
+            Log.d(TAG, "非网络 URL，跳过代理直连: " + url);
+            try {
+                mediaPlayer.setDataSource(context, android.net.Uri.parse(url), header);
+            } catch (Exception e) {
+                Log.e(TAG, "设置本地数据源失败", e);
+            }
+            return;
+        }
+
         HttpProxyCacheServer proxy = getProxyCacheServer(context);
         String proxyUrl = proxy.getProxyUrl(url);
-        
+
         Log.d(TAG, "Original URL: " + url);
         Log.d(TAG, "Proxy URL: " + proxyUrl);
         Log.d(TAG, "Is cached: " + proxy.isCached(url));
-        
+
         try {
             mediaPlayer.setDataSource(proxyUrl);
         } catch (Exception e) {
@@ -171,6 +186,21 @@ public class ExternalProxyCacheManager extends ProxyCacheManager {
                 Log.e(TAG, "Failed to set original URL", ex);
             }
         }
+    }
+
+    /**
+     * 该 URL 是否可交给 danikula 代理（仅 HTTP(S)，且排除已在本机回环代理上的地址）。
+     * 与 {@link #getProxyUrl} 的判定同口径。
+     */
+    private static boolean isProxyableUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            return false;
+        }
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return false;
+        }
+        // 已是本地代理地址（如 ASR 回传的 proxy URL）不能再套一层
+        return !url.contains("127.0.0.1") && !url.contains("localhost");
     }
     
     /**
