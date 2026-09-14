@@ -22,6 +22,16 @@
 # 文字翻译：OcrAvailabilityChecker 探测 Translator
 -keep class com.google.mlkit.nl.translate.** { *; }
 
+# DLNA 投屏：DLNACastManager 全程反射调用 com.uaoanlao.tv.Screen
+# （Class.forName + newInstance + getMethod("setStaerActivity"/"setName"/"setUrl"/
+#  "setImageUrl"/"show")）。UaoanDLNA 的 AAR 里 proguard.txt 是 0 字节，没有自带
+# consumer 规则，宿主又是 implementation 直接引入——R8 会把这个只在反射字符串里
+# 出现的类判为不可达并删除/改名。真机实测（Android 16 / slim 包）：Screen 与
+# DeviceListAdapter 被整类删除，forName 被 R8 的字符串重写导向了别的混淆类
+# （l4.g），newInstance 抛 InstantiationException，投屏必失败且 isDLNAAvailable()
+# 仍返回 true（按钮可点，点了只报错）。
+-keep class com.uaoanlao.tv.** { *; }
+
 # ===== 播放内核（同样只被反射探测，so 改为按需下载）=====
 # 这些类只出现在 NativeLibManager.PROBE_CLASSES / PlayerEngineAvailability 里，
 # 代码中没有静态引用，R8 会判为不可达而裁掉或改名——一旦被裁，「依赖在、so 未下载」
