@@ -246,6 +246,40 @@ public class NativeLibManagerTest {
     }
 
     @Test
+    public void isSupportedReflectsHostDependencies() {
+        // 「本版本未集成」的判定：宿主没引依赖时类不存在 → false，
+        // 面板据此显示「不可用」而不是给一个装了也没用的下载入口。
+        // 单测 classpath 里没有任何可选组件的类，故全部应为 false。
+        for (String bundleId : new String[]{
+                NativeLibManager.BUNDLE_ALI, NativeLibManager.BUNDLE_MPV,
+                NativeLibManager.BUNDLE_TORRENT, NativeLibManager.BUNDLE_OCR,
+                NativeLibManager.BUNDLE_TRANSLATE, NativeLibManager.BUNDLE_ASR}) {
+            assertFalse(bundleId + " 未引入依赖时不该判为支持",
+                    NativeLibManager.isSupported(bundleId));
+        }
+        // 未知组件 id 同样返回 false 而不是抛异常
+        assertFalse(NativeLibManager.isSupported("nonexistent"));
+    }
+
+    @Test
+    public void unsupportedBundleIsNotInstalledEvenWithSoPresent() throws Exception {
+        // 纵深防御：即便 so 都在（下载目录 + 内置），宿主没引 Java 类也用不了。
+        // isInstalled 只管 so 是否就位，isSupported 管类是否存在——两者分工不同，
+        // 面板同时看这两个（先 isSupported 再 installSource）。
+        File filesDir = mTemp.newFolder("files-unsup");
+        NativeLibManager.setFilesDirForTest(filesDir);
+        NativeLibManager.setAbiOverrideForTest("arm64-v8a");
+        File dir = NativeLibManager.libDir(filesDir, "arm64-v8a");
+        for (String lib : NativeLibManager.getBundle(NativeLibManager.BUNDLE_ALI).libs) {
+            write(new File(dir, lib), "x");
+        }
+        // so 就位 → isInstalled 为真（它不负责判类）
+        assertTrue(NativeLibManager.isInstalled(NativeLibManager.BUNDLE_ALI));
+        // 但宿主未引入该类 → 面板不会走到「已安装」，而是显示「本版本未集成」
+        assertFalse(NativeLibManager.isSupported(NativeLibManager.BUNDLE_ALI));
+    }
+
+    @Test
     public void bundledTakesPrecedenceOverDownloaded() throws Exception {
         // 两边都有时按 APK 优先：APK 内的 so 才是实际被加载的那个，
         // 且它删不掉，来源必须报 BUNDLED 而不是 DOWNLOADED。
