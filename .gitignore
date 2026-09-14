@@ -113,6 +113,12 @@ lint/tmp/
 # 凭据沙盒：本地若将凭据写入独立文件，经此忽略（gradle.properties 本体入库但仅含构建配置）
 /gradle.properties.secret
 
+# 访问令牌（Gitee / GitHub 等）。纵深防御：令牌本体已放在仓库外
+# （%USERPROFILE%\.gitee_token），这里再拦一道，防止误放进仓库后被 git add . 带走。
+gitee_token.txt
+.gitee_token
+*token.txt
+
 # 排除日志文件
 logcat.txt
 
