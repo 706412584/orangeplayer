@@ -379,6 +379,64 @@
                     android:background="@drawable/btn_subtitle_bg" />
             </LinearLayout>
 
+            <!-- 音频延迟（mpv 内核音画同步补偿，正值延后音频） -->
+            <TextView
+                android:id="@+id/audio_delay_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="音频延迟: 0.0s"
+                android:textColor="@color/op_text_primary"
+                android:textSize="14sp"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="音画不同步时补偿音频轨道（仅 mpv 内核）"
+                android:textColor="@color/op_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <Button
+                    android:id="@+id/btn_audio_delay_minus"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="40dp"
+                    android:text="- 0.1s"
+                    android:textColor="@color/op_text_primary"
+                    android:textSize="13sp"
+                    android:background="@drawable/btn_subtitle_bg"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_audio_delay_reset"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="40dp"
+                    android:text="重置"
+                    android:textColor="@color/op_text_primary"
+                    android:textSize="13sp"
+                    android:background="@drawable/btn_subtitle_bg"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/btn_audio_delay_plus"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="40dp"
+                    android:text="+ 0.1s"
+                    android:textColor="@color/op_text_primary"
+                    android:textSize="13sp"
+                    android:background="@drawable/btn_subtitle_bg" />
+            </LinearLayout>
+
         </LinearLayout>
     </ScrollView>
 </FrameLayout>

@@ -44,6 +44,7 @@ public class PlayerSettingsManager {
     private static final String KEY_SUBTITLE_LOCAL_PREFIX = "subtitle_local_";  // 按视频URL存储本地字幕Uri
     private static final String KEY_SUBTITLE_MIME_PREFIX = "subtitle_mime_";    // 按视频URL存储字幕 MIME
     private static final String KEY_SUBTITLE_DELAY_PREFIX = "subtitle_delay_";  // 按视频URL存储字幕延迟（毫秒）
+    private static final String KEY_AUDIO_DELAY_PREFIX = "audio_delay_";        // 按视频URL存储音频延迟（毫秒，mpv 内核）
     
     // 自动旋转设置
     private static final String KEY_AUTO_ROTATE = "auto_rotate";
@@ -401,6 +402,22 @@ public class PlayerSettingsManager {
      */
     public long getSubtitleDelayForVideo(String videoUrl) {
         String key = KEY_SUBTITLE_DELAY_PREFIX + hashVideoUrl(videoUrl);
+        return mPreferences.getLong(key, 0L);
+    }
+
+    /**
+     * 保存视频对应的音频延迟（毫秒），正值延后音频（mpv 内核能力）
+     */
+    public void setAudioDelayForVideo(String videoUrl, long delayMs) {
+        String key = KEY_AUDIO_DELAY_PREFIX + hashVideoUrl(videoUrl);
+        mPreferences.edit().putLong(key, delayMs).apply();
+    }
+
+    /**
+     * 获取视频对应的音频延迟（毫秒），默认 0
+     */
+    public long getAudioDelayForVideo(String videoUrl) {
+        String key = KEY_AUDIO_DELAY_PREFIX + hashVideoUrl(videoUrl);
         return mPreferences.getLong(key, 0L);
     }
 

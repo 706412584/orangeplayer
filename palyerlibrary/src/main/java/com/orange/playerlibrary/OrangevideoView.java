@@ -1772,9 +1772,10 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     /**
-     * 获取当前使用的播放器内核
+     * 获取当前使用的播放器内核（public：VideoEventManager 需按实际内核
+     * 路由 mpv 专属能力，与 setExternalSubtitle 检查实际 player 同理）
      */
-    private String getCurrentPlayerEngine() {
+    public String getCurrentPlayerEngine() {
         IPlayerManager currentManager = GSYVideoManager.instance().getPlayer();
 
         // playerManager 为 null（首次 prepare 前）时读用户持久化偏好：
@@ -2947,8 +2948,71 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     /**
+     * 音画不同步补偿（mpv 内核专属，反射调 MpvPlayerManager）。
+     * 正值延后音频、负值提前（毫秒）。其他内核无对应 API 返回 false。
+     * 注意 mpv 的 getAudioSessionId()=0，Android AudioEffect 路线不可用，
+     * audio-delay 属性是唯一选择。
+     */
+    public boolean setAudioDelayMs(long delayMs) {
+        try {
+            Class<?> binder = findClass("com.orange.player.mpv.MpvPlayerManager");
+            if (binder == null || !PlayerConstants.ENGINE_MPV.equals(getCurrentPlayerEngine())) {
+                return false;
+            }
+            return Boolean.TRUE.equals(binder.getMethod("setAudioDelayMs", long.class)
+                    .invoke(null, delayMs));
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "setAudioDelayMs: " + t);
+            return false;
+        }
+    }
+
+    /**
+     * ASS/SSA 字幕交给 libmpv 内嵌 libass 原生渲染（mpv 内核专属）。
+     *
+     * <p>保留字幕组样式（\an 定位、颜色、字号、特效标签）——自有 AssParser
+     * 会剥掉全部 override 标签。代价：字幕画进视频画面，SubtitleView 叠加层
+     * （翻译对照/说话人标签）不再适用，调用方需同步隐藏。
+     *
+     * @param path 字幕文件本地绝对路径（mpv 直接 open，须是文件路径而非 content://）；
+     *             null/空=关闭原生渲染
+     * @return true=已下发（内核支持且 player 就绪）
+     */
+    public boolean setNativeAssSubtitle(String path) {
+        try {
+            Class<?> binder = findClass("com.orange.player.mpv.MpvPlayerManager");
+            if (binder == null || !PlayerConstants.ENGINE_MPV.equals(getCurrentPlayerEngine())) {
+                return false;
+            }
+            return Boolean.TRUE.equals(binder.getMethod("setExternalAssFile", String.class)
+                    .invoke(null, path));
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "setNativeAssSubtitle: " + t);
+            return false;
+        }
+    }
+
+    /**
+     * 字幕延迟走 mpv sub-delay 属性（原生渲染时比时间轴偏移准确——libass
+     * 自按 pts 取帧，不经过 SubtitleManager 的 position 偏移）。非 mpv 返回 false。
+     */
+    public boolean setNativeSubtitleDelayMs(long delayMs) {
+        try {
+            Class<?> binder = findClass("com.orange.player.mpv.MpvPlayerManager");
+            if (binder == null || !PlayerConstants.ENGINE_MPV.equals(getCurrentPlayerEngine())) {
+                return false;
+            }
+            return Boolean.TRUE.equals(binder.getMethod("setNativeSubtitleDelayMs", long.class)
+                    .invoke(null, delayMs));
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "setNativeSubtitleDelayMs: " + t);
+            return false;
+        }
+    }
+
+    /**
      * 设置播放器音量（不影响系统音量）
-     * 
+     *
      * @param volume 音量值（0.0-1.0）
      */
     public void setPlayerVolume(float volume) {
@@ -2964,7 +3028,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     /**
      * 设置播放器音量（百分比形式）
-     * 
+     *
      * @param volumePercent 音量百分比（0-100）
      */
     public void setPlayerVolumePercent(int volumePercent) {
