@@ -1,0 +1,170 @@
+name: Sync Release to Gitee
+
+# 把 GitHub Release 的 APK 附件同步到 Gitee Release，方便国内用户下载。
+#
+# 为什么需要这个 workflow：Gitee 不执行 GitHub Actions（Gitee Go 是独立产品，
+# 用自己的 YAML 语法，不解析 .github/workflows/），所以只能在 GitHub 侧构建完
+# 之后把产物推过去。
+#
+# 注意：这只解决「人手动下 APK」的场景。App 运行时下载组件 zip 仍走 GitHub
+# （NativeLibManager.RELEASE_TAG 拼的是 github.com/.../releases/download/）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要同步的 tag（例如 v1.5.4）'
+        required: true
+      probe_only:
+        description: '只探测 token 与 release 状态，不实际上传'
+        type: boolean
+        default: true
+
+env:
+  GITEE_OWNER: wu-yongchengsvip
+  GITEE_REPO: orangeplayer
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 探测 token 与现有 release
+        env:
+          GITEE_KEY: ${{ secrets.GITEE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITEE_KEY:-}" ]; then
+            echo "::error::GITEE_KEY secret 未设置"
+            exit 1
+          fi
+          echo "token 长度: ${#GITEE_KEY}"
+
+          code=$(curl -sS -o /tmp/rel.json -w '%{http_code}' --max-time 60 \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases?per_page=50&access_token=${GITEE_KEY}")
+          echo "GET /releases -> HTTP=$code"
+          if [ "$code" != "200" ]; then
+            echo "::error::查询 releases 失败（token 无效或权限不足）"
+            head -c 600 /tmp/rel.json || true
+            exit 1
+          fi
+
+          echo "现有 release:"
+          jq -r 'if length==0 then "  (无)" else (.[] | "  id=\(.id)  tag=\(.tag_name)  assets=\((.assets // [])|length)") end' /tmp/rel.json
+
+          echo
+          echo "目标 tag 的 release 是否已存在:"
+          # 注意：Gitee 的 releases/tags/{tag} 在「release 不存在」时返回
+          # HTTP 200 + body 为字面量 null（不是 404）。只看状态码会误判成
+          # 「已存在」，随后 jq -r '.id' 取到 null 导致上传失败。
+          tcode=$(curl -sS -o /tmp/tag.json -w '%{http_code}' --max-time 60 \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${{ inputs.tag }}?access_token=${GITEE_KEY}")
+          tid=$(jq -r 'if . == null then "" else (.id|tostring) end' /tmp/tag.json 2>/dev/null || echo "")
+          if [ "$tcode" = "200" ] && [ -n "$tid" ] && [ "$tid" != "null" ]; then
+            echo "  已存在 -> id=${tid}"
+          else
+            echo "  不存在 (HTTP=$tcode, body=$(head -c 40 /tmp/tag.json))，上传阶段会创建"
+          fi
+
+  upload:
+    needs: probe
+    if: ${{ !inputs.probe_only }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 从 GitHub Release 下载 APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p apks
+          gh release download "${{ inputs.tag }}" --repo "${{ github.repository }}" \
+            -p "OrangePlayer-*.apk" -D apks
+          ls -la apks/
+          echo "---"
+          for f in apks/*.apk; do
+            echo "$(basename "$f")  $(stat -c%s "$f") bytes"
+          done
+
+      - name: 取得或创建 Gitee release
+        env:
+          GITEE_KEY: ${{ secrets.GITEE_KEY }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          code=$(curl -sS -o /tmp/rel.json -w '%{http_code}' --max-time 60 \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_KEY}")
+          # 同 probe：不存在时是 200 + null，必须判 body 而非仅判状态码
+          RID=$(jq -r 'if . == null then "" else (.id|tostring) end' /tmp/rel.json 2>/dev/null || echo "")
+
+          if [ -n "$RID" ] && [ "$RID" != "null" ]; then
+            echo "release 已存在 id=$RID"
+          else
+            echo "创建 release: ${TAG}"
+            ccode=$(curl -sS -o /tmp/new.json -w '%{http_code}' --max-time 60 -X POST \
+              "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
+              -d "access_token=${GITEE_KEY}" \
+              -d "tag_name=${TAG}" \
+              -d "name=OrangePlayer ${TAG}" \
+              -d "body=APK 同步自 GitHub Release（国内下载用）" \
+              -d "target_commitish=main")
+            echo "POST /releases -> HTTP=$ccode"
+            if [ "$ccode" != "201" ] && [ "$ccode" != "200" ]; then
+              echo "::error::创建 release 失败"
+              head -c 600 /tmp/new.json || true
+              exit 1
+            fi
+            RID=$(jq -r '.id|tostring' /tmp/new.json)
+          fi
+          if [ -z "$RID" ] || [ "$RID" = "null" ]; then
+            echo "::error::未能取得 release id"
+            exit 1
+          fi
+          echo "RID=$RID" >> "$GITHUB_ENV"
+
+      - name: 上传 APK 附件
+        env:
+          GITEE_KEY: ${{ secrets.GITEE_KEY }}
+        run: |
+          set -euo pipefail
+          # RID 由上一步写入 GITHUB_ENV，此处是普通 shell 变量
+
+          # 现有附件：同名先删，保证可重跑
+          curl -sS -o /tmp/attach.json --max-time 60 \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RID}/attach_files?access_token=${GITEE_KEY}"
+
+          for f in apks/*.apk; do
+            name=$(basename "$f")
+            size=$(stat -c%s "$f")
+            mb=$(( size / 1024 / 1024 ))
+            echo "=== ${name} (${mb} MB)"
+
+            old_id=$(jq -r --arg n "$name" '.[] | select(.name==$n) | .id' /tmp/attach.json 2>/dev/null | head -1 || true)
+            if [ -n "$old_id" ] && [ "$old_id" != "null" ]; then
+              echo "  删除旧附件 id=$old_id"
+              curl -sS -o /dev/null --max-time 60 -X DELETE \
+                "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RID}/attach_files/${old_id}?access_token=${GITEE_KEY}" || true
+            fi
+
+            ucode=$(curl -sS -o /tmp/up.json -w '%{http_code}' --max-time 900 -X POST \
+              "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RID}/attach_files" \
+              -F "access_token=${GITEE_KEY}" \
+              -F "file=@${f}")
+            echo "  POST attach_files -> HTTP=$ucode"
+            if [ "$ucode" != "201" ] && [ "$ucode" != "200" ]; then
+              echo "::error::上传 ${name} 失败"
+              head -c 600 /tmp/up.json || true
+              exit 1
+            fi
+            echo "  OK"
+          done
+
+      - name: 校验结果
+        env:
+          GITEE_KEY: ${{ secrets.GITEE_KEY }}
+        run: |
+          set -euo pipefail
+          curl -sS -o /tmp/final.json --max-time 60 \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RID}/attach_files?access_token=${GITEE_KEY}"
+          echo "Gitee release ${RID} 附件:"
+          jq -r '.[] | "  \(.name)  \((.size // .file_size // 0)) bytes"' /tmp/final.json
