@@ -31,6 +31,11 @@
     <color name="op_progress_track">#66FFFFFF</color>
     <color name="op_progress_buffer">#99FFFFFF</color>
     <color name="op_progress">@color/op_brand</color>
+    <!-- 进度条滑块光晕。不能用 op_brand_translucent(#1AFF6B35)：它只有 10% alpha，
+         叠在深色播放器背景上合成出 (68,59,53) 的浑浊暗棕，视觉上是"半黑光圈"
+         而不是橙光晕（真机像素采样确认）。这里 50% alpha，合成 (151,80,54)，
+         是明确可辨的橙色。 -->
+    <color name="op_thumb_halo">#80FF6B35</color>
 
     <!-- 选中态 -->
     <color name="op_selected_bg">@color/op_brand_translucent</color>

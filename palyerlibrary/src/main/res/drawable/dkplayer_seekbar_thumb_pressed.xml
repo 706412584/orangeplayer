@@ -1,25 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 按压状态滑块：放大的白色圆形带阴影 -->
+<!-- 按压状态滑块：橙色主体 + 更大的橙色光晕环 + 白描边。
+     旧实现用 #30FFFFFF 白圈 + #40000000 黑阴影，压在橙色进度条上呈现
+     「白点 + 黑晕」，与品牌色完全脱节（真机像素采样确认：主体 255,255,255；
+     光晕 68,59,53）。按下时光晕比 normal 更大更实，作为按压反馈。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- 外圈光晕 -->
+    <!-- 橙色光晕环（按下比 normal 大 2dp、更实） -->
     <item>
         <shape android:shape="oval">
-            <solid android:color="#30FFFFFF"/>
-            <size android:width="16dp" android:height="16dp"/>
+            <solid android:color="@color/op_brand_disabled"/>
+            <size android:width="20dp" android:height="20dp"/>
         </shape>
     </item>
-    <!-- 阴影层 -->
+    <!-- 主体橙点（白描边，按下时比 normal 大 2dp） -->
     <item android:bottom="3dp" android:left="3dp" android:right="3dp" android:top="3dp">
         <shape android:shape="oval">
-            <solid android:color="#40000000"/>
-            <size android:width="12dp" android:height="12dp"/>
-        </shape>
-    </item>
-    <!-- 主体 -->
-    <item android:bottom="4dp" android:left="4dp" android:right="4dp" android:top="4dp">
-        <shape android:shape="oval">
-            <solid android:color="#FFFFFF"/>
-            <size android:width="10dp" android:height="10dp"/>
+            <solid android:color="@color/op_brand"/>
+            <stroke android:width="1dp" android:color="#FFFFFFFF"/>
+            <size android:width="14dp" android:height="14dp"/>
         </shape>
     </item>
 </layer-list>

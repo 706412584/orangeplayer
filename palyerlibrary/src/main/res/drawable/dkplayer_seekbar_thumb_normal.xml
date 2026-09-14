@@ -1,17 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 普通状态滑块：白色主体 + 半透明橙光晕，主体放大到 12dp -->
+<!-- 普通状态滑块：橙色主体 + 橙色光晕环 + 细白描边。
+     描边是必要的：滑块滑在橙色已播段上时，纯橙点会与进度条融为一体而看不见；
+     1dp 白描边提供边界，整体仍是橙色调，不再出现旧实现的白块/黑晕。
+
+     光晕为什么是实心 50% 而不是径向渐变：18dp 的光晕圆里，中心被 12dp 主体 +
+     描边完全遮住，径向渐变露出来的只有边缘那段接近透明的尾巴——实测合成后
+     只有 ~12% alpha，比实心还暗。在深色播放器背景上，低 alpha 的橙一律合成成
+     暗棕/近黑（旧实现用 op_brand_translucent 的 10% alpha，合成 (68,59,53)，
+     真机采样确认看着就是"半黑光圈"）。50% 合成 (151,80,54)，才是可辨的橙。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- 橙色光晕 -->
+    <!-- 橙色光晕环 -->
     <item>
         <shape android:shape="oval">
-            <solid android:color="@color/op_brand_translucent"/>
+            <solid android:color="@color/op_thumb_halo"/>
             <size android:width="18dp" android:height="18dp"/>
         </shape>
     </item>
-    <!-- 主体白点 -->
+    <!-- 主体橙点（细白描边） -->
     <item android:bottom="3dp" android:left="3dp" android:right="3dp" android:top="3dp">
         <shape android:shape="oval">
-            <solid android:color="#FFFFFF"/>
+            <solid android:color="@color/op_brand"/>
+            <stroke android:width="1dp" android:color="#FFFFFFFF"/>
             <size android:width="12dp" android:height="12dp"/>
         </shape>
     </item>
