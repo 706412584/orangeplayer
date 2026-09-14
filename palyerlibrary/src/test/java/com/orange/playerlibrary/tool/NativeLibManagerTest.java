@@ -16,6 +16,8 @@ import org.junit.rules.TemporaryFolder;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 
 /**
  * NativeLibManager 清单与就位判定的单测。
@@ -209,6 +211,59 @@ public class NativeLibManagerTest {
             write(new File(v7a, lib), "x");
         }
         assertFalse(NativeLibManager.isInstalled(NativeLibManager.BUNDLE_OCR));
+    }
+
+    @Test
+    public void bundledSoCountsAsInstalledAndIsNotRemovable() {
+        // 宿主把 so 打进 APK（完整引入）时，so 一样可用，但删不掉——
+        // 若仍显示「删除」，用户点了会没反应（remove 只删下载目录）。
+        NativeLibManager.setBundledLibsForTest(new HashSet<>(
+                Collections.singletonList(NativeLibManager.BUNDLE_TORRENT)));
+        try {
+            assertEquals(NativeLibManager.InstallSource.BUNDLED,
+                    NativeLibManager.installSource(NativeLibManager.BUNDLE_TORRENT));
+            assertTrue(NativeLibManager.isInstalled(NativeLibManager.BUNDLE_TORRENT));
+            assertFalse("内置的 so 删不掉",
+                    NativeLibManager.canRemove(NativeLibManager.BUNDLE_TORRENT));
+        } finally {
+            NativeLibManager.setBundledLibsForTest(null);
+        }
+    }
+
+    @Test
+    public void downloadedSoIsRemovableUnlikeBundled() throws Exception {
+        // 下载来的组件才是可删的——这是 BUNDLED 与 DOWNLOADED 的关键差别
+        File filesDir = mTemp.newFolder("files-dl");
+        NativeLibManager.setFilesDirForTest(filesDir);
+        NativeLibManager.setAbiOverrideForTest("arm64-v8a");
+        File dir = NativeLibManager.libDir(filesDir, "arm64-v8a");
+        for (String lib : NativeLibManager.getBundle(NativeLibManager.BUNDLE_OCR).libs) {
+            write(new File(dir, lib), "x");
+        }
+        assertEquals(NativeLibManager.InstallSource.DOWNLOADED,
+                NativeLibManager.installSource(NativeLibManager.BUNDLE_OCR));
+        assertTrue(NativeLibManager.canRemove(NativeLibManager.BUNDLE_OCR));
+    }
+
+    @Test
+    public void bundledTakesPrecedenceOverDownloaded() throws Exception {
+        // 两边都有时按 APK 优先：APK 内的 so 才是实际被加载的那个，
+        // 且它删不掉，来源必须报 BUNDLED 而不是 DOWNLOADED。
+        File filesDir = mTemp.newFolder("files-both");
+        NativeLibManager.setFilesDirForTest(filesDir);
+        NativeLibManager.setAbiOverrideForTest("arm64-v8a");
+        File dir = NativeLibManager.libDir(filesDir, "arm64-v8a");
+        for (String lib : NativeLibManager.getBundle(NativeLibManager.BUNDLE_MPV).libs) {
+            write(new File(dir, lib), "x");
+        }
+        NativeLibManager.setBundledLibsForTest(new HashSet<>(
+                Collections.singletonList(NativeLibManager.BUNDLE_MPV)));
+        try {
+            assertEquals(NativeLibManager.InstallSource.BUNDLED,
+                    NativeLibManager.installSource(NativeLibManager.BUNDLE_MPV));
+        } finally {
+            NativeLibManager.setBundledLibsForTest(null);
+        }
     }
 
     @Test

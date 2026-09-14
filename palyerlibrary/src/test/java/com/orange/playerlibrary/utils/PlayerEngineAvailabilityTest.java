@@ -41,8 +41,9 @@ public class PlayerEngineAvailabilityTest {
 
     @Test
     public void optionalEnginesAreNotUsableBeforeInit() {
-        // 未调用 install() 时 sFilesDir 为空 → isInstalled 必然 false，
-        // 因此三个可选内核都不能判为可用（否则会跳过下载直接切换）
+        // 未调用 install() 时：sFilesDir 为空（下载目录未知）、且没做过「APK 内置」
+        // 探测（JVM 里 loadLibrary 不可用，sBundled 恒空），故三个可选内核都不能
+        // 判为可用（否则会跳过下载直接切换）。
         for (String engine : new String[]{PlayerConstants.ENGINE_IJK,
                 PlayerConstants.ENGINE_ALI, PlayerConstants.ENGINE_MPV}) {
             assertFalse(engine + " 未初始化时不应可用",

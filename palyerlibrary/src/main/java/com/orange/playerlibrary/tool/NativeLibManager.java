@@ -220,6 +220,37 @@ public final class NativeLibManager {
     /** 当前进程已成功 System.load 的组件（进程内 so 只加载一次） */
     private static final Set<String> sLoaded = ConcurrentHashMap.newKeySet();
 
+    /**
+     * 组件 so 的来源。
+     *
+     * <p>区分来源是必要的：宿主把 so 打进 APK 时（SDK 的可选依赖是 compileOnly，
+     * 宿主用 implementation 引入即随 APK 分发），so 一样可用，但
+     * {@link #remove} 删不掉它——面板据此显示「内置」而非「删除」。
+     */
+    public enum InstallSource {
+        /** 下载目录与 APK 内都没有 */
+        NONE,
+        /** 已下载到应用私有目录，可删除 */
+        DOWNLOADED,
+        /** 随宿主 APK 分发（或已由宿主预加载），不可删除 */
+        BUNDLED,
+    }
+
+    /**
+     * 探测到的「APK 内已带」组件。
+     *
+     * <p>由 {@link #install(Context)} 在启动时探测一次并缓存：探测手段是
+     * {@code System.loadLibrary}，它有真实加载副作用，不宜在 {@link #isInstalled}
+     * 这类会被面板渲染/回退判定高频调用的路径上重复执行。
+     *
+     * <p>只探测 so、不碰 Java 类——内核类（ali 的 NativePlayerBase、mpv 的 MPVLib）
+     * 的静态块会 loadLibrary，触发即污染，见 {@link #PROBE_CLASSES} 的说明。
+     */
+    private static final Set<String> sBundled = ConcurrentHashMap.newKeySet();
+
+    /** 测试用：模拟「APK 内已带」的 so 裸名（如 "mpv"）；null 表示走真实探测 */
+    private static volatile Set<String> sBundledOverride;
+
     private NativeLibManager() {
     }
 
@@ -317,14 +348,58 @@ public final class NativeLibManager {
     }
 
     /**
-     * 组件 so 是否已就位（含体积校验，避免截断文件被误判就绪）。
-     * 不触发加载——加载由 {@link #install} / {@link #load} 负责。
+     * 组件 so 是否可用（已下载 **或** 随宿主 APK 分发）。
+     *
+     * <p>无副作用，可被面板渲染 / 内核回退判定高频调用——「APK 内已带」的探测
+     * 结果由 {@link #install(Context)} 预先算好缓存（见 {@link #sBundled}）。
      */
     public static boolean isInstalled(String bundleId) {
+        return installSource(bundleId) != InstallSource.NONE;
+    }
+
+    /**
+     * 组件 so 的来源。宿主把 so 打进 APK 时返回 {@link InstallSource#BUNDLED}，
+     * 面板据此显示「内置」而非「删除」（{@link #remove} 删不掉 APK 内的 so）。
+     *
+     * <p>判定顺序为 **APK 优先**：APK 内已带时不再要求下载目录也有——否则宿主
+     * 内置 so 后会被误判为「未安装」，既静默回退系统内核又让用户白下一份。
+     */
+    public static InstallSource installSource(String bundleId) {
         BundleInfo info = getBundle(bundleId);
+        if (info == null) {
+            return InstallSource.NONE;
+        }
+        if (isBundled(bundleId)) {
+            return InstallSource.BUNDLED;
+        }
+        if (isDownloaded(info)) {
+            return InstallSource.DOWNLOADED;
+        }
+        return InstallSource.NONE;
+    }
+
+    /** 该组件是否可删除（仅下载来的可删；APK 内置的删不掉） */
+    public static boolean canRemove(String bundleId) {
+        return installSource(bundleId) == InstallSource.DOWNLOADED;
+    }
+
+    /**
+     * APK 内是否已带该组件的全部 so。
+     *
+     * <p>集合里存的是 **bundle id**（不是 lib 名）：只有该组件的每个 so 都
+     * {@code loadLibrary} 成功，{@link #probeBundled()} 才记入 id——半带不带
+     * （宿主只引入了部分 so）不算可用。
+     */
+    private static boolean isBundled(String bundleId) {
+        Set<String> override = sBundledOverride;
+        return (override != null ? override : sBundled).contains(bundleId);
+    }
+
+    /** 下载目录里是否已有该组件的全部 so（含体积校验，避免截断文件被误判就绪） */
+    private static boolean isDownloaded(BundleInfo info) {
         File filesDir = sFilesDir;
         String abi = currentAbi();
-        if (info == null || filesDir == null || abi == null) {
+        if (filesDir == null || abi == null) {
             return false;
         }
         File dir = libDir(filesDir, abi);
@@ -361,7 +436,10 @@ public final class NativeLibManager {
             return 0;
         }
         sFilesDir = context.getApplicationContext().getFilesDir();
-        // 先在主线程注入一次搜索路径（目录不存在也注入：NativeLibraryElement
+        // 必须在注入下载目录之前探测「APK 内已带」：注入后下载目录位于搜索路径
+        // 首位，会遮蔽 APK 里的同名 so，届时探测到的是下载版本（来源被误判）。
+        probeBundled();
+        // 再注入一次搜索路径（目录不存在也注入：NativeLibraryElement
         // 按路径惰性查找，后续下载完成即可生效）。这样运行中下载组件时
         // load() 里的注入是空操作，不会在后台线程改写 classloader 字段。
         String abi = currentAbi();
@@ -378,6 +456,42 @@ public final class NativeLibManager {
             Log.d(TAG, "启动加载完成，本次加载 " + loaded + " 个组件");
         }
         return loaded;
+    }
+
+    /**
+     * 探测哪些组件的 so 是随宿主 APK 分发的，结果写入 {@link #sBundled}。
+     *
+     * <p>为什么用 {@code System.loadLibrary} 而不是查文件：{@code extractNativeLibs=false}
+     * 时 APK 内的 so 不从 APK 解压出来（真机实测 {@code /data/app/<pkg>/lib/arm64/} 是空
+     * 目录），直接从 APK mmap，文件系统上查不到。只有实际尝试加载才能判定。
+     *
+     * <p>只对 {@link #isSupported} 为真的组件探测——宿主没引入依赖时不会有 so，
+     * 试也是白试。探测**不触发 Java 类初始化**（只 load so，不 Class.forName），
+     * 故不会污染 ali/mpv 内核类的静态块。
+     */
+    private static void probeBundled() {
+        if (sBundledOverride != null) {
+            return; // 测试注入优先
+        }
+        sBundled.clear();
+        for (BundleInfo info : BUNDLES) {
+            if (!isSupported(info.id)) {
+                continue;
+            }
+            boolean allPresent = true;
+            for (String lib : info.libs) {
+                try {
+                    System.loadLibrary(stripLibPrefix(lib));
+                } catch (Throwable t) {
+                    allPresent = false;
+                    break;
+                }
+            }
+            if (allPresent) {
+                sBundled.add(info.id);
+                Log.d(TAG, "检测到 APK 内置组件: " + info.id);
+            }
+        }
     }
 
     /**
@@ -412,6 +526,12 @@ public final class NativeLibManager {
             Log.w(TAG, "当前 ABI 不支持按需组件: " + Arrays.toString(Build.SUPPORTED_ABIS));
             return false;
         }
+        // APK 内已带的组件：so 在 APK 的 lib 目录里，本就在 classloader 的搜索路径上，
+        // 直接 loadLibrary 即可。**不能**注入下载目录——那会把它插到搜索路径首位，
+        // 遮蔽 APK 里的同名 so（如 libc++_shared.so），并让 isLoadablePath 误拒。
+        if (isBundled(bundleId)) {
+            return loadEach(bundleId, info, "内置");
+        }
         File dir = libDir(filesDir, abi);
         for (String lib : info.libs) {
             File f = new File(dir, lib);
@@ -427,12 +547,18 @@ public final class NativeLibManager {
         if (!ensureNativeSearchPath(dir)) {
             return false;
         }
+        return loadEach(bundleId, info, "已下载");
+    }
+
+    /** 按依赖顺序 loadLibrary 该组件的全部 so；全部成功才标记已加载 */
+    private static boolean loadEach(String bundleId, BundleInfo info, String source) {
         for (String lib : info.libs) {
             try {
                 // loadLibrary 而非 load(绝对路径)：依赖该库的 DT_NEEDED 由 linker
-                // 按 soname 解析，需要搜索路径可达（已由 ensureNativeSearchPath 保证）。
+                // 按 soname 解析，需要搜索路径可达（内置的走 APK lib 目录，
+                // 下载的已由 ensureNativeSearchPath 保证）。
                 System.loadLibrary(stripLibPrefix(lib));
-                Log.d(TAG, "已加载 " + lib);
+                Log.d(TAG, "已加载 " + lib + "（" + source + "）");
             } catch (Throwable t) {
                 Log.e(TAG, "加载失败 " + lib, t);
                 return false;
@@ -747,6 +873,8 @@ public final class NativeLibManager {
     /** 重置状态（测试用） */
     static void resetForTest() {
         sLoaded.clear();
+        sBundled.clear();
+        sBundledOverride = null;
         sFilesDir = null;
         sAbiOverride = null;
         sInjectedDir = null;
@@ -760,6 +888,16 @@ public final class NativeLibManager {
     /** 覆盖当前 ABI（测试用；真机 Build.SUPPORTED_ABIS 在 JVM 单测里为 null） */
     static void setAbiOverrideForTest(String abi) {
         sAbiOverride = abi;
+    }
+
+    /**
+     * 模拟「APK 内已带」的组件 id 集合（测试用）。
+     *
+     * <p>真机判定靠 {@code System.loadLibrary} 实测，JVM 单测里不可用（无 Android
+     * linker），故用注入替代。传 null 恢复真实探测。
+     */
+    static void setBundledLibsForTest(Set<String> bundleIds) {
+        sBundledOverride = bundleIds;
     }
 
     private static void notifyProgress(InstallCallback callback, int percent, long downloaded,

@@ -6098,6 +6098,20 @@ public class VideoEventManager {
             btn.setBackgroundResource(R.drawable.btn_bundle_delete_bg);
             return;
         }
+        // 宿主把 so 打进 APK（完整引入）时来源是 BUNDLED：一样可用，但删不掉
+        // APK 里的 so，故显示「内置」而不是给出点了没反应的「删除」按钮。
+        if (com.orange.playerlibrary.tool.NativeLibManager.installSource(bundleId)
+                == com.orange.playerlibrary.tool.NativeLibManager.InstallSource.BUNDLED) {
+            if (status != null) {
+                status.setText("已内置 · 随应用分发");
+                status.setTextColor(0xFF4CAF50);
+            }
+            btn.setText("内置");
+            btn.setAlpha(0.4f);
+            btn.setOnClickListener(null);
+            btn.setBackgroundResource(R.drawable.btn_bundle_delete_bg);
+            return;
+        }
         if (com.orange.playerlibrary.tool.NativeLibManager.isInstalled(bundleId)) {
             if (status != null) {
                 status.setText("已安装 · " + com.orange.playerlibrary.tool.NativeLibManager
