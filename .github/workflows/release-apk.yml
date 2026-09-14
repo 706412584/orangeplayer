@@ -138,26 +138,59 @@ jobs:
              "OrangePlayer-${VERSION}-${{ matrix.variant }}-${{ matrix.abi }}.apk"
 
       - name: Verify APK size sanity
-        # 守护 strip 未被静默跳过：slim 应远小于 full，full 里 ijk 应是 strip 后的
-        # 6.2MB 量级（若 CI 缺 NDK 会变 25MB，包体凭空大 20MB）。
+        # 守护两件事，防止静默降级：
+        #  1. slim 不该带「按需下载」的可选 so（slim 本来就有 3 个无关 so：androidx
+        #     图形库 / ffmpegJNI / rtmp，所以按名字判而非按数量判）
+        #  2. full 里的 so 必须 strip 过——CI 缺 NDK 时 AGP 静默跳过 strip，
+        #     libijkffmpeg 会从 5.9MB 变 25MB（各 ABI 阈值见脚本内）
         run: |
           APK="OrangePlayer-${GITHUB_REF_NAME}-${{ matrix.variant }}-${{ matrix.abi }}.apk"
           SIZE=$(stat -c%s "$APK")
           echo "$APK = $((SIZE/1048576)) MiB"
-          python3 - "$APK" "${{ matrix.variant }}" <<'PY'
+          python3 - "$APK" "${{ matrix.variant }}" "${{ matrix.abi }}" <<'PY'
           import sys, zipfile
-          apk, variant = sys.argv[1], sys.argv[2]
+
+          apk, variant, abi = sys.argv[1], sys.argv[2], sys.argv[3]
+          # 按需下载的可选 so：slim 里出现任一即为剔除失效
+          OPTIONAL = {
+              'libalivcffmpeg.so', 'libavcodec.so', 'libavdevice.so', 'libavfilter.so',
+              'libavformat.so', 'libavutil.so', 'libc++_shared.so', 'libijkffmpeg.so',
+              'libijkplayer.so', 'libijksdl.so', 'libjpeg.so', 'libleptonica.so',
+              'libmpv.so', 'libonnxruntime.so', 'liborangeffmpegkit.so', 'libplayer.so',
+              'libpngx.so', 'libsaasCorePlayer.so', 'libsaasDownloader.so',
+              'libswresample.so', 'libswscale.so', 'libtesseract.so', 'libtorrent4j.so',
+              'libtranslate_jni.so',
+          }
+          # libijkffmpeg.so 各 ABI 的 strip 上限（实测 strip 后 4.8~8.6MB，
+          # 未 strip 是 20~28MB；取略高于 strip 值、远低于未 strip 值）
+          IJK_LIMIT = {
+              'arm64-v8a': 8 * 1024 * 1024,
+              'armeabi-v7a': 7 * 1024 * 1024,
+              'x86_64': 11 * 1024 * 1024,
+              'x86': 9 * 1024 * 1024,
+          }
           z = zipfile.ZipFile(apk)
-          libs = {n: z.getinfo(n).file_size for n in z.namelist() if n.startswith('lib/')}
-          ijk = [v for k, v in libs.items() if k.endswith('libijkffmpeg.so')]
-          if variant == 'slim' and libs:
-              print('FAIL: slim 版不该带可选 so，却有 %d 项' % len(libs)); sys.exit(1)
-          if variant == 'full':
-              if not ijk:
-                  print('FAIL: full 版缺少 libijkffmpeg.so'); sys.exit(1)
-              if ijk[0] > 8 * 1024 * 1024:
-                  print('FAIL: libijkffmpeg.so 未 strip（%d B，应约 6.2MB）' % ijk[0]); sys.exit(1)
-          print('OK: %d libs, ijk=%s' % (len(libs), ijk[0] if ijk else 'n/a'))
+          libs = {n.rsplit('/', 1)[-1]: z.getinfo(n).file_size
+                  for n in z.namelist() if n.startswith('lib/')}
+          if variant == 'slim':
+              leaked = sorted(set(libs) & OPTIONAL)
+              if leaked:
+                  print('FAIL: slim 版不该带可选 so，却出现 %s' % leaked)
+                  sys.exit(1)
+              print('OK: slim 无泄漏，保留 %d 个必需 so' % len(libs))
+          else:
+              ijk = libs.get('libijkffmpeg.so')
+              if ijk is None:
+                  print('FAIL: full 版缺少 libijkffmpeg.so')
+                  sys.exit(1)
+              limit = IJK_LIMIT.get(abi)
+              if limit is None:
+                  print('FAIL: 未知 ABI %s，无法校验 strip' % abi)
+                  sys.exit(1)
+              if ijk > limit:
+                  print('FAIL: libijkffmpeg.so 未 strip（%d B > 上限 %d B）' % (ijk, limit))
+                  sys.exit(1)
+              print('OK: full 共 %d 个 so，ijk=%d B（上限 %d）' % (len(libs), ijk, limit))
           PY
 
       - name: Upload APK to artifact

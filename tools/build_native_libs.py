@@ -233,11 +233,21 @@ def check_release(tag, java_path, repo='706412584/orangeplayer'):
     size 与 sha256 是否出现在 Java 源码中，返回错误列表。
     """
     import urllib.request
+    import urllib.error
     src = open(java_path, encoding='utf-8').read()
     api = 'https://api.github.com/repos/%s/releases/tags/%s' % (repo, tag)
     req = urllib.request.Request(api, headers={'Accept': 'application/vnd.github+json'})
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        release = json.load(resp)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            release = json.load(resp)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            # Release 尚未创建。两个 workflow 在同一个 tag 上并行跑，Release 由
+            # release-apk.yml 的 release job 创建；本 workflow 可能先到。给明确
+            # 提示而不是抛裸 404 栈（那种失败看不出是竞态还是真的缺资产）。
+            return ['Release %s 尚不存在（可能 release-apk.yml 还在构建中）；'
+                    '待其完成并上传 zip 后重跑本 workflow' % tag]
+        raise
     errors = []
     seen = set()
     for asset in release.get('assets', []):
