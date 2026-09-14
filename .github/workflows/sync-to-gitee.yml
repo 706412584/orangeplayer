@@ -19,6 +19,13 @@ on:
         description: '只探测 token 与 release 状态，不实际上传'
         type: boolean
         default: true
+      only:
+        description: '只传匹配此子串的 APK（如 slim 或 full-arm64）；留空传全部'
+        required: false
+        default: ''
+      curl_timeout:
+        description: '单个文件上传超时（秒）'
+        default: '900'
 
 env:
   GITEE_OWNER: wu-yongchengsvip
@@ -135,6 +142,9 @@ jobs:
 
           for f in apks/*.apk; do
             name=$(basename "$f")
+            if [ -n "${{ inputs.only }}" ]; then
+              case "$name" in *"${{ inputs.only }}"*) ;; *) echo "跳过 $name"; continue ;; esac
+            fi
             size=$(stat -c%s "$f")
             mb=$(( size / 1024 / 1024 ))
             echo "=== ${name} (${mb} MB)"
@@ -146,7 +156,7 @@ jobs:
                 "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RID}/attach_files/${old_id}?access_token=${GITEE_KEY}" || true
             fi
 
-            ucode=$(curl -sS -o /tmp/up.json -w '%{http_code}' --max-time 900 -X POST \
+            ucode=$(curl -sS -o /tmp/up.json -w '%{http_code}' --max-time "${{ inputs.curl_timeout }}" -X POST \
               "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RID}/attach_files" \
               -F "access_token=${GITEE_KEY}" \
               -F "file=@${f}")
