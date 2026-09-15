@@ -194,6 +194,15 @@ public class AsrSubtitleGenerator {
                             }
 
                             @Override
+                            public void onSegmentWithSpeaker(String text, long startMs, long endMs,
+                                                             String lang, int speaker) {
+                                // 说话人存独立字段，不拼进 text——text 是翻译的输入
+                                SubtitleEntry entry = new SubtitleEntry(startMs, endMs, text);
+                                entry.setSpeaker(speaker);
+                                entries.add(entry);
+                            }
+
+                            @Override
                             public void onProgress(int percent, String stage) {
                                 // 5% 起映射到 10-90%
                                 int pct = 10 + percent * 80 / 100;
@@ -290,7 +299,11 @@ public class AsrSubtitleGenerator {
         buf[off + 1] = (byte) ((v >> 8) & 0xFF);
     }
 
-    /** 写 SRT 文件（字幕时间轴为 VAD 段边界） */
+    /**
+     * 写 SRT 文件（字幕时间轴为 VAD 段边界）。
+     * 有说话人归属时正文前加 {@code [S1] }，回读端会剥回 speaker 字段
+     * （见 {@link AsrSubtitleCache#parseSrt} / SubtitleManager.parseSrt）。
+     */
     static void writeSrt(File file, List<SubtitleEntry> entries) throws IOException {
         try (OutputStreamWriter w = new OutputStreamWriter(
                 new FileOutputStream(file), StandardCharsets.UTF_8)) {
@@ -298,7 +311,8 @@ public class AsrSubtitleGenerator {
                 SubtitleEntry e = entries.get(i);
                 w.write((i + 1) + "\n");
                 w.write(formatSrtTime(e.getStartTime()) + " --> " + formatSrtTime(e.getEndTime()) + "\n");
-                w.write(e.getText() + "\n\n");
+                String label = e.speakerLabel();
+                w.write((label == null ? "" : "[" + label + "] ") + e.getText() + "\n\n");
             }
         }
     }

@@ -143,8 +143,11 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
     public void setDataSource(String path) {
         this.dataSource = path;
         // 共享实例换源（GSY 每次 prepare 都走 initVideoPlayer→setDataSource）：
-        // 作废上一源的加载状态，等 surface attach 后重新 loadfile
+        // 作废上一源的加载状态，等 surface attach 后重新 loadfile。
+        // 原生字幕轨同属上一源会话，一并清除（按视频记忆恢复由宿主重新下发；
+        // 自愈重载走 loadfile(dataSource) 不经此处，不受影响）
         loadIssued = false;
+        nativeSubFile = null;
     }
 
     @Override
@@ -413,6 +416,31 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
 
     // ===== MPV 事件（映射 IMediaPlayer 语义） =====
 
+    /**
+     * 同步读取 mpv 的 duration 属性并回填 {@link #durationMs}。
+     *
+     * <p>属性观察是推送式的（见 init 的 observeProperty），到达时机不保证早于
+     * FILE_LOADED；此处用同步读取消除该竞态。读取失败时保持原值不变——
+     * 直播等确实没有 duration 的场景会返回 null/NaN，不能把已有的正值覆盖成 0。
+     */
+    private void syncDurationFromMpv() {
+        MPVLib lib = mpv;
+        if (lib == null) {
+            return;
+        }
+        try {
+            Double d = lib.getPropertyDouble("duration");
+            if (d != null && !d.isNaN() && d > 0) {
+                long ms = (long) (d * 1000);
+                if (ms > 0) {
+                    durationMs = ms;
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "同步读取 duration 失败，沿用属性事件回填值", t);
+        }
+    }
+
     @Override
     public void event(int eventId) {
         if (mpv == null) {
@@ -421,6 +449,14 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
         }
         if (eventId == MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED) {
             prepared = true;
+            // duration 属性变更事件可能晚于 FILE_LOADED 到达（真机实测：
+            // onPrepared 时 durationMs 仍为 0，几秒后属性事件才回填 15900）。
+            // 此刻同步读一次兜底，否则监听器拿到 duration=0 —— OrangevideoView
+            // 据此把视频判为直播（mIsLiveVideo=true），后果是本地视频没有进度条、
+            // 且自动生成字幕被「直播不生成」拦掉。
+            syncDurationFromMpv();
+            // 切文件会重置外部字幕轨（sub-add 只对当前文件生效），重挂并恢复延迟偏移
+            reapplyAfterFileLoaded();
             notifyOnPrepared();
             // 自愈重载完成：恢复到重载前保存的进度（loadfile 后 seek 才作用于
             // 新文件；command 异步排队，紧跟 loadfile 的 seek 会打到旧文件流）
@@ -640,6 +676,107 @@ public class MpvMediaPlayer extends AbstractMediaPlayer implements MPVLib.EventO
         recovering = false;
         pendingSeekMs = 0;
         voBroken = false;
+    }
+
+    // ===== 音画延迟 / 原生字幕（MpvPlayerManager 静态入口转发到此） =====
+
+    /** 当前音频延迟（毫秒）。用缓存值而非每次读属性，避免热路径走 JNI。 */
+    private volatile long audioDelayMs;
+
+    /** 当前字幕延迟（毫秒），同上 */
+    private volatile long subDelayMs;
+
+    /** 已下发的原生字幕文件路径（null=未启用），用于切文件后重挂 */
+    private String nativeSubFile;
+
+    boolean setAudioDelayMs(long delayMs) {
+        if (mpv == null) {
+            return false;
+        }
+        try {
+            mpv.setPropertyDouble("audio-delay", delayMs / 1000.0);
+            audioDelayMs = delayMs;
+            Log.d(TAG, "audio-delay = " + delayMs + "ms");
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "设置 audio-delay 失败", t);
+            return false;
+        }
+    }
+
+    long getAudioDelayMs() {
+        return audioDelayMs;
+    }
+
+    boolean setNativeSubtitleDelayMs(long delayMs) {
+        if (mpv == null) {
+            return false;
+        }
+        try {
+            mpv.setPropertyDouble("sub-delay", delayMs / 1000.0);
+            subDelayMs = delayMs;
+            Log.d(TAG, "sub-delay = " + delayMs + "ms");
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "设置 sub-delay 失败", t);
+            return false;
+        }
+    }
+
+    /**
+     * 交给 libass 原生渲染的 ASS 文件。
+     *
+     * <p>mpv 在 loadfile 后才会应用 sub-add，且切文件会重置外部字幕轨，故记下路径，
+     * 在 {@link #reapplyAfterFileLoaded()} 里重挂。传 null/空表示移除字幕轨。
+     */
+    boolean setExternalAssFile(String path) {
+        nativeSubFile = (path == null || path.isEmpty()) ? null : path;
+        if (mpv == null) {
+            return false;
+        }
+        return applyNativeSubFile();
+    }
+
+    /** 把 {@link #nativeSubFile} 下发给 mpv；未就绪时返回 false 待 loadfile 后重试 */
+    private boolean applyNativeSubFile() {
+        if (mpv == null) {
+            return false;
+        }
+        try {
+            if (nativeSubFile == null) {
+                // "no" = 移除全部外部字幕轨（不影响内封字幕轨的选择）
+                mpv.command(new String[]{"sub-remove"});
+                Log.d(TAG, "已移除原生字幕轨");
+            } else {
+                // select=yes 让新挂的字幕立即生效
+                mpv.command(new String[]{"sub-add", nativeSubFile, "select"});
+                Log.d(TAG, "已挂载原生字幕: " + nativeSubFile);
+            }
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "sub-add/sub-remove 失败", t);
+            return false;
+        }
+    }
+
+    /**
+     * FILE_LOADED 时恢复会话级设置：切文件会重置外部字幕轨，audio-delay/sub-delay
+     * 属性按 mpv 文档随文件保留，但自愈重载（loadfile replace）路径不保证，
+     * 非零时统一下发一次（幂等，无副作用）。
+     */
+    private void reapplyAfterFileLoaded() {
+        if (mpv == null) {
+            return;
+        }
+        if (nativeSubFile != null) {
+            applyNativeSubFile();
+        }
+        if (audioDelayMs != 0) {
+            setAudioDelayMs(audioDelayMs);
+        }
+        if (subDelayMs != 0) {
+            setNativeSubtitleDelayMs(subDelayMs);
+        }
     }
 
     @Override

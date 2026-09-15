@@ -181,6 +181,11 @@ public class ProgressiveAsrSession {
      */
     private void runLoop() {
         try {
+            // 分块识别必须关掉说话人分离：它是整段一次性推理，每块各跑一遍既
+            // 成倍放大耗时（真机实测 3 分钟音频分离独占 42s），聚类编号还会在
+            // 各块间各自从 0 起、无法跨块对应同一说话人——不如不给标签。
+            // 带说话人的字幕走完整链路（AsrSubtitleGenerator，整片一次识别）。
+            mEngine.setDiarizationEnabled(false);
             if (!mEngine.init(AsrSubtitleGenerator.getModelDir(mContext).getAbsolutePath(), mLanguage)) {
                 postError(-6, "ASR 引擎初始化失败");
                 return;
@@ -299,6 +304,15 @@ public class ProgressiveAsrSession {
                                 mDetectedLang = lang;
                                 postLanguageDetected(lang);
                             }
+                        }
+
+                        @Override
+                        public void onSegmentWithSpeaker(String text, long startMs, long endMs,
+                                                         String lang, int speaker) {
+                            // 渐进链路已关闭说话人分离（见 runLoop 的 setDiarizationEnabled），
+                            // speaker 恒为 -1，等价于 onSegmentWithLang；显式实现是为了
+                            // 将来引擎带说话人时标签不会静默丢失。
+                            onSegmentWithLang(text, startMs, endMs, lang);
                         }
 
                         @Override

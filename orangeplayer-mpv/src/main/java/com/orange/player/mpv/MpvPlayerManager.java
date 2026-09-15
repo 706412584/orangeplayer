@@ -163,6 +163,67 @@ public class MpvPlayerManager extends BasePlayerManager {
         }
     }
 
+    // ===== 跨模块静态入口（palyerlibrary 经反射调用，见 OrangevideoView 的 findClass 模式） =====
+    //
+    // 这些能力只在 mpv 内核可用，palyerlibrary 对 orangeplayer-mpv 是 compileOnly，
+    // 故统一走反射 + 静态方法，宿主未引模块时反射失败即静默跳过。
+
+    /**
+     * 音画不同步补偿：正值延后音频、负值提前（单位毫秒）。
+     *
+     * <p>对应 mpv 的 {@code audio-delay} 属性（秒）。与字幕延迟同源问题
+     * （片源时间轴错位），但作用于音轨。非 mpv 内核无对应 API。
+     *
+     * @return true=已下发；false=player 未就绪或内核不支持
+     */
+    public static boolean setAudioDelayMs(long delayMs) {
+        MpvMediaPlayer p = sSharedPlayer;
+        if (p == null) {
+            return false;
+        }
+        return p.setAudioDelayMs(delayMs);
+    }
+
+    /** 当前音频延迟（毫秒）；未就绪返回 0 */
+    public static long getAudioDelayMs() {
+        MpvMediaPlayer p = sSharedPlayer;
+        return p == null ? 0L : p.getAudioDelayMs();
+    }
+
+    /**
+     * 把外部 ASS/SSA 字幕文件交给 libass 原生渲染。
+     *
+     * <p>libmpv 内静态链接了 libass 0.17.4（真机验证可渲染中文、支持
+     * {@code \an} 对齐与颜色字号），故可保留字幕组定位/特效标签——
+     * 走自己的解析器时这些标签会被 {@code stripOverrideTags} 全部剥掉。
+     *
+     * <p>代价：原生渲染的字幕画进视频画面，无法再叠加 SubtitleView
+     * （翻译对照/说话人标签/弹幕层级）。故由调用方按需开启。
+     *
+     * @param path 字幕文件绝对路径；null 或空表示关闭（移除该字幕轨）
+     * @return true=已下发
+     */
+    public static boolean setExternalAssFile(String path) {
+        MpvMediaPlayer p = sSharedPlayer;
+        if (p == null) {
+            return false;
+        }
+        return p.setExternalAssFile(path);
+    }
+
+    /**
+     * 字幕延迟（毫秒），正值延后显示。
+     * 原生渲染下走 mpv 的 {@code sub-delay} 属性，比在时间轴上做偏移更准
+     * （时间轴偏移对原生渲染的字幕完全无效——它由 libass 自己按 pts 取帧）。
+     */
+    public static boolean setNativeSubtitleDelayMs(long delayMs) {
+        MpvMediaPlayer p = sSharedPlayer;
+        if (p == null) {
+            return false;
+        }
+        return p.setNativeSubtitleDelayMs(delayMs);
+    }
+
     @Override
     public void setNeedMute(boolean needMute) {
         if (mediaPlayer != null) mediaPlayer.setVolume(needMute ? 0 : 1, needMute ? 0 : 1);

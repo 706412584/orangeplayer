@@ -29,6 +29,18 @@ public interface BatchAsrEngine {
         }
 
         /**
+         * 每识别完一个语音段（含语种与说话人编号）。
+         *
+         * <p>说话人由可选的离线说话人分离（diarization）产出，是**该段音频内的相对编号**
+         * （0 起），不表示真实身份；引擎未启用说话人分离或该段无归属时为 -1。
+         * 默认实现退化为 {@link #onSegmentWithLang}，未启用 diarization 的引擎不受影响。
+         */
+        default void onSegmentWithSpeaker(String text, long startMs, long endMs,
+                                          String lang, int speaker) {
+            onSegmentWithLang(text, startMs, endMs, lang);
+        }
+
+        /**
          * 进度（0-100）。VAD 预扫阶段与解码阶段合并口径：
          * 预扫阶段按已扫/总时长估算，解码阶段按已处理段数估算。
          */
@@ -44,11 +56,26 @@ public interface BatchAsrEngine {
     /**
      * 初始化识别引擎。
      *
+     * <p>实现可选用 {@code modelDir/diarization/} 下的离线说话人分离模型；
+     * 目录或模型文件缺失时须静默降级为「不含说话人」的识别，不得因此让 init 失败。
+     *
      * @param modelDir  含 model.int8.onnx 与 tokens.txt 的目录
      * @param language  语种（auto/zh/en/ja/ko；auto 交给模型自带 lang2id）
      * @return 是否成功
      */
     boolean init(String modelDir, String language);
+
+    /**
+     * 是否启用说话人分离（须在 {@link #init} **之前**调用，之后调用无效）。
+     *
+     * <p>默认启用。**分块识别场景必须显式关掉**（见 ProgressiveAsrSession）：
+     * 说话人分离是整段一次性推理，每块各跑一遍既成倍放大耗时，聚类编号还会
+     * 在不同块间各自从 0 开始、无法跨块对应同一个说话人——不如不给标签。
+     *
+     * <p>未实现该能力的引擎无副作用（默认空实现）。
+     */
+    default void setDiarizationEnabled(boolean enabled) {
+    }
 
     /**
      * 识别整段 wav 文件（16k 单声道 pcm_s16le）。

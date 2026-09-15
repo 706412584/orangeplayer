@@ -65,6 +65,12 @@ public class VideoEventManager {
     private boolean mOcrPausedForFullscreen = false;
     private String mOcrSourceLang = "chi_sim";
     private String mOcrTargetLang = "en";
+
+    // mpv libass 原生字幕渲染：已下发给 mpv 的字幕文件路径（null=未启用）。
+    // 原生渲染把字幕画进视频画面，SubtitleView 文本层必须同步禁用避免双重字幕；
+    // 代价是翻译对照/说话人标签等叠加能力在原生模式下不可用（宿主 UI 提示）
+    private String mNativeAssPath;
+    private String mNativeAssVideoUrl;
     
     public VideoEventManager(Context context, OrangevideoView videoView, OrangeVideoController controller) {
         mContext = context;
@@ -704,6 +710,12 @@ public class VideoEventManager {
 
             // 切换视频：渐进识别会话针对旧视频，立即结束
             stopProgressiveAsr();
+            // mpv 侧切文件已清原生字幕轨，宿主状态同步复位
+            // （新视频的字幕记忆由 tryLoadRememberedSubtitle 按 URL 重新恢复）
+            if (mNativeAssPath != null) {
+                mNativeAssPath = null;
+                mNativeAssVideoUrl = null;
+            }
 
             // 清空旧视频的字幕（渐进 ASR 注入的条目留在列表里，新视频播到
             // 相同时间段会把旧字幕显示出来）；sProgressiveSubtitleShown 同步复位，
@@ -3568,10 +3580,16 @@ public class VideoEventManager {
             // 字幕开关
             android.widget.Switch subtitleSwitch = dialogView.findViewById(R.id.subtitle_switch);
             if (subtitleSwitch != null) {
-                subtitleSwitch.setChecked(mController.isSubtitleEnabled());
+                // 原生渲染模式下 SubtitleView 可见性由宿主控制（启用时强制 hide），
+                // 开关语义映射为 mpv 字幕轨挂/卸，初始态用路径存在性判断
+                subtitleSwitch.setChecked(mNativeAssPath != null
+                        || mController.isSubtitleEnabled());
                 subtitleSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
                     mSettingsManager.setSubtitleEnabled(isChecked);
-                    if (isChecked) {
+                    if (mNativeAssPath != null) {
+                        // 原生模式：开关直接控制 mpv 字幕轨
+                        mVideoView.setNativeAssSubtitle(isChecked ? mNativeAssPath : null);
+                    } else if (isChecked) {
                         mController.getSubtitleManager().show();
                         mController.startSubtitle();
                     } else {
@@ -3668,6 +3686,43 @@ public class VideoEventManager {
             if (btnDelayMinus != null) btnDelayMinus.setOnClickListener(delayClickListener);
             if (btnDelayReset != null) btnDelayReset.setOnClickListener(delayClickListener);
             if (btnDelayPlus != null) btnDelayPlus.setOnClickListener(delayClickListener);
+
+            // 音频延迟调节（步进 100ms；正值延后音频。mpv 内核专属能力，
+            // 其他内核 setAudioDelayMs 返回 false → 面板置灰不可用）
+            android.widget.TextView audioDelayText = dialogView.findViewById(R.id.audio_delay_text);
+            View btnAudioMinus = dialogView.findViewById(R.id.btn_audio_delay_minus);
+            View btnAudioReset = dialogView.findViewById(R.id.btn_audio_delay_reset);
+            View btnAudioPlus = dialogView.findViewById(R.id.btn_audio_delay_plus);
+            boolean audioDelaySupported =
+                    PlayerConstants.ENGINE_MPV.equals(mVideoView.getCurrentPlayerEngine());
+            final long[] currentAudioDelay = {mSettingsManager.getAudioDelayForVideo(
+                    mVideoView.getUrl() != null ? mVideoView.getUrl() : "")};
+            if (audioDelayText != null) {
+                updateAudioDelayText(audioDelayText, currentAudioDelay[0]);
+                if (!audioDelaySupported) {
+                    audioDelayText.setText("音频延迟: 仅 mpv 内核支持");
+                }
+            }
+            for (View b : new View[]{btnAudioMinus, btnAudioReset, btnAudioPlus}) {
+                if (b != null) {
+                    b.setEnabled(audioDelaySupported);
+                    b.setAlpha(audioDelaySupported ? 1f : 0.4f);
+                }
+            }
+            View.OnClickListener audioDelayClickListener = v -> {
+                long delta = v.getId() == R.id.btn_audio_delay_plus ? 100
+                        : v.getId() == R.id.btn_audio_delay_minus ? -100 : -currentAudioDelay[0];
+                long next = currentAudioDelay[0] + delta;
+                if (applyAudioDelay(next)) {
+                    currentAudioDelay[0] = next;
+                }
+                if (audioDelayText != null) {
+                    updateAudioDelayText(audioDelayText, currentAudioDelay[0]);
+                }
+            };
+            if (btnAudioMinus != null) btnAudioMinus.setOnClickListener(audioDelayClickListener);
+            if (btnAudioReset != null) btnAudioReset.setOnClickListener(audioDelayClickListener);
+            if (btnAudioPlus != null) btnAudioPlus.setOnClickListener(audioDelayClickListener);
             
             // 显示当前字幕状态
             android.widget.TextView statusText = dialogView.findViewById(R.id.subtitle_status);
@@ -5694,14 +5749,27 @@ public class VideoEventManager {
         final String uriString = uri.toString();
         final String fileName = getFileNameFromUri(uri);
 
-        // P3 双路径：ASS/SSA 且 Exo 引擎时优先走 Media3 管线（保留样式）
+        // ASS/SSA 样式保留分引擎双路径：
+        // - mpv：libmpv 静态内嵌 libass 0.17.4，sub-add 原生渲染（立即生效，
+        //   保留全部特效标签；代价是字幕进画面，SubtitleView 层禁用）
+        // - Exo：Media3 MergingMediaSource 管线（需在下次 setUp 前注入，重播生效）
         // 需在下次 setUp 前注入；当前实现经 setExternalSubtitle 标记，
         // 由下次 prepareAsync 合并，纯文本层不再重复加载。
         if (fileName != null) {
             if (isAssSubtitlePath(fileName)) {
+                String videoUrl = mVideoView.getUrl();
+                if (PlayerConstants.ENGINE_MPV.equals(mVideoView.getCurrentPlayerEngine())
+                        && enableNativeAssRender(resolveSubtitleLocalPath(uri, fileName), videoUrl)) {
+                    showToast("ASS 字幕已由 libass 原生渲染");
+                    if (videoUrl != null) {
+                        mSettingsManager.setSubtitleLocalForVideo(videoUrl, uriString);
+                        mSettingsManager.setSubtitleUrlForVideo(videoUrl, null);
+                        mSettingsManager.setSubtitleMimeTypeForVideo(videoUrl, "text/x-ssa");
+                    }
+                    return;
+                }
                 if (mVideoView.setExternalSubtitle(uriString, "text/x-ssa")) {
                     showToast("ASS 字幕将以增强样式渲染（重新播放生效）");
-                    String videoUrl = mVideoView.getUrl();
                     if (videoUrl != null) {
                         mSettingsManager.setSubtitleLocalForVideo(videoUrl, uriString);
                         mSettingsManager.setSubtitleUrlForVideo(videoUrl, null);
@@ -5782,9 +5850,21 @@ public class VideoEventManager {
      * 从 URL 加载字幕
      */
     private void loadSubtitleFromUrl(String url) {
+        String videoUrl = mVideoView.getUrl();
+        // mpv 引擎：ASS URL 直接交给 sub-add（mpv 可读网络字幕），libass 原生渲染
+        if (isAssSubtitlePath(url)
+                && PlayerConstants.ENGINE_MPV.equals(mVideoView.getCurrentPlayerEngine())
+                && enableNativeAssRender(url, videoUrl)) {
+            showToast("ASS 字幕已由 libass 原生渲染");
+            if (videoUrl != null) {
+                mSettingsManager.setSubtitleUrlForVideo(videoUrl, url);
+                mSettingsManager.setSubtitleLocalForVideo(videoUrl, null);
+                mSettingsManager.setSubtitleMimeTypeForVideo(videoUrl, "text/x-ssa");
+            }
+            return;
+        }
         if (isAssSubtitlePath(url) && mVideoView.setExternalSubtitle(url, "text/x-ssa")) {
             showToast("ASS 字幕将以增强样式渲染（重新播放生效）");
-            String videoUrl = mVideoView.getUrl();
             if (videoUrl != null) {
                 mSettingsManager.setSubtitleUrlForVideo(videoUrl, url);
                 mSettingsManager.setSubtitleLocalForVideo(videoUrl, null);
@@ -5824,18 +5904,155 @@ public class VideoEventManager {
     }
     
     /**
-     * 应用字幕延迟并按视频持久化
+     * 应用字幕延迟并按视频持久化。
+     * mpv 原生字幕模式下同时下发 sub-delay（libass 自按 pts 取帧，
+     * SubtitleManager 的时间轴偏移对原生渲染无效）。
      */
     private void applySubtitleDelay(long delayMs) {
         if (mController == null || mController.getSubtitleManager() == null) {
             return;
         }
         mController.getSubtitleManager().setSubtitleDelayMs(delayMs);
+        if (mNativeAssPath != null) {
+            mVideoView.setNativeSubtitleDelayMs(delayMs);
+        }
         String videoUrl = mVideoView.getUrl();
         if (videoUrl != null) {
             mSettingsManager.setSubtitleDelayForVideo(videoUrl, delayMs);
         }
         Log.d(TAG, "字幕延迟: " + delayMs + "ms");
+    }
+
+    /** 应用音频延迟（mpv 内核专属）并按视频持久化；返回是否生效 */
+    private boolean applyAudioDelay(long delayMs) {
+        boolean ok = mVideoView.setAudioDelayMs(delayMs);
+        String videoUrl = mVideoView.getUrl();
+        if (videoUrl != null) {
+            mSettingsManager.setAudioDelayForVideo(videoUrl, delayMs);
+        }
+        Log.d(TAG, "音频延迟: " + delayMs + "ms (applied=" + ok + ")");
+        return ok;
+    }
+
+    /**
+     * 把字幕 Uri 落盘为本地文件路径（mpv 的 sub-add 走文件系统 open，
+     * 不认 content://）。http(s) 直接返回原 URL（mpv 可网络读取）。
+     */
+    private String resolveSubtitleLocalPath(Uri uri, String displayName) {
+        try {
+            if ("file".equals(uri.getScheme())) {
+                String p = uri.getPath();
+                return (p != null && !p.isEmpty()) ? p : null;
+            }
+            if ("content".equals(uri.getScheme())) {
+                java.io.File tmp = new java.io.File(mContext.getCacheDir(),
+                        "native_sub_" + System.currentTimeMillis() + "_"
+                                + (displayName != null ? displayName : "sub.ass"));
+                try (java.io.InputStream in = mActivity.getContentResolver().openInputStream(uri);
+                     java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                    if (in == null) return null;
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                    }
+                }
+                return tmp.getAbsolutePath();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "字幕落盘失败", e);
+        }
+        return null;
+    }
+
+    /**
+     * 启用 mpv libass 原生渲染（仅 ASS/SSA + mpv 内核）：把字幕文件交给 mpv，
+     * 同时禁用 SubtitleView 文本层避免双重字幕。
+     *
+     * @return true=已生效；false=内核/路径不支持，调用方走纯文本降级
+     */
+    private boolean enableNativeAssRender(String localPath, String videoUrl) {
+        if (localPath == null) {
+            return false;
+        }
+        // 同路径重复下发会叠加字幕轨（sub-add 不去重），幂等保护
+        boolean alreadyApplied = localPath.equals(mNativeAssPath)
+                && videoUrl != null && videoUrl.equals(mNativeAssVideoUrl);
+        if (!alreadyApplied && !mVideoView.setNativeAssSubtitle(localPath)) {
+            return false;
+        }
+        mNativeAssPath = localPath;
+        mNativeAssVideoUrl = videoUrl;
+        // 用户加载字幕 = 开启字幕意图（原生模式下开关语义映射字幕轨挂/卸，
+        // 初始态读该标志）
+        mSettingsManager.setSubtitleEnabled(true);
+        // 文本层让位：原生渲染的字幕画进画面，SubtitleView 再叠一份会重影
+        if (mController.getSubtitleManager() != null) {
+            mController.getSubtitleManager().hide();
+        }
+        mController.stopSubtitle();
+        // 字幕延迟语义同步切换到 sub-delay（读记忆值下发）
+        long remembered = mSettingsManager.getSubtitleDelayForVideo(videoUrl);
+        if (remembered != 0) {
+            mVideoView.setNativeSubtitleDelayMs(remembered);
+        }
+        Log.d(TAG, "mpv 原生 ASS 渲染已启用: " + localPath);
+        return true;
+    }
+
+    /** 关闭原生渲染并恢复 SubtitleView 文本层（若字幕开关开启） */
+    private void disableNativeAssRender() {
+        if (mNativeAssPath == null) {
+            return;
+        }
+        mNativeAssPath = null;
+        mNativeAssVideoUrl = null;
+        mVideoView.setNativeAssSubtitle(null);
+        if (mSettingsManager.isSubtitleEnabled() && mController.getSubtitleManager() != null) {
+            mController.getSubtitleManager().show();
+            mController.startSubtitle();
+        }
+    }
+
+    /**
+     * 换视频/重进播放时恢复记忆的原生 ASS（mpv 内核）。
+     * 本地字幕优先（content:// 落盘缓存文件），其次网络 URL。
+     *
+     * @return true=已恢复原生渲染；false=无 ASS 记忆或非字幕场景，走常规文本加载
+     */
+    private boolean tryRestoreNativeAss(String videoUrl) {
+        String mime = mSettingsManager.getSubtitleMimeTypeForVideo(videoUrl);
+        if (!"text/x-ssa".equals(mime) || !mSettingsManager.isSubtitleEnabled()) {
+            // 用户上次关着字幕：不恢复原生轨（与文本路径「加载但隐藏」语义对齐，
+            // 此处直接交给文本流程加载，重开开关时显示）
+            return false;
+        }
+        String localUri = mSettingsManager.getSubtitleLocalForVideo(videoUrl);
+        if (localUri != null && !localUri.isEmpty()) {
+            try {
+                Uri uri = Uri.parse(localUri);
+                String name = null;
+                if ("content".equals(uri.getScheme())) {
+                    name = queryDisplayName(uri);
+                }
+                if (enableNativeAssRender(resolveSubtitleLocalPath(uri, name), videoUrl)) {
+                    Log.d(TAG, "恢复原生 ASS 渲染(本地): " + localUri);
+                    return true;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "恢复原生 ASS 失败(本地): " + e);
+            }
+        }
+        String subUrl = mSettingsManager.getSubtitleUrlForVideo(videoUrl);
+        if (subUrl != null && !subUrl.isEmpty() && isAssSubtitlePath(subUrl)) {
+            if (enableNativeAssRender(subUrl, videoUrl)) {
+                Log.d(TAG, "恢复原生 ASS 渲染(网络): " + subUrl);
+                return true;
+            }
+        }
+        // 原生启用失败：文本层照常加载（下方流程），并清理半途状态
+        disableNativeAssRender();
+        return false;
     }
 
     /**
@@ -5884,6 +6101,11 @@ public class VideoEventManager {
                 "字幕延迟: %+.1fs", delayMs / 1000f));
     }
 
+    private void updateAudioDelayText(android.widget.TextView delayText, long delayMs) {
+        delayText.setText(String.format(java.util.Locale.getDefault(),
+                "音频延迟: %+.1fs", delayMs / 1000f));
+    }
+
     /**
      * 尝试自动加载已记忆的字幕
      * 应在视频开始播放时调用
@@ -5897,6 +6119,11 @@ public class VideoEventManager {
         // 应用持久化的字幕大小与该视频的记忆延迟
         mController.getSubtitleManager().setTextSize(mSettingsManager.getSubtitleSize());
         mController.getSubtitleManager().setSubtitleDelayMs(mSettingsManager.getSubtitleDelayForVideo(videoUrl));
+        // 音频延迟记忆恢复（仅 mpv 内核生效，applied=false 时属性下发内部跳过）
+        long rememberedAudioDelay = mSettingsManager.getAudioDelayForVideo(videoUrl);
+        if (rememberedAudioDelay != 0) {
+            mVideoView.setAudioDelayMs(rememberedAudioDelay);
+        }
         if (mSettingsManager.isSubtitleEnabled()) {
             mController.getSubtitleManager().show();
         } else {
@@ -5906,6 +6133,14 @@ public class VideoEventManager {
         // Media3 Exo 管线已在 prepare 前接管记忆的 ASS/SSA，避免 onPrepared 后重复走纯文本解析。
         if (mVideoView.isExternalSubtitleConfiguredForCurrentUrl()) {
             return;
+        }
+
+        // mpv 引擎 + 记忆的 ASS/SSA：恢复 libass 原生渲染（优先本地文件，
+        // 其次网络 URL——mpv sub-add 可读网络字幕）
+        if (PlayerConstants.ENGINE_MPV.equals(mVideoView.getCurrentPlayerEngine())) {
+            if (tryRestoreNativeAss(videoUrl)) {
+                return;
+            }
         }
 
         // 优先加载本地字幕

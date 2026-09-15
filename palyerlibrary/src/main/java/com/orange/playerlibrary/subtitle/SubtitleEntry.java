@@ -16,11 +16,104 @@ public class SubtitleEntry {
      */
     private String originalText;
 
+    /**
+     * 说话人编号（0 起，与显示标签 {@code [S1]} 差 1）；{@link #NO_SPEAKER} 表示无归属。
+     *
+     * <p>**独立字段，绝不拼进 {@link #text}**：text 同时是 AI 翻译的输入
+     * （AiTranslationEngine/BatchPlanner 都取 getText()），把 {@code [S1]} 混进去
+     * 会让译文里出现标记，也会污染翻译缓存键。
+     */
+    private int speaker = NO_SPEAKER;
+
+    /** 无说话人归属 */
+    public static final int NO_SPEAKER = -1;
+
     public SubtitleEntry(long startTime, long endTime, String text) {
         this.startTime = startTime;
         this.endTime = endTime;
         this.text = text;
         this.originalText = text;
+    }
+
+    public int getSpeaker() {
+        return speaker;
+    }
+
+    public void setSpeaker(int speaker) {
+        this.speaker = speaker;
+    }
+
+    public boolean hasSpeaker() {
+        return speaker >= 0;
+    }
+
+    /**
+     * 显示/落盘用的说话人标签，如 {@code S1}（编号 0 → S1，与 MOSS 的 [S01] 同风格）。
+     * 无归属时返回 null。
+     */
+    public String speakerLabel() {
+        return speaker < 0 ? null : "S" + (speaker + 1);
+    }
+
+    /**
+     * 从行首剥离说话人标记，如 {@code "[S1] 你好"} → {@code "你好"}。
+     * 非标记开头时原样返回（含 null）。
+     */
+    public static String stripSpeakerPrefix(String text) {
+        if (text == null) {
+            return null;
+        }
+        String t = text.trim();
+        if (!t.startsWith("[")) {
+            return text;
+        }
+        int close = t.indexOf(']');
+        if (close < 3 || close > 5) {
+            return text;
+        }
+        String inner = t.substring(1, close);
+        if (inner.charAt(0) != 'S' && inner.charAt(0) != 's') {
+            return text;
+        }
+        for (int i = 1; i < inner.length(); i++) {
+            if (!Character.isDigit(inner.charAt(i))) {
+                return text;
+            }
+        }
+        return t.substring(close + 1).trim();
+    }
+
+    /**
+     * 从行首解析说话人编号（0 起）。{@code "[S1] xxx"} → 0；无标记或格式不符 → {@link #NO_SPEAKER}。
+     * 与 {@link #stripSpeakerPrefix} 的识别口径保持一致。
+     */
+    public static int parseSpeakerPrefix(String text) {
+        if (text == null) {
+            return NO_SPEAKER;
+        }
+        String t = text.trim();
+        if (!t.startsWith("[")) {
+            return NO_SPEAKER;
+        }
+        int close = t.indexOf(']');
+        if (close < 3 || close > 5) {
+            return NO_SPEAKER;
+        }
+        String inner = t.substring(1, close);
+        if (inner.charAt(0) != 'S' && inner.charAt(0) != 's') {
+            return NO_SPEAKER;
+        }
+        for (int i = 1; i < inner.length(); i++) {
+            if (!Character.isDigit(inner.charAt(i))) {
+                return NO_SPEAKER;
+            }
+        }
+        try {
+            int n = Integer.parseInt(inner.substring(1));
+            return n >= 1 ? n - 1 : NO_SPEAKER;
+        } catch (NumberFormatException e) {
+            return NO_SPEAKER;
+        }
     }
 
     public long getStartTime() {
@@ -88,6 +181,7 @@ public class SubtitleEntry {
         return "SubtitleEntry{" +
                 "startTime=" + startTime +
                 ", endTime=" + endTime +
+                ", speaker=" + speaker +
                 ", text='" + text + '\'' +
                 '}';
     }
