@@ -40,8 +40,8 @@ public class VideoPlayerManager {
     // 弹幕控制器
     private DanmakuControllerImpl mDanmakuController;
 
-    /** 当前内核，init() 与 selectEngine() 共用；默认 IJK */
-    private String mEngine = PlayerConstants.ENGINE_IJK;
+    /** 当前内核，init() 与 selectEngine() 共用；默认 ExoPlayer（纯 Java 解码，无需下载 so） */
+    private String mEngine = PlayerConstants.ENGINE_EXO;
 
     /** 当前音量百分比。SDK 只有 setter，读取靠这里记录。 */
     private int mVolumePercent = 100;
@@ -90,7 +90,25 @@ public class VideoPlayerManager {
         // 原实现把 mVideoView.setKeepVideoPlaying(true) 写在了 new OrangevideoView()
         // 之前，首次 init 必 NPE（release() 刚把 mVideoView 置 null）。这里按依赖顺序重排。
         this.mVideoView = new OrangevideoView(activity);
-        this.mVideoController = new OrangeVideoController(activity);
+
+        // controller 必须【复用】SDK 构造时已建好的那个，不要自己 new 再 setVideoController。
+        //
+        // 为什么：OrangevideoView 构造里已创建 controller（initOrangeComponents），
+        // 此时 setVideoController(另一个实例) 会走 setVideoController 的替换分支 →
+        // previous.releaseOnReplaced() → VideoEventManager.release() → stopOcrTranslate()。
+        // 而 stopOcrTranslate 检测到 Exo 默认的 forceTextureViewMode=true（OrangevideoView:707）
+        // 就会 release 播放器 + releaseAllVideos + 重新 setUp + 切回 SurfaceView，
+        // 并弹「已切换回 SurfaceView 模式」。真机后果：进/出画中画后渲染状态错乱，
+        // 画面仍在但所有点击失效。
+        //
+        // 官方 demo 就是这么做的（app/MainActivity.java:787 先 getVideoController，
+        // 为 null 才兜底新建），所以它的画中画一切正常。
+        this.mVideoController = this.mVideoView.getVideoController();
+        if (this.mVideoController == null) {
+            // SDK 未创建时才兜底自建
+            this.mVideoController = new OrangeVideoController(activity);
+            this.mVideoView.setVideoController(this.mVideoController);
+        }
 
         // ===== 设置项 =====
         com.orange.playerlibrary.M3U8AdManager.getInstance(activity).setEnabled(true); // 开启 M3U8 去广告
@@ -112,15 +130,18 @@ public class VideoPlayerManager {
             mEngine = saved;
         }
         if (!selectEngine(mEngine)) {
-            // 保存的内核不可用（被卸载 / 未下载）→ 退回系统播放器，避免静默回退
-            debug("init: 内核 " + mEngine + " 不可用，回退系统播放器");
-            mEngine = PlayerConstants.ENGINE_DEFAULT;
-            selectEngine(mEngine);
+            // 保存的内核不可用（被卸载 / 未下载）→ 退回 ExoPlayer（纯 Java，无需 so），
+            // 与 app demo 的按需下载策略一致；exo 也缺失时才退系统播放器。
+            debug("init: 内核 " + mEngine + " 不可用，回退 ExoPlayer");
+            mEngine = PlayerConstants.ENGINE_EXO;
+            if (!selectEngine(mEngine)) {
+                mEngine = PlayerConstants.ENGINE_DEFAULT;
+                selectEngine(mEngine);
+            }
         }
 
         // 预览（拖动进度条显示小窗）
         this.mVideoController.setPreViewEnabled(true);
-        this.mVideoView.setVideoController(this.mVideoController);
 
         // 挂载到父容器
         ViewGroup.LayoutParams params = new ViewGroup.LayoutParams(
@@ -134,6 +155,11 @@ public class VideoPlayerManager {
 
         // 弹幕控制器
         initDanmakuController();
+
+        // 画中画辅助（含「进程重建后恢复播放位置」）
+        initPiPHelper();
+        // 轮询 PiP 状态（iApp 宿主拿不到 onPictureInPictureModeChanged 回调）
+        startPiPPolling();
     }
     
     /**
@@ -436,15 +462,26 @@ public class VideoPlayerManager {
      * 处理Activity onPause
      */
     public void onPause() {
+        // 在画中画里时系统也会走 onPause，但小窗本来就该继续播，不能暂停。
+        if (handlePiPOnPause()) {
+            debug("onPause: 处于画中画，跳过暂停");
+            return;
+        }
         if (this.mVideoView != null && this.mVideoView.isPlaying()) {
             this.mVideoView.onVideoPause();
         }
     }
-    
+
     /**
      * 处理Activity onResume
      */
     public void onVideoResume() {
+        // 刚从画中画回来时 PiPHelper 已处理（显示控制器、跳过默认恢复），
+        // 再 resume 一次会打断它刚恢复好的状态。
+        if (handlePiPOnResume()) {
+            debug("onVideoResume: 刚从画中画返回，已由 PiPHelper 处理");
+            return;
+        }
         if (this.mVideoView != null) {
             this.mVideoView.resume();
         }
@@ -454,6 +491,11 @@ public class VideoPlayerManager {
      * 释放播放器资源
      */
     public void release() {
+        // 先停 PiP 轮询，否则 mVideoView 置空后回调还在跑
+        stopPiPPolling();
+        mPiPHelper = null;
+        mLastPiPState = false;
+
         // 释放弹幕控制器
         if (mDanmakuController != null) {
             mDanmakuController.releaseDanmaku();
@@ -822,10 +864,65 @@ public class VideoPlayerManager {
         mVideoController.getVideoEventManager().showNativeLibsDialog();
     }
 
+    /**
+     * 弹出内核选择对话框（供 iApp 等宿主直接 javax 调用，避免在脚本里写 java 块）。
+     * 未下载的核点击后自动跳转扩展包面板。
+     */
+    public void showEngineChooser() {
+        if (mActivity == null) {
+            debug("showEngineChooser: 播放器未初始化");
+            return;
+        }
+        final String[] ids = {
+            PlayerConstants.ENGINE_DEFAULT, PlayerConstants.ENGINE_EXO,
+            PlayerConstants.ENGINE_IJK, PlayerConstants.ENGINE_ALI, PlayerConstants.ENGINE_MPV,
+        };
+        final String[] names = { "系统播放器", "ExoPlayer", "IJK播放器", "阿里云播放器", "MPV播放器" };
+        java.util.List<String> labelList = new java.util.ArrayList<String>();
+        final java.util.List<String> idList = new java.util.ArrayList<String>();
+        for (int i = 0; i != ids.length; i++) {
+            if (!com.orange.playerlibrary.utils.PlayerEngineAvailability.isSupported(ids[i])) {
+                continue;
+            }
+            String label = names[i];
+            if (ids[i].equals(mEngine)) {
+                label += "（当前）";
+            } else if (com.orange.playerlibrary.utils.PlayerEngineAvailability.needsDownload(ids[i])) {
+                label += "（需下载扩展包）";
+            }
+            labelList.add(label);
+            idList.add(ids[i]);
+        }
+        if (labelList.isEmpty()) {
+            debug("showEngineChooser: 没有可用内核");
+            return;
+        }
+        final Activity act = mActivity;
+        new android.app.AlertDialog.Builder(act)
+            .setTitle("选择播放内核")
+            .setItems(labelList.toArray(new String[0]), new android.content.DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(android.content.DialogInterface dialog, int which) {
+                    String id = idList.get(which);
+                    if (com.orange.playerlibrary.utils.PlayerEngineAvailability.needsDownload(id)) {
+                        android.widget.Toast.makeText(act, id + " 需先下载扩展组件", android.widget.Toast.LENGTH_SHORT).show();
+                        showNativeLibs();
+                    } else {
+                        boolean ok = selectEngine(id);
+                        android.widget.Toast.makeText(act,
+                                ok ? "已切换 " + id + "（下次播放生效）" : "切换失败",
+                                android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                }
+            })
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
     // ===================== 字幕 =====================
 
     /**
-     * 加载字幕文件。
+     * 加载字幕文件（.srt / .ass），支持 http(s) URL 与本地路径。
      */
     public void loadSubtitle(String url) {
         if (mVideoController == null) {
@@ -836,7 +933,47 @@ public class VideoPlayerManager {
     }
 
     /**
-     * 字幕开关。
+     * 加载字幕并回调结果。加载成功后会自动打开显示开关并持久化，
+     * 否则用户看到「加载成功但没字幕」。
+     */
+    public void loadSubtitle(String url,
+            final com.orange.playerlibrary.subtitle.SubtitleManager.OnSubtitleLoadListener listener) {
+        if (mVideoController == null) {
+            debug("loadSubtitle: 播放器未初始化");
+            if (listener != null) {
+                listener.onLoadFailed("播放器未初始化");
+            }
+            return;
+        }
+        mVideoController.loadSubtitle(url,
+                new com.orange.playerlibrary.subtitle.SubtitleManager.OnSubtitleLoadListener() {
+            @Override
+            public void onLoadSuccess(int count) {
+                // 同步持久化开关与控制器状态：用户可能没手动开「显示字幕」
+                try {
+                    if (mActivity != null) {
+                        PlayerSettingsManager.getInstance(mActivity).setSubtitleEnabled(true);
+                    }
+                    mVideoController.startSubtitle();
+                } catch (Throwable t) {
+                    debug("loadSubtitle: 自动开启字幕失败 " + t.getMessage());
+                }
+                if (listener != null) {
+                    listener.onLoadSuccess(count);
+                }
+            }
+
+            @Override
+            public void onLoadFailed(String error) {
+                if (listener != null) {
+                    listener.onLoadFailed(error);
+                }
+            }
+        });
+    }
+
+    /**
+     * 字幕开关（同时持久化偏好）。
      */
     public void toggleSubtitle() {
         if (mVideoController == null) {
@@ -844,6 +981,13 @@ public class VideoPlayerManager {
             return;
         }
         mVideoController.toggleSubtitle();
+    }
+
+    /**
+     * 字幕当前是否启用。
+     */
+    public boolean isSubtitleEnabled() {
+        return mVideoController != null && mVideoController.isSubtitleEnabled();
     }
 
     // ===================== 去广告 =====================
@@ -920,6 +1064,298 @@ public class VideoPlayerManager {
     }
 
     // ===================== 画中画 =====================
+
+    /**
+     * PiP 生命周期辅助。必须在 init() 后、进入 PiP 前创建。
+     *
+     * <p>为什么需要它：进/出画中画时系统会走 Activity 的 onPause/onResume/onStop
+     * 与 onPictureInPictureModeChanged，而 PiP 期间【不能】把视频当后台处理去暂停，
+     * 退出时又要按「用户点恢复按钮」还是「点 X 关闭」分别处理。SDK 把这段状态机
+     * 收在 PiPHelper 里，宿主必须接上，否则进小窗会停、退出后状态错乱。
+     */
+    private com.orange.playerlibrary.PiPHelper mPiPHelper;
+
+    /**
+     * 初始化 PiP 辅助并尝试恢复上次的播放位置（进程被系统回收后重建时用）。
+     */
+    private void initPiPHelper() {
+        if (mActivity == null || mVideoView == null) {
+            return;
+        }
+        try {
+            mPiPHelper = new com.orange.playerlibrary.PiPHelper(mActivity, mVideoView);
+            long restorePosition = mPiPHelper.checkPiPRestore(getCurrentUrl());
+            if (restorePosition > 0) {
+                // 等播放器 PREPARED 后再 seek。SDK 遍历监听器列表时同步解绑会引发
+                // 竞态，所以解绑推迟到本次通知结束之后（官方 demo 同做法）。
+                com.orange.playerlibrary.interfaces.OnStateChangeListener restoreListener =
+                        new com.orange.playerlibrary.interfaces.OnStateChangeListener() {
+                    @Override
+                    public void onPlayerStateChanged(int playerState) {
+                    }
+
+                    @Override
+                    public void onPlayStateChanged(int playState) {
+                        if (playState != PlayerConstants.STATE_PREPARED) {
+                            return;
+                        }
+                        final com.orange.playerlibrary.interfaces.OnStateChangeListener self = this;
+                        mVideoView.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                mVideoView.removeOnStateChangeListener(self);
+                            }
+                        });
+                        mVideoView.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                mVideoView.seekTo((int) restorePosition);
+                                mPiPHelper.clearPendingSeekPosition();
+                            }
+                        }, 200);
+                    }
+                };
+                mVideoView.addOnStateChangeListener(restoreListener);
+            }
+        } catch (Throwable t) {
+            debug("initPiPHelper 失败: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 进/出画中画时调用。
+     *
+     * <p>宿主若能拿到 Activity 的 onPictureInPictureModeChanged 就转发进来；
+     * 拿不到时（iApp 生成的 Activity 无法覆写）由下面的轮询自动触发。
+     */
+    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode) {
+        if (mPiPHelper != null) {
+            mPiPHelper.onPictureInPictureModeChanged(isInPictureInPictureMode, getCurrentUrl());
+        }
+    }
+
+    /** 上次轮询到的 PiP 状态，用于识别「进/出」跳变 */
+    private boolean mLastPiPState = false;
+
+    /** 轮询任务句柄，release() 时移除 */
+    private Runnable mPiPPollTask;
+
+    private static final long PIP_POLL_INTERVAL_MS = 400L;
+
+    /**
+     * 启动 PiP 状态轮询。
+     *
+     * <p>为什么用轮询：Activity 的 onPictureInPictureModeChanged 是 protected 回调，
+     * 而 iApp 生成的 Activity 由宿主框架产出、无法继承覆写；Android 也没有公开的
+     * 「PiP 模式变化」监听注册接口。轮询一个 boolean 的成本可忽略，但能保证
+     * 进/出小窗都被感知到——漏掉会导致退出小窗后播放位置不保存、控制器不显示。
+     */
+    private void startPiPPolling() {
+        if (mVideoView == null || mPiPPollTask != null) {
+            return;
+        }
+        mPiPPollTask = new Runnable() {
+            @Override
+            public void run() {
+                if (mActivity == null || mVideoView == null) {
+                    mPiPPollTask = null;
+                    return;
+                }
+                try {
+                    boolean inPiP = android.os.Build.VERSION.SDK_INT
+                            >= android.os.Build.VERSION_CODES.N
+                            && mActivity.isInPictureInPictureMode();
+                    if (inPiP != mLastPiPState) {
+                        mLastPiPState = inPiP;
+                        debug("PiP 状态变化: " + inPiP);
+                        onPictureInPictureModeChanged(inPiP);
+                    }
+                } catch (Throwable t) {
+                    debug("PiP 轮询异常: " + t.getMessage());
+                }
+                if (mVideoView != null) {
+                    mVideoView.postDelayed(this, PIP_POLL_INTERVAL_MS);
+                }
+            }
+        };
+        mVideoView.postDelayed(mPiPPollTask, PIP_POLL_INTERVAL_MS);
+    }
+
+    private void stopPiPPolling() {
+        if (mVideoView != null && mPiPPollTask != null) {
+            mVideoView.removeCallbacks(mPiPPollTask);
+        }
+        mPiPPollTask = null;
+    }
+
+    /**
+     * 当前数据源地址（PiP 恢复靠它比对是否是同一个视频）。
+     */
+    public String getCurrentUrl() {
+        return mVideoView != null ? mVideoView.getUrl() : null;
+    }
+
+    // ===================== 种子 / 磁力播放 =====================
+
+    /**
+     * 种子播放回调（宿主友好版）。
+     *
+     * <p>为什么不直接用 SDK 的 {@code TorrentPlayerManager.TorrentCallback}：
+     * 那个接口的父类 {@code TorrentPlayerManager} 实现了 {@code org.libtorrent4j.AlertListener}。
+     * 宿主若直接 new 它，类加载器要解析该父接口——当宿主没引入 libtorrent4j 时，
+     * 解析失败会抛 {@code NoClassDefFoundError}，而且是【类加载期】抛，
+     * 连 SDK 自己的「组件未安装」提示都来不及走到，直接崩。
+     *
+     * <p>本接口不引用 torrent 包的任何类型，宿主只依赖门面即可安全使用。
+     */
+    public interface TorrentListener {
+        /** 解析完成，proxyUrl 是可直接播放的本地代理地址 */
+        void onReady(String proxyUrl, String fileName, long fileSize);
+
+        /** 出错（含「组件未下载」这类可恢复原因） */
+        void onError(String error);
+    }
+
+    /**
+     * 种子组件是否可用（Java 类已引入 且 so 已下载/内置）。
+     *
+     * <p>未就绪时返回 false，宿主应引导用户去「扩展包下载」，
+     * 而不是直接调用下面的方法。
+     */
+    public boolean isTorrentAvailable() {
+        try {
+            return com.orange.playerlibrary.torrent.TorrentSupport.isTorrentPlayable();
+        } catch (Throwable t) {
+            // 连 TorrentSupport 都加载不了（宿主没引入 libtorrent4j）时也走这里
+            return false;
+        }
+    }
+
+    /**
+     * 种子组件未就绪的原因（可直接展示给用户）。
+     */
+    public String getTorrentUnavailableReason() {
+        try {
+            return com.orange.playerlibrary.torrent.TorrentSupport.getJlibtorrentMissingReason();
+        } catch (Throwable t) {
+            return "种子组件未引入";
+        }
+    }
+
+    /**
+     * 播放磁力链接（magnet:?xt=urn:btih:...）。
+     *
+     * @param saveDir 种子数据落地目录，null 时用应用私有目录
+     */
+    public void playMagnet(String magnetUri, java.io.File saveDir, final TorrentListener listener) {
+        if (mVideoView == null) {
+            notifyTorrentError(listener, "播放器未初始化");
+            return;
+        }
+        if (!isTorrentAvailable()) {
+            notifyTorrentError(listener, getTorrentUnavailableReason());
+            return;
+        }
+        // 到这里才引用 TorrentCallback：此时类一定可解析
+        mVideoView.playMagnet(magnetUri, resolveTorrentDir(saveDir), adaptTorrentCallback(listener));
+    }
+
+    /**
+     * 播放本地 .torrent 文件。
+     */
+    public void playTorrent(java.io.File torrentFile, java.io.File saveDir, final TorrentListener listener) {
+        if (mVideoView == null) {
+            notifyTorrentError(listener, "播放器未初始化");
+            return;
+        }
+        if (!isTorrentAvailable()) {
+            notifyTorrentError(listener, getTorrentUnavailableReason());
+            return;
+        }
+        mVideoView.playTorrent(torrentFile, resolveTorrentDir(saveDir), adaptTorrentCallback(listener));
+    }
+
+    /**
+     * 停止种子任务并释放代理。
+     */
+    public void stopTorrent() {
+        if (mVideoView != null) {
+            try {
+                mVideoView.stopTorrent();
+            } catch (Throwable t) {
+                debug("stopTorrent: " + t.getMessage());
+            }
+        }
+    }
+
+    /** 把宿主回调适配成 SDK 回调；只在前置检查通过后调用 */
+    private com.orange.playerlibrary.torrent.TorrentPlayerManager.TorrentCallback
+            adaptTorrentCallback(final TorrentListener listener) {
+        return new com.orange.playerlibrary.torrent.TorrentPlayerManager.TorrentCallback() {
+            @Override
+            public void onReady(String proxyUrl, String fileName, long fileSize) {
+                if (listener != null) {
+                    listener.onReady(proxyUrl, fileName, fileSize);
+                }
+            }
+
+            @Override
+            public void onBufferProgress(int bufferedPieces, int totalPieces, long bufferedBytes) {
+            }
+
+            @Override
+            public void onDownloadProgress(int progress, long downloadSpeed, long uploadSpeed) {
+            }
+
+            @Override
+            public void onError(String error) {
+                if (listener != null) {
+                    listener.onError(error);
+                }
+            }
+        };
+    }
+
+    private void notifyTorrentError(TorrentListener listener, String msg) {
+        debug("torrent: " + msg);
+        if (listener != null) {
+            listener.onError(msg);
+        }
+    }
+
+    /**
+     * 种子数据目录：宿主没指定就用应用私有目录，避免外部存储权限问题。
+     */
+    private java.io.File resolveTorrentDir(java.io.File saveDir) {
+        if (saveDir != null) {
+            return saveDir;
+        }
+        if (mActivity != null) {
+            return new java.io.File(mActivity.getFilesDir(), "TorrentDownload");
+        }
+        return null;
+    }
+
+    /**
+     * PiP 感知的 onPause。返回 true 表示「已在 PiP 中，跳过宿主的暂停逻辑」。
+     */
+    public boolean handlePiPOnPause() {
+        return mPiPHelper != null && mPiPHelper.handleOnPause();
+    }
+
+    /**
+     * PiP 感知的 onResume。返回 true 表示「刚从 PiP 回来，已处理，跳过宿主默认恢复」。
+     */
+    public boolean handlePiPOnResume() {
+        return mPiPHelper != null && mPiPHelper.handleOnResume();
+    }
+
+    /**
+     * PiP 感知的 onStop。返回 true 表示「PiP 相关（进小窗或用户点 X），跳过宿主默认处理」。
+     */
+    public boolean handlePiPOnStop() {
+        return mPiPHelper != null && mPiPHelper.handleOnStop();
+    }
 
     /**
      * 进入画中画（Android 8.0+）。
