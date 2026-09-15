@@ -105,6 +105,37 @@ public class AsrModelDownloader {
         mDownloader.detachCallback();
     }
 
+    /**
+     * 让新打开的设置面板接管正在进行中的下载进度（不重新发起下载）。
+     *
+     * <p>面板关闭时 detachCallback 让下载继续跑，但旧回调已失效；
+     * 重开时若只查 isDownloading 就弹个 toast，用户会看到「未下载」+ 按钮可点，
+     * 进度凭空消失。本方法把进度接回新界面。
+     *
+     * @return true 表示接管成功（确实有下载在进行）
+     */
+    public boolean attachCallback(DownloadCallback callback) {
+        return mDownloader.attachCallback(callback);
+    }
+
+    /**
+     * 最近一次进度快照（percent/downloaded/total/stage）。
+     *
+     * <p>UI 接管时用它把进度先补画上去，不必等下一次回调（下载大文件时
+     * 回调间隔可能达数秒，空窗期界面是「0%」很突兀）。未在下载时返回 null。
+     */
+    public int[] getLastProgress() {
+        return mDownloader.getLastProgress();
+    }
+
+    /**
+     * 最近一次已下载字节（精确值，不受 int 截断影响）。
+     * 供 UI 显示「x/y MB」用；未在下载时返回 0。
+     */
+    public long getLastDownloadedBytes() {
+        return mDownloader.getLastDownloadedBytes();
+    }
+
     /** 取消当前下载（已下字节保留，下次可续传） */
     public void cancel() {
         mDownloader.cancel();

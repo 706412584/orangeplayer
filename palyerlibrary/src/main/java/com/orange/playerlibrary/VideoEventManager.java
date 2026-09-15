@@ -3941,6 +3941,13 @@ public class VideoEventManager {
                         btnAsrGenerate.setOnClickListener(v ->
                                 showToast("未安装 ASR 引擎模块"));
                     }
+                } else if (sAsrModelDownloader != null && sAsrModelDownloader.isDownloading()) {
+                    // 模型正在下载：面板被关掉再打开时会走到这里。
+                    // 下载在后台继续（detachCallback 是有意设计），但旧回调已随对话框失效，
+                    // 这里重新接管，否则用户看到的是「未下载 · 可下载」——进度凭空消失。
+                    ((android.widget.Button) btnAsrGenerate).setText("下载中…");
+                    btnAsrGenerate.setEnabled(false);
+                    attachAsrDownloadUi(btnAsrGenerate, asrStatus, dialog);
                 } else if (!modelReady) {
                     if (asrStatus != null) {
                         asrStatus.setText("ASR 模型未下载（约 228MB，支持中/英/日/韩）");
@@ -5247,13 +5254,63 @@ public class VideoEventManager {
             sAsrModelDownloader = new com.orange.playerlibrary.speech.AsrModelDownloader(mContext);
         }
         if (sAsrModelDownloader.isDownloading()) {
-            showToast("模型正在下载中");
+            // 已在下载：不重复发起，把本界面的进度接管过来
+            attachAsrDownloadUi(btn, status, null);
             return;
         }
         if (btn != null) {
             btn.setEnabled(false);
         }
-        sAsrModelDownloader.download(new com.orange.playerlibrary.speech.AsrModelDownloader.DownloadCallback() {
+        sAsrModelDownloader.download(buildAsrDownloadCallback(btn, status, onReadyToGenerate));
+    }
+
+    /**
+     * 让新打开的面板接管正在进行的 ASR 模型下载进度。
+     *
+     * <p>关闭面板时 detachCallback 让下载继续跑（有意设计），但旧回调已失效；
+     * 重开时必须把进度接回来，否则界面显示「未下载」、按钮可点，进度凭空消失。
+     *
+     * @param dialog 传入时在其 dismiss 时解绑回调，避免持有已销毁的 View
+     */
+    private void attachAsrDownloadUi(final android.view.View btn, final android.widget.TextView status,
+                                     final android.app.Dialog dialog) {
+        if (sAsrModelDownloader == null) {
+            return;
+        }
+        boolean attached = sAsrModelDownloader.attachCallback(
+                buildAsrDownloadCallback(btn, status, null));
+        if (!attached) {
+            return;
+        }
+        if (btn != null) {
+            btn.setEnabled(false);
+        }
+        // 先把最近一次快照画上去：大文件回调间隔可达数秒，空窗期显示 0% 很突兀
+        int[] snap = sAsrModelDownloader.getLastProgress();
+        if (snap != null && status != null) {
+            long downloaded = sAsrModelDownloader.getLastDownloadedBytes();
+            status.setText(String.format(java.util.Locale.US,
+                    "下载模型 %d%%（%.0f/%.0f MB）", snap[0],
+                    downloaded / 1048576.0, snap[2] / 1048576.0));
+            status.setTextColor(0xFF4CAF50);
+        }
+        if (btn instanceof android.widget.Button && snap != null) {
+            ((android.widget.Button) btn).setText(snap[0] + "%");
+        }
+        if (dialog != null) {
+            dialog.setOnDismissListener(d -> {
+                if (sAsrModelDownloader != null && sAsrModelDownloader.isDownloading()) {
+                    sAsrModelDownloader.detachCallback();
+                }
+            });
+        }
+    }
+
+    /** ASR 模型下载的进度/完成/失败渲染；新发起与接管共用同一套 */
+    private com.orange.playerlibrary.speech.AsrModelDownloader.DownloadCallback
+            buildAsrDownloadCallback(final android.view.View btn, final android.widget.TextView status,
+                                     final Runnable onReadyToGenerate) {
+        return new com.orange.playerlibrary.speech.AsrModelDownloader.DownloadCallback() {
             @Override
             public void onProgress(final int percent, final long downloaded, final long total,
                                    final String stage) {
@@ -5307,7 +5364,7 @@ public class VideoEventManager {
                     }
                 });
             }
-        });
+        };
     }
 
     /** 启动本地/已缓存 mp4 的渐进识别 */
@@ -6355,6 +6412,16 @@ public class VideoEventManager {
                       + "解压后占用约 " + com.orange.playerlibrary.tool.NativeLibManager
                             .formatSize(totalRawSize()) + "）。");
         }
+
+        // 面板关闭时解绑回调：下载在后台继续，但回调持有本对话框的 View，
+        // 不解绑会泄漏；重开面板时由 bindBundleRow 重新接管。
+        dialog.setOnDismissListener(d -> {
+            for (String id : bundleIds) {
+                if (com.orange.playerlibrary.tool.NativeLibManager.isDownloading(id)) {
+                    com.orange.playerlibrary.tool.NativeLibManager.detachDownloadCallback(id);
+                }
+            }
+        });
     }
 
     /** 单个组件行的状态绑定与下载按钮（紧凑单行：左状态、右小按钮） */
@@ -6381,6 +6448,21 @@ public class VideoEventManager {
             btn.setBackgroundResource(R.drawable.btn_bundle_delete_bg);
             return;
         }
+        // 该组件正在下载：面板被关掉再打开时会走到这里。
+        // 下载本身在后台继续（这是有意设计），但进度回调已随旧对话框失效，
+        // 必须在这里重新接管，否则用户看到的是「未安装 · 可下载」——
+        // 进度凭空消失，再点还会被拒（"下载已在进行中"）。
+        if (com.orange.playerlibrary.tool.NativeLibManager.isDownloading(bundleId)) {
+            btn.setText("下载中…");
+            btn.setAlpha(0.6f);
+            btn.setBackgroundResource(R.drawable.btn_bundle_action_bg);
+            // 先接管回调，再把当前进度补画上去（attach 会把最新快照回调一次）
+            btn.setOnClickListener(null);
+            com.orange.playerlibrary.tool.NativeLibManager.attachDownloadCallback(bundleId,
+                    buildBundleInstallCallback(dialog, bundleId, btn, status));
+            return;
+        }
+
         // 宿主把 so 打进 APK（完整引入）时来源是 BUNDLED：一样可用，但删不掉
         // APK 里的 so，故显示「内置」而不是给出点了没反应的「删除」按钮。
         if (com.orange.playerlibrary.tool.NativeLibManager.installSource(bundleId)
@@ -6444,6 +6526,62 @@ public class VideoEventManager {
         return null;
     }
 
+    /**
+     * 构造「进度写入该行状态文本」的安装回调。
+     *
+     * <p>抽出来是为了让「新发起下载」与「重开面板接管进行中的下载」共用同一套渲染，
+     * 否则两条路径的文案会各写一遍、容易漂移。
+     */
+    private com.orange.playerlibrary.tool.NativeLibManager.InstallCallback
+            buildBundleInstallCallback(final AlertDialog dialog, final String bundleId,
+                                       final android.widget.TextView btn,
+                                       final android.widget.TextView status) {
+        return new com.orange.playerlibrary.tool.NativeLibManager.InstallCallback() {
+            @Override
+            public void onProgress(final int percent, final long downloaded,
+                                   final long total, final String stage) {
+                mActivity.runOnUiThread(() -> {
+                    if (status != null) {
+                        status.setText(String.format(java.util.Locale.US,
+                                "下载中 %d%% · %.1f/%.1f MB%s", percent,
+                                downloaded / 1048576.0, total / 1048576.0,
+                                stage == null || stage.isEmpty() ? "" : " · " + stage));
+                        status.setTextColor(0xFFFF8F3F);
+                    }
+                    btn.setText(percent + "%");
+                });
+            }
+
+            @Override
+            public void onSuccess(final boolean loaded) {
+                mActivity.runOnUiThread(() -> {
+                    // 重新绑定：状态变「已安装」，按钮变「删除」
+                    bindBundleRow(dialog, bundleId, btn, status);
+                    if (status != null && !loaded) {
+                        status.setText("已安装 · 重启后生效");
+                        status.setTextColor(0xFFFF8F3F);
+                    }
+                    showToast(loaded ? "组件已安装，可立即使用" : "组件已安装，重启应用后生效");
+                });
+            }
+
+            @Override
+            public void onError(final String error) {
+                mActivity.runOnUiThread(() -> {
+                    if (status != null) {
+                        status.setText("下载失败 · 可重试");
+                        status.setTextColor(0xFFFF6B6B);
+                    }
+                    btn.setText("重试");
+                    btn.setAlpha(1f);
+                    btn.setBackgroundResource(R.drawable.btn_bundle_action_bg);
+                    btn.setOnClickListener(v ->
+                            startBundleDownload(dialog, bundleId, btn, status));
+                });
+            }
+        };
+    }
+
     /** 下载并安装单个组件，进度写入该行状态文本 */
     private void startBundleDownload(final AlertDialog dialog, final String bundleId,
                                      final android.widget.TextView btn,
@@ -6457,49 +6595,7 @@ public class VideoEventManager {
             status.setTextColor(0xFFFF8F3F);
         }
         com.orange.playerlibrary.tool.NativeLibManager.download(mContext, bundleId,
-                new com.orange.playerlibrary.tool.NativeLibManager.InstallCallback() {
-                    @Override
-                    public void onProgress(final int percent, final long downloaded,
-                                           final long total, final String stage) {
-                        mActivity.runOnUiThread(() -> {
-                            if (status != null) {
-                                status.setText(String.format(java.util.Locale.US,
-                                        "下载中 %d%% · %.1f/%.1f MB%s", percent,
-                                        downloaded / 1048576.0, total / 1048576.0,
-                                        stage == null || stage.isEmpty() ? "" : " · " + stage));
-                            }
-                            btn.setText(percent + "%");
-                        });
-                    }
-
-                    @Override
-                    public void onSuccess(final boolean loaded) {
-                        mActivity.runOnUiThread(() -> {
-                            // 重新绑定：状态变「已安装」，按钮变「删除」
-                            bindBundleRow(dialog, bundleId, btn, status);
-                            if (status != null && !loaded) {
-                                status.setText("已安装 · 重启后生效");
-                                status.setTextColor(0xFFFF8F3F);
-                            }
-                            showToast(loaded ? "组件已安装，可立即使用" : "组件已安装，重启应用后生效");
-                        });
-                    }
-
-                    @Override
-                    public void onError(final String error) {
-                        mActivity.runOnUiThread(() -> {
-                            if (status != null) {
-                                status.setText("下载失败 · 可重试");
-                                status.setTextColor(0xFFFF6B6B);
-                            }
-                            btn.setText("重试");
-                            btn.setAlpha(1f);
-                            btn.setBackgroundResource(R.drawable.btn_bundle_action_bg);
-                            btn.setOnClickListener(v ->
-                                    startBundleDownload(dialog, bundleId, btn, status));
-                        });
-                    }
-                });
+                buildBundleInstallCallback(dialog, bundleId, btn, status));
     }
 
     /** 已支持组件的解压后总占用（提示文案用） */

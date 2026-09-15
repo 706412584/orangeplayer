@@ -106,6 +106,22 @@ public class ResumableFileDownloader {
         mCallback = null;
     }
 
+    /**
+     * 让新界面接管正在进行中的下载的进度回调（不重新发起下载）。
+     *
+     * <p>与 {@link #download} 的区别：download 在已下载时会直接拒绝，
+     * 而面板关闭后重开必须能把进度接回来，否则 UI 上进度凭空消失。
+     *
+     * @return true 表示接管成功（确实有下载在进行）
+     */
+    public boolean attachCallback(DownloadCallback callback) {
+        if (!mDownloading.get()) {
+            return false;
+        }
+        mCallback = callback;
+        return true;
+    }
+
     /** 取消当前下载（已下字节保留，下次可续传） */
     public void cancel() {
         mCancelled = true;
@@ -424,14 +440,50 @@ public class ResumableFileDownloader {
         return 0;
     }
 
+    /** 最近一次进度快照：[percent, downloaded(低32位), total(低32位)] 见 getLastProgress */
+    private volatile long mLastPercent = -1;
+    private volatile long mLastDownloaded = 0;
+    private volatile long mLastTotal = 0;
+    private volatile String mLastStage = null;
+
+    /**
+     * 最近一次进度（percent / downloaded / total / stage 的紧凑快照）。
+     *
+     * <p>给「面板重开时接管」用：新界面接管后不必等下一次回调就能先把进度画出来。
+     * 返回 {@code int[]{percent, (int)downloaded, (int)total}}，无记录时返回 null。
+     * 大文件计数用 long 更准确，此处为便于宿主（含脚本宿主）消费只返回 int；
+     * 需要精确字节请用 {@link #getLastDownloadedBytes()}。
+     */
+    public int[] getLastProgress() {
+        if (mLastPercent < 0) {
+            return null;
+        }
+        return new int[]{(int) mLastPercent, (int) mLastDownloaded, (int) mLastTotal};
+    }
+
+    /** 最近一次已下载字节（精确值）；无记录返回 0 */
+    public long getLastDownloadedBytes() {
+        return mLastDownloaded;
+    }
+
+    /** 最近一次进度对应的阶段描述；无记录返回 null */
+    public String getLastStage() {
+        return mLastStage;
+    }
+
     private void notifyProgress(DownloadCallback callback, long downloaded, long total,
                                 String stage) {
-        if (callback == null) {
-            return;
-        }
         int percent = total > 0 ? (int) Math.min(99, downloaded * 100 / total) : 0;
         if (downloaded >= total && total > 0) {
             percent = 100;
+        }
+        // 快照先落，即使当前无回调（面板已关）也要记录，供重开时接管
+        mLastPercent = percent;
+        mLastDownloaded = downloaded;
+        mLastTotal = total;
+        mLastStage = stage;
+        if (callback == null) {
+            return;
         }
         callback.onProgress(percent, downloaded, total, stage);
     }

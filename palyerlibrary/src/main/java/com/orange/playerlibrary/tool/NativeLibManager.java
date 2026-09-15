@@ -309,6 +309,76 @@ public final class NativeLibManager {
         void onError(String error);
     }
 
+    // ===== 下载中的状态（供 UI 重新打开时恢复） =====
+
+    /**
+     * 某个组件正在下载时的进度快照。
+     *
+     * <p>存在的理由：面板关闭后下载仍在后台跑（这是有意设计），但重新打开面板时
+     * 若只看 {@link #isInstalled}，会把「正在下载」误显示成「未安装」——
+     * 用户看到进度凭空消失、按钮变回「下载」，再点一次还会被拒（"下载已在进行中"）。
+     * 本快照让重开的 UI 能立刻恢复进度显示。
+     */
+    public static final class DownloadState {
+        /** 0-100（下载占 0-90，解压占 90-100） */
+        public final int percent;
+        public final long downloaded;
+        public final long total;
+        public final String stage;
+
+        DownloadState(int percent, long downloaded, long total, String stage) {
+            this.percent = percent;
+            this.downloaded = downloaded;
+            this.total = total;
+            this.stage = stage;
+        }
+    }
+
+    /** bundleId -> 当前下载进度；仅在该组件下载期间存在 */
+    private static final java.util.concurrent.ConcurrentHashMap<String, DownloadState>
+            sDownloadStates = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** bundleId -> 当前接管进度的回调（面板重开时替换） */
+    private static final java.util.concurrent.ConcurrentHashMap<String, InstallCallback>
+            sDownloadCallbacks = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * 该组件是否正在下载。
+     */
+    public static boolean isDownloading(String bundleId) {
+        return sDownloadStates.containsKey(bundleId);
+    }
+
+    /**
+     * 查询下载进度快照；未在下载时返回 null。
+     */
+    public static DownloadState getDownloadState(String bundleId) {
+        return sDownloadStates.get(bundleId);
+    }
+
+    /**
+     * 让重开的 UI 接管某个正在进行的下载的进度回调。
+     *
+     * <p>与 {@link #download} 不同，本方法不会重新发起下载，只替换回调目标；
+     * 旧面板的回调被丢弃（它已随对话框销毁）。
+     *
+     * @return true 表示接管成功（该组件确实在下载）
+     */
+    public static boolean attachDownloadCallback(String bundleId, InstallCallback callback) {
+        if (!sDownloadStates.containsKey(bundleId)) {
+            return false;
+        }
+        sDownloadCallbacks.put(bundleId, callback);
+        return true;
+    }
+
+    /**
+     * 解绑回调但不中断下载（面板销毁时调用，避免持有已销毁的 View）。
+     */
+    public static void detachDownloadCallback(String bundleId) {
+        sDownloadCallbacks.remove(bundleId);
+    }
+
     // ===== 查询 =====
 
     public static BundleInfo[] getBundles() {
@@ -697,10 +767,31 @@ public final class NativeLibManager {
             return;
         }
 
+        // 同一组件已在下载：不重复发起，让本次调用接管进度显示。
+        // 面板关闭后重开时会走到这里——旧回调已随对话框失效，必须换成新回调。
+        if (isDownloading(bundleId)) {
+            if (callback != null) {
+                sDownloadCallbacks.put(bundleId, callback);
+                DownloadState st = sDownloadStates.get(bundleId);
+                if (st != null) {
+                    callback.onProgress(st.percent, st.downloaded, st.total, st.stage);
+                }
+            }
+            return;
+        }
+
         final File filesDir = sFilesDir;
         final File cacheDir = cacheDir(context);
         final File libDir = libDir(filesDir, abi);
         final long bundleSize = "armeabi-v7a".equals(abi) ? info.sizeV7a : info.sizeArm64;
+
+        // 先登记回调与初始状态，再发起下载：download() 是异步的，
+        // 期间面板若重开必须能查到「正在下载」。
+        if (callback != null) {
+            sDownloadCallbacks.put(bundleId, callback);
+        }
+        sDownloadStates.put(bundleId, new DownloadState(0, 0, bundleSize, "准备下载"));
+
         final ResumableFileDownloader downloader = new ResumableFileDownloader(
                 cacheDir, new ResumableFileDownloader.FileSpec[]{specFor(info, abi)},
                 null, TAG);
@@ -709,21 +800,23 @@ public final class NativeLibManager {
             @Override
             public void onProgress(int percent, long downloaded, long total, String stage) {
                 // 下载占 0-90，解压占 90-100
-                notifyProgress(callback, (int) (percent * 0.9), downloaded, total, stage);
+                notifyProgress(bundleId, (int) (percent * 0.9), downloaded, total, stage);
             }
 
             @Override
             public void onSuccess() {
-                notifyProgress(callback, 90, bundleSize, bundleSize, "正在解压");
+                notifyProgress(bundleId, 90, bundleSize, bundleSize, "正在解压");
                 String error = extract(new File(cacheDir, info.id + "-" + abi + ".zip"),
                         libDir, info.libs);
                 downloader.shutdown();
                 if (error != null) {
-                    notifyError(callback, error);
+                    clearDownloadState(bundleId);
+                    notifyError(sDownloadCallbacks.get(bundleId), error);
                     return;
                 }
                 if (!isInstalled(bundleId)) {
-                    notifyError(callback, "解压后文件不完整");
+                    clearDownloadState(bundleId);
+                    notifyError(sDownloadCallbacks.get(bundleId), "解压后文件不完整");
                     return;
                 }
                 // 解压完成且校验通过后才加载（见 load 的注意事项）
@@ -731,14 +824,20 @@ public final class NativeLibManager {
                 if (loaded) {
                     resetEngineAfterInstall(bundleId);
                 }
-                notifyProgress(callback, 100, bundleSize, bundleSize, "完成");
-                notifySuccess(callback, loaded);
+                notifyProgress(bundleId, 100, bundleSize, bundleSize, "完成");
+                InstallCallback cb = sDownloadCallbacks.get(bundleId);
+                clearDownloadState(bundleId);
+                if (cb != null) {
+                    cb.onSuccess(loaded);
+                }
             }
 
             @Override
             public void onError(String error) {
                 downloader.shutdown();
-                notifyError(callback, error);
+                InstallCallback cb = sDownloadCallbacks.get(bundleId);
+                clearDownloadState(bundleId);
+                notifyError(cb, error);
             }
         });
     }
@@ -902,9 +1001,26 @@ public final class NativeLibManager {
 
     private static void notifyProgress(InstallCallback callback, int percent, long downloaded,
                                        long total, String stage) {
+        int p = Math.min(100, Math.max(0, percent));
         if (callback != null) {
-            callback.onProgress(Math.min(100, Math.max(0, percent)), downloaded, total, stage);
+            callback.onProgress(p, downloaded, total, stage);
         }
+    }
+
+    /**
+     * 带 bundleId 的进度通知：同时刷新状态表（供重开的 UI 查询）并转发给当前回调。
+     */
+    private static void notifyProgress(String bundleId, int percent, long downloaded,
+                                       long total, String stage) {
+        int p = Math.min(100, Math.max(0, percent));
+        sDownloadStates.put(bundleId, new DownloadState(p, downloaded, total, stage));
+        notifyProgress(sDownloadCallbacks.get(bundleId), p, downloaded, total, stage);
+    }
+
+    /** 下载结束（成功/失败/取消）时清理状态，避免面板一直显示「下载中」 */
+    private static void clearDownloadState(String bundleId) {
+        sDownloadStates.remove(bundleId);
+        sDownloadCallbacks.remove(bundleId);
     }
 
     private static void notifySuccess(InstallCallback callback, boolean loaded) {
