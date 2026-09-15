@@ -143,12 +143,16 @@ public class NativeLibManagerTest {
         assertEquals("asr-arm64-v8a.zip", arm64.name);
         assertEquals(asr.sizeArm64, arm64.expectedSize);
         assertEquals(asr.sha256Arm64, arm64.sha256);
-        // 镜像链：gh-proxy -> ghfast -> 原址，三者必须指向同一个资产
-        assertEquals(3, arm64.urls.length);
+        // 镜像链：Gitee -> gh-proxy -> ghfast -> GitHub 原址，四者必须指向同一个资产
+        assertEquals(4, arm64.urls.length);
         for (String url : arm64.urls) {
             assertTrue(url, url.endsWith("/asr-arm64-v8a.zip"));
+            // 每个源都必须带 tag，否则会 404（组件 zip 按 tag 分目录存放）
+            assertTrue(url, url.contains("/v1.5.5/"));
         }
-        assertTrue(arm64.urls[2].startsWith("https://github.com/"));
+        // 顺序即回退优先级：国内直连的 Gitee 优先，GitHub 原址兜底
+        assertTrue(arm64.urls[0].startsWith("https://gitee.com/"));
+        assertTrue(arm64.urls[3].startsWith("https://github.com/"));
 
         // v7a 是另一份资产，体积与哈希都必须跟着 ABI 走（否则校验必然失败）
         ResumableFileDownloader.FileSpec v7a = NativeLibManager.specFor(asr, "armeabi-v7a");

@@ -85,16 +85,30 @@ public final class NativeLibManager {
      * 组件包所属的 release tag。发版时需与 APK 同步更新：
      * 资产地址为 releases/download/&lt;tag&gt;/&lt;bundle&gt;-&lt;abi&gt;.zip。
      */
-    private static final String RELEASE_TAG = "v1.5.4";
+    private static final String RELEASE_TAG = "v1.5.5";
 
     private static final String RELEASE_URL_PREFIX =
             "https://github.com/706412584/orangeplayer/releases/download/";
 
-    /** 国内加速镜像前缀（与 LanguagePackManager 一致），GitHub 原址兜底 */
+    /** Gitee 镜像（国内直连最快，优先尝试） */
+    private static final String GITEE_URL_PREFIX =
+            "https://gitee.com/wu-yongchengsvip/orangeplayer/releases/download/";
+
+    /**
+     * 下载源前缀，按顺序尝试（同内容，逐个回退）。
+     *
+     * <p>顺序依据：Gitee 国内直连最快，但它有单文件 100MB 上限——组件 zip 都在
+     * 11MB 内不受影响；APK 不在本类下载范围内。其后是两个 GitHub 加速镜像，
+     * 最后是 GitHub 原址兜底（海外或前几个都挂时仍可用）。
+     *
+     * <p>每个源都支持 Range 断点续传，切换源时已下字节保留；但跨源续传要求
+     * 各源提供**同一份字节**，故组件 zip 一旦上传就不再覆盖（换包必须换 tag）。
+     */
     private static final String[] MIRROR_PREFIXES = {
-            "https://gh-proxy.com/",
-            "https://ghfast.top/",
-            "",
+            GITEE_URL_PREFIX,
+            "https://gh-proxy.com/" + RELEASE_URL_PREFIX,
+            "https://ghfast.top/" + RELEASE_URL_PREFIX,
+            RELEASE_URL_PREFIX,
     };
 
     /**
@@ -722,7 +736,12 @@ public final class NativeLibManager {
 
     // ===== 下载 + 解压 =====
 
-    /** 构造组件包的下载描述（三个镜像源，内容相同，逐个尝试） */
+    /**
+     * 构造组件包的下载描述。
+     *
+     * <p>{@link #MIRROR_PREFIXES} 里每项已是「前缀 + release 路径」的完整前缀，
+     * 这里只需再拼 tag 与文件名。逐个尝试，前一个失败自动切下一个。
+     */
     static ResumableFileDownloader.FileSpec specFor(BundleInfo info, String abi) {
         boolean v7a = "armeabi-v7a".equals(abi);
         String sha = v7a ? info.sha256V7a : info.sha256Arm64;
@@ -730,7 +749,7 @@ public final class NativeLibManager {
         String fileName = info.id + "-" + abi + ".zip";
         List<String> urls = new ArrayList<>();
         for (String prefix : MIRROR_PREFIXES) {
-            urls.add(prefix + releaseUrl(RELEASE_TAG, fileName));
+            urls.add(prefix + RELEASE_TAG + "/" + fileName);
         }
         return new ResumableFileDownloader.FileSpec(
                 fileName, urls.toArray(new String[0]), size, sha);

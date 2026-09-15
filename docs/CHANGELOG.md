@@ -1,4 +1,23 @@
 # OrangePlayer 更新日志
+## [1.5.5] - 2026-09-15
+
+### ✨ 新增
+
+- **组件下载加 Gitee 源，国内直连可用**：原下载链只有 GitHub 与两个加速镜像，国内用户首下（最大 11MB 的组件包）常失败。现改为 **Gitee 优先 → gh-proxy → ghfast → GitHub 原址**，四源内容相同、逐个回退，每源都支持 Range 断点续传，切源时已下字节保留。组件 zip 都在 11MB 内，不受 Gitee 单文件 100MB 限制
+- **门面补齐字幕 / 种子播放 / 画中画**（iApp 宿主）：字幕支持加载回调与开关持久化；种子播放新增 `TorrentListener`（见下）；画中画接入 `PiPHelper`，并补 PiP 感知的 `onPause`/`onStop`/`onResume`
+
+### 🐛 修复
+
+- **下载中重开面板进度丢失**：关掉面板后下载继续跑（`detachCallback` 是有意设计），但重开时 UI 无法感知「正在下载」——ASR 字幕设置与扩展包面板都表现为进度凭空消失、状态退回「未下载/未安装」，再点还会被拒（"下载已在进行中"）。根因是 `ResumableFileDownloader.mCallback` 为单字段、`download()` 遇重复调用直接拒绝。新增 `attachCallback()`（只换回调不重发）与进度快照，`NativeLibManager` 加进程级状态表，两处 UI 重开时接管进度
+- **门面替换 controller 导致画中画后点击全失灵**：`init()` 无条件 `new OrangeVideoController` 再 `setVideoController`，触发旧实例 `releaseOnReplaced()` → `VideoEventManager.release()` → `stopOcrTranslate()`；后者检测到 Exo 默认的 `forceTextureViewMode=true` 就 release 播放器 + `releaseAllVideos` + 重新 `setUp` + 切回 SurfaceView（并弹「已切换回 SurfaceView 模式」）。真机表现为画面仍在但触摸无响应。改为复用 `getVideoController()`，仅 null 时兜底新建
+- **宿主直接实现 `TorrentCallback` 会崩**：该接口的父类实现了 `org.libtorrent4j.AlertListener`，宿主未引入 libtorrent4j 时在**类加载期**解析父接口失败 → `NoClassDefFoundError`，连 SDK 的「组件未安装」提示都走不到。门面新增自有的 `TorrentListener`（不引用 torrent 包任何类型）+ 前置门禁 `isTorrentAvailable()`
+
+### 🏗️ 构建与发布
+
+- **组件 zip 增加 Gitee 分发**：`tools/sync-to-gitee.ps1` 支持同步 so 包，与 APK 一并上传，作为国内下载兜底
+
+---
+
 ## [1.5.4] - 2026-09-14
 
 ### ✨ 新增
