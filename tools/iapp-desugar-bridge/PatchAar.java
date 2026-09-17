@@ -56,11 +56,14 @@ public class PatchAar {
         Set<String> methods = new HashSet<>();
         Set<String> concrete = new HashSet<>();                 // 有方法体（非 abstract）
         Map<String, String> defaults = new LinkedHashMap<>();   // 自身声明的 default: name+desc -> name
+        Set<String> statics = new HashSet<>();                  // 自身声明的 static 接口方法: name+desc
         String artifact;
     }
 
     static Map<String, Info> lib = new LinkedHashMap<>();
-    static int totalBridges = 0, totalClasses = 0;
+    /** 接口名 -> 该接口所在 aar 文件名（判「跨文件」用） */
+    static Map<String, String> ifaceOwner = new LinkedHashMap<>();
+    static int totalBridges = 0, totalClasses = 0, totalStatics = 0;
 
     /**
      * 沿接口继承链收集全部 default 方法 -> 声明它的接口。
@@ -193,11 +196,15 @@ public class PatchAar {
                 bridges += impl.size();
             }
 
+            // 跨文件的静态接口方法调用：Iface.m -> Iface$-CC.m
+            int statics = redirectStaticCalls(cls, aar.getName());
+            totalStatics += statics;
+
             totalBridges += bridges;
             totalClasses += patched;
-            if (patched > 0) {
-                System.out.printf("%-46s patched %3d classes, +%4d bridges%n",
-                        aar.getName(), patched, bridges);
+            if (patched > 0 || statics > 0) {
+                System.out.printf("%-46s patched %3d classes, +%4d bridges, ~%d static calls%n",
+                        aar.getName(), patched, bridges, statics);
             }
             // 写回 aar
             entries.put("classes.jar", writeZip(cls));
@@ -205,7 +212,8 @@ public class PatchAar {
         }
         System.out.println();
         System.out.println("TOTAL: patched " + totalClasses + " classes, added "
-                           + totalBridges + " bridge methods");
+                           + totalBridges + " bridge methods, redirected "
+                           + totalStatics + " static interface calls");
     }
 
     /**
@@ -242,6 +250,13 @@ public class PatchAar {
             @Override public MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] ex) {
                 String key = name + desc;
                 i.methods.add(key);
+                // static 接口方法：不进实现类（留给 $-CC），但**调用点**需要重定向
+                // （见 redirectStaticCalls）。这里只记录它存在。
+                if ((access & Opcodes.ACC_STATIC) != 0
+                        && (access & Opcodes.ACC_PRIVATE) == 0
+                        && !name.startsWith("<")) {
+                    i.statics.add(key);
+                }
                 if ((access & Opcodes.ACC_ABSTRACT) == 0) {
                     i.concrete.add(key);
                     // 只有「非 static、非 private 的实例 default 方法」才需要给实现类补桥接。
@@ -272,9 +287,69 @@ public class PatchAar {
                 if (je.isDirectory() || !je.getName().endsWith(".class")) continue;
                 byte[] data = readAll(jis);
                 Info i = parse(data);
-                if (i != null && i.name != null) lib.putIfAbsent(i.name, i);
+                if (i != null && i.name != null) {
+                    lib.putIfAbsent(i.name, i);
+                    if ((i.access & Opcodes.ACC_INTERFACE) != 0) {
+                        ifaceOwner.putIfAbsent(i.name, tag);
+                    }
+                }
             }
         } catch (IOException ignored) {}
+    }
+
+    /**
+     * 把「跨文件的静态接口方法调用」重定向到 {@code Iface$-CC}。
+     *
+     * <p>与 default 方法是同一脱糖机制的两面：min-api&lt;24 时接口的 static 方法被
+     * 移到 {@code Iface$-CC}。调用方与接口同文件时 dexer 会自己改写；分属不同文件
+     * （iApp 一文件一 dex）时 dexer 看不到接口定义，原样保留
+     * {@code INVOKESTATIC Iface.m} → 运行期 NoSuchMethodError。
+     *
+     * <p>实测点：{@code ContentMetadata.getContentLength}（接口在 media3-datasource.aar，
+     * 调用方在 gsyVideoPlayer-exo_player2.aar 与 media3-exoplayer.aar）。
+     *
+     * <p>栈形状不变（同为 static，仅换 owner），StackMapTable 无需重算。
+     *
+     * @return 改写点数
+     */
+    static int redirectStaticCalls(Map<String, byte[]> cls, String selfFile) {
+        int hits = 0;
+        for (Map.Entry<String, byte[]> e : new ArrayList<>(cls.entrySet())) {
+            if (!e.getKey().endsWith(".class")) continue;
+            final int[] n = {0};
+            ClassReader cr = new ClassReader(e.getValue());
+            ClassWriter cw = new ClassWriter(cr, 0);
+            cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
+                @Override public MethodVisitor visitMethod(int a, String mn, String md,
+                                                           String s, String[] ex) {
+                    MethodVisitor mv = super.visitMethod(a, mn, md, s, ex);
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        @Override public void visitMethodInsn(int op, String owner, String name,
+                                                              String desc, boolean itf) {
+                            if (op == Opcodes.INVOKESTATIC && itf) {
+                                Info iface = lib.get(owner);
+                                String ownerFile = ifaceOwner.get(owner);
+                                boolean cross = ownerFile != null && !ownerFile.equals(selfFile);
+                                boolean isStatic = iface != null
+                                        && iface.statics.contains(name + desc);
+                                if (cross && isStatic) {
+                                    super.visitMethodInsn(Opcodes.INVOKESTATIC,
+                                            owner + "$-CC", name, desc, false);
+                                    n[0]++;
+                                    return;
+                                }
+                            }
+                            super.visitMethodInsn(op, owner, name, desc, itf);
+                        }
+                    };
+                }
+            }, 0);
+            if (n[0] > 0) {
+                cls.put(e.getKey(), cw.toByteArray());
+                hits += n[0];
+            }
+        }
+        return hits;
     }
 
     static Map<String, byte[]> readZip(File f) throws IOException {

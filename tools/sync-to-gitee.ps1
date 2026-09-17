@@ -38,6 +38,11 @@ param(
     [ValidateSet('apks', 'local')]
     [string]$Source = 'apks',
 
+    # 传什么：apk = 安装包；libs = 组件 so 包（asr/ijk/ali/mpv/ocr/translate/torrent/ffmpeg）；
+    # all = 两者。组件包是 NativeLibManager 运行时下载的，国内用户靠 Gitee 兜底。
+    [ValidateSet('apk', 'libs', 'all')]
+    [string]$Kind = 'all',
+
     [string]$Only = '',
 
     [switch]$DryRun,
@@ -135,30 +140,53 @@ function Get-GiteeReleaseId {
 # ---------- 主流程 ----------
 $token = Get-GiteeToken
 
-# 1. 准备本地 APK
-$dir = Join-Path $PSScriptRoot '..\build\oq' | Resolve-Path -ErrorAction SilentlyContinue
-if (-not $dir) { $dir = Join-Path $PSScriptRoot '..\build\oq' }
+# 1. 准备本地文件
+#    APK 放 build/oq/，组件 zip 放 build/native-libs/（build_native_libs.py 的默认产物目录）
+$apkDir = Join-Path $PSScriptRoot '..\build\oq'
+$zipDir = Join-Path $PSScriptRoot '..\build\native-libs'
 
 if ($Source -eq 'apks') {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         throw 'gh CLI 不可用；改用 -Source local，或安装 gh'
     }
-    $dir = Join-Path $PSScriptRoot '..\build\oq'
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    Write-Host "从 GitHub Release $Tag 下载 APK → $dir" -ForegroundColor Cyan
+    New-Item -ItemType Directory -Force -Path $apkDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $zipDir | Out-Null
+    Write-Host "从 GitHub Release $Tag 下载 APK 与组件包 → $apkDir / $zipDir" -ForegroundColor Cyan
     if (-not $DryRun) {
-        & gh release download $Tag --repo 706412584/orangeplayer -p 'OrangePlayer-*.apk' -D $dir --clobber
-        if ($LASTEXITCODE -ne 0) { throw 'gh release download 失败' }
+        & gh release download $Tag --repo 706412584/orangeplayer -p 'OrangePlayer-*.apk' -D $apkDir --clobber
+        if ($LASTEXITCODE -ne 0) { throw 'gh release download APK 失败' }
+        # 组件 zip（asr/ijk/ali/mpv/ocr/translate/torrent/ffmpeg × 2 ABI）
+        & gh release download $Tag --repo 706412584/orangeplayer -p '*.zip' -D $zipDir --clobber
+        if ($LASTEXITCODE -ne 0) { throw 'gh release download 组件包失败' }
     }
 }
 
-# 只取该 tag 的包：build/oq/ 里可能残留别的版本（实测有 v1.5.2 的旧包），
-# 不过滤会把它们一起传到错误的 release 上。
-$files = Get-ChildItem -Path $dir -Filter '*.apk' |
-    Where-Object { $_.Name -like "*$Tag*" } |
-    Sort-Object Name
-if ($Only) { $files = $files | Where-Object { $_.Name -like "*$Only*" } }
-if (-not $files) { throw "在 $dir 没找到 $Tag 的 APK（-Only='$Only'）" }
+# 收集待传文件。
+#
+# APK 名里含 tag（OrangePlayer-v1.5.5-slim-arm64-v8a.apk），组件 zip 不含
+# （asr-arm64-v8a.zip）——后者按 tag 分目录存放，文件名本身不带版本。
+# 所以过滤规则必须分开：APK 用 tag 过滤（防止把 build/oq 里残留的旧版本
+# 传到新 release 上），组件 zip 不能过滤 tag 否则全被滤掉。
+$files = @()
+
+if ($Kind -in @('apk', 'all')) {
+    $apkFiles = Get-ChildItem -Path $apkDir -Filter '*.apk' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "*$Tag*" } |
+        Sort-Object Name
+    if ($Only) { $apkFiles = $apkFiles | Where-Object { $_.Name -like "*$Only*" } }
+    $files += $apkFiles
+}
+
+if ($Kind -in @('libs', 'all')) {
+    $zipFiles = Get-ChildItem -Path $zipDir -Filter '*.zip' -ErrorAction SilentlyContinue |
+        Sort-Object Name
+    if ($Only) { $zipFiles = $zipFiles | Where-Object { $_.Name -like "*$Only*" } }
+    $files += $zipFiles
+}
+
+if (-not $files) {
+    throw "没找到待传文件（-Kind='$Kind' -Tag='$Tag'）。APK 目录=$apkDir，组件目录=$zipDir"
+}
 
 Write-Host ''
 Write-Host '待同步：' -ForegroundColor Cyan

@@ -109,13 +109,51 @@ public synthetic void onXxx(args) {
 
 1. **default 方法要沿接口继承链收集**。`class C implements B`、而 default 声明
    在 B 的父接口 A 上时，d8 同样给 C 补桥接。只查直接接口会漏。
-2. **static / private 接口方法不补**。它们不进实现类（static 的作为 `s` 留在
-   `接口$-CC` 里）。误补会给实现类塞一个不该有的方法。
+2. **static / private 接口方法不给实现类补**。它们不进实现类（static 的作为
+   `s` 留在 `接口$-CC` 里）。误补会给实现类塞一个不该有的方法。
+   —— 但**调用点**要重定向，见下一节。
 3. **只要类已声明该方法就绝不重插**，哪怕是把 default 重新声明为 `abstract`。
    否则产生重复方法 = 非法 class 文件，ART 抛 `ClassFormatError`。抽象类由
    子类负责实现，不是「缺失」。
 4. **同 aar 内的缺口不用管**：这些类会一起 dex，d8 自己会补。`AnalyzeGaps`
    会把它们一并列出，属正常，只看「跨 aar」那部分。
+
+## 跨文件调用静态接口方法（NoSuchMethodError）
+
+与 default 方法是**同一脱糖机制的另一面**：接口的 static 方法同样被移到
+`Iface$-CC`。调用方与接口同文件时 dexer 会自己改写；分属不同文件时 dexer
+看不到接口定义，**原样保留 `INVOKESTATIC Iface.m`** → 运行期：
+
+```
+java.lang.NoSuchMethodError: No static method getContentLength(
+    Landroidx/media3/datasource/cache/ContentMetadata;)J
+  in class Landroidx/media3/datasource/cache/ContentMetadata;
+  ...
+  at tv.danmaku.ijk.media.exo2.Media3CacheExportUtils.lambda$export$3(...)
+```
+
+dexdump 对照两个 dex 可直接看到差异（同一份代码，改写与否）：
+
+| dex | 调用形态 |
+|---|---|
+| `media3-datasource`（接口所在） | `invoke-static ContentMetadata$-CC.getContentLength` ✅ |
+| `gsyVideoPlayer-exo_player2`（跨文件） | `invoke-static ContentMetadata.getContentLength` ❌ |
+
+`PatchAar.redirectStaticCalls()` 把后者改写为 `ContentMetadata$-CC`（同为
+static，栈形状不变，无需重算 StackMapTable）。判据是「owner 是接口 &&
+调用的是它声明的 static 方法 && owner 所在 aar ≠ 当前 aar」。
+
+实测全量扫描（27 个 aar + jar，123 个 `INVOKESTATIC(itf=true)` 点）跨文件缺口
+**只有 3 处**，全是 `ContentMetadata.getContentLength`：
+
+| 调用方 | 所在 aar |
+|---|---|
+| `Media3CacheExportUtils.lambda$export$3` | gsyVideoPlayer-exo_player2 |
+| `Media3CacheExportHelper.isCompleteMp4Cache` | gsyVideoPlayer-exo_player2 |
+| `SegmentDownloader.download` | media3-exoplayer |
+
+第一处正是「缓存后自动识别」抽音频走的路径（`HlsCachedBlockSource` →
+`Media3CacheExportUtils.export`），崩溃会让进程反复重启，看起来像「点了没反应」。
 
 ## 验证过的检查项
 
@@ -127,5 +165,9 @@ public synthetic void onXxx(args) {
 | zip 完整性 | 25 个全部通过 |
 | 端到端 dex 模拟 | 补丁后单独 dex，桥接保留且正确指向 `$-CC` |
 | 边界用例 | 抽象类重声明 default / static 方法 / 已实现 —— 均与 d8 基准一致 |
+| 跨文件静态接口调用 | 扫描 123 点 → 缺口 3 → 补丁后 **0** |
 
-补丁规模：207 类 / +1207 桥接方法。
+补丁规模：207 类 / +1207 桥接方法 / 3 处静态调用重定向。
+
+`$-CC` 跨 dex 可达性已确认：dexer 产出的 `ContentMetadata$-CC` 为
+`PUBLIC FINAL SYNTHETIC`，方法为 `PUBLIC STATIC`，故别的 dex 直接调用合法。

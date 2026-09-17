@@ -139,7 +139,8 @@ def build_tools(jdk_bin, asm, outdir):
     javac = os.path.join(jdk_bin, 'javac')
     if not os.path.isfile(javac):
         javac += '.exe'
-    srcs = [os.path.join(HERE, 'PatchAar.java'), os.path.join(HERE, 'AnalyzeGaps.java')]
+    srcs = [os.path.join(HERE, 'PatchAar.java'), os.path.join(HERE, 'AnalyzeGaps.java'),
+            os.path.join(HERE, 'AnalyzeStaticCalls.java')]
     cmd = [javac, '-encoding', 'UTF-8', '-cp', asm, '-d', outdir] + srcs
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -218,10 +219,11 @@ def extract_aars(aardir, destdir):
 
 
 def verify(outdir, jdk_bin, asm, classes_dir):
-    """跑 AnalyzeGaps，检查是否还有跨 aar 缺口。"""
+    """跑 AnalyzeGaps + AnalyzeStaticCalls，两类跨文件缺口都必须为 0。"""
     flat = os.path.join(WORK, 'verify-extracted')
     n = extract_aars(outdir, flat)
     print('展开 %d 个 aar 供分析' % n)
+
     code, out = run_java(jdk_bin, asm, classes_dir, 'AnalyzeGaps', [flat])
     print(out.strip())
     if code != 0:
@@ -242,7 +244,15 @@ def verify(outdir, jdk_bin, asm, classes_dir):
         return False, '仍有跨 aar 缺口 %d 组:\n%s' % (len(cross), '\n'.join(cross))
     if total is None:
         return False, '未能解析 TOTAL GAPS'
-    return True, '跨 aar 缺口 0（总缺口 %d，均为同 aar、由 d8 自行处理）' % total
+
+    # 静态接口方法调用（另一脱糖面）：跨文件调用点必须已被重定向到 $-CC
+    scode, sout = run_java(jdk_bin, asm, classes_dir, 'AnalyzeStaticCalls', [flat])
+    print(sout.strip())
+    if scode != 0:
+        return False, '仍有跨文件静态接口调用未重定向（见上方 [缺口] 行）'
+
+    return True, ('跨 aar 缺口 0（总缺口 %d，均为同 aar、由 d8 自行处理）；'
+                  '跨文件静态接口调用缺口 0' % total)
 
 
 def main():

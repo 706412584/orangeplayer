@@ -1214,6 +1214,19 @@ public class VideoPlayerManager {
 
         /** 出错（含「组件未下载」这类可恢复原因） */
         void onError(String error);
+
+        /**
+         * 磁力链接元数据解析进度（可选，用于「正在获取种子信息 12/30 秒」这类提示）。
+         * 默认空实现，宿主不需要就不必覆写。
+         */
+        default void onMagnetResolving(int elapsedSeconds, int totalSeconds) {
+        }
+
+        /**
+         * 种子文件下载/缓冲进度（可选）。默认空实现。
+         */
+        default void onTorrentLoading(int elapsedSeconds, int totalSeconds) {
+        }
     }
 
     /**
@@ -1288,7 +1301,16 @@ public class VideoPlayerManager {
         }
     }
 
-    /** 把宿主回调适配成 SDK 回调；只在前置检查通过后调用 */
+    /**
+     * 把宿主回调适配成 SDK 回调；只在前置检查通过后调用。
+     *
+     * <p>必须把接口的**全部**方法都实现，包括 default 方法——哪怕只写空体。
+     * 原因：iApp 对每个本地依赖文件独立 dex（一个 aar = 一个 dex），且 dexer 以
+     * min-api&lt;24 运行，接口 default 方法会被脱糖成「abstract 方法 + Iface$-CC.$default$xxx」。
+     * 当实现类与接口落在不同 dex 时，dexer 看不到 default 信息、不会生成转发桥接，
+     * 于是调用方（如 TorrentDelegate$1 转发 onTorrentLoading）会抛 AbstractMethodError。
+     * 只有在本类里显式覆写，方法体才一定存在于本 dex。
+     */
     private com.orange.playerlibrary.torrent.TorrentPlayerManager.TorrentCallback
             adaptTorrentCallback(final TorrentListener listener) {
         return new com.orange.playerlibrary.torrent.TorrentPlayerManager.TorrentCallback() {
@@ -1311,6 +1333,22 @@ public class VideoPlayerManager {
             public void onError(String error) {
                 if (listener != null) {
                     listener.onError(error);
+                }
+            }
+
+            // ↓ 以下两个是接口的 default 方法，必须显式覆写（见方法注释）
+
+            @Override
+            public void onMagnetResolving(int elapsedSeconds, int totalSeconds) {
+                if (listener != null) {
+                    listener.onMagnetResolving(elapsedSeconds, totalSeconds);
+                }
+            }
+
+            @Override
+            public void onTorrentLoading(int elapsedSeconds, int totalSeconds) {
+                if (listener != null) {
+                    listener.onTorrentLoading(elapsedSeconds, totalSeconds);
                 }
             }
         };
