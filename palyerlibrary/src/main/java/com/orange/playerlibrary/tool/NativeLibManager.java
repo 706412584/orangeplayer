@@ -522,7 +522,15 @@ public final class NativeLibManager {
         sFilesDir = context.getApplicationContext().getFilesDir();
         // 必须在注入下载目录之前探测「APK 内已带」：注入后下载目录位于搜索路径
         // 首位，会遮蔽 APK 里的同名 so，届时探测到的是下载版本（来源被误判）。
-        probeBundled();
+        //
+        // 且**只在首次**探测：install() 会被面板每次打开时重复调用，而首次之后
+        // 下载目录已在搜索路径上，再探测时 loadLibrary 会命中下载来的 so，
+        // 把「已下载」误判成「APK 内置」——真机表现是下载完成后重开面板，
+        // 状态从「已安装 · 可删除」变成「已内置 · 随应用分发」且按钮置灰。
+        // 用 sInjectedDir 作「本进程是否已注入过」的标记，天然只在首次为 null。
+        if (sInjectedDir == null) {
+            probeBundled();
+        }
         // 再注入一次搜索路径（目录不存在也注入：NativeLibraryElement
         // 按路径惰性查找，后续下载完成即可生效）。这样运行中下载组件时
         // load() 里的注入是空操作，不会在后台线程改写 classloader 字段。
@@ -804,6 +812,11 @@ public final class NativeLibManager {
         final File libDir = libDir(filesDir, abi);
         final long bundleSize = "armeabi-v7a".equals(abi) ? info.sizeV7a : info.sizeArm64;
 
+        Log.d(TAG, "下载 " + bundleId + ": abi=" + abi
+                + " filesDir=" + filesDir
+                + " cacheDir=" + cacheDir.getAbsolutePath()
+                + " libDir=" + libDir.getAbsolutePath());
+
         // 先登记回调与初始状态，再发起下载：download() 是异步的，
         // 期间面板若重开必须能查到「正在下载」。
         if (callback != null) {
@@ -825,15 +838,21 @@ public final class NativeLibManager {
             @Override
             public void onSuccess() {
                 notifyProgress(bundleId, 90, bundleSize, bundleSize, "正在解压");
+                Log.d(TAG, "下载完成 " + bundleId + "，解压到 " + libDir.getAbsolutePath());
                 String error = extract(new File(cacheDir, info.id + "-" + abi + ".zip"),
                         libDir, info.libs);
                 downloader.shutdown();
                 if (error != null) {
+                    Log.e(TAG, "解压失败 " + bundleId + ": " + error);
                     clearDownloadState(bundleId);
                     notifyError(sDownloadCallbacks.get(bundleId), error);
                     return;
                 }
                 if (!isInstalled(bundleId)) {
+                    Log.e(TAG, "解压后仍判未安装: " + bundleId
+                            + " isDownloaded=" + isDownloaded(info)
+                            + " isBundled=" + isBundled(bundleId)
+                            + " source=" + installSource(bundleId));
                     clearDownloadState(bundleId);
                     notifyError(sDownloadCallbacks.get(bundleId), "解压后文件不完整");
                     return;
@@ -843,6 +862,8 @@ public final class NativeLibManager {
                 if (loaded) {
                     resetEngineAfterInstall(bundleId);
                 }
+                Log.d(TAG, "安装结束 " + bundleId + ": loaded=" + loaded
+                        + " source=" + installSource(bundleId));
                 notifyProgress(bundleId, 100, bundleSize, bundleSize, "完成");
                 InstallCallback cb = sDownloadCallbacks.get(bundleId);
                 clearDownloadState(bundleId);
