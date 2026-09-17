@@ -435,6 +435,12 @@ public class SubtitleManager {
      * <p>按**字节**而非字符计数：中文在 UTF-8 下 1 字符 = 3 字节，
      * 用 {@code String.length()} 会把实际上限放大到约 3 倍。
      *
+     * <p><b>行尾必须规范化成 {@code \n}</b>：解析器按 {@code split("\n\n")} 分块、
+     * {@code split("\n")} 分行，且每个块只取第一个时间行。CRLF 字幕的块分隔是
+     * {@code \r\n\r\n}，切不开——整个文件挤成一块，最终只剩第一条字幕。
+     * 旧实现用 {@code BufferedReader.readLine()} 逐行读并统一补 {@code \n}，
+     * 天然完成了这个规范化；改为按字节读后必须显式补回，否则 CRLF 字幕静默残废。
+     *
      * @param declaredLength Content-Length（或文件长度），未知传 -1
      */
     private static String readAllLimited(InputStream is, long declaredLength, String what)
@@ -459,7 +465,11 @@ public class SubtitleManager {
             }
             bos.write(buf, 0, n);
         }
-        return new String(bos.toByteArray(), "UTF-8");
+        // 行尾规范化（见方法注释）：CRLF/CR 一律转 LF，解析器的
+        // split("\n\n") / split("\n") 才能正确切分
+        return new String(bos.toByteArray(), "UTF-8")
+                .replace("\r\n", "\n")
+                .replace('\r', '\n');
     }
 
     /**
