@@ -5,7 +5,9 @@
     android:layout_height="match_parent"
     android:background="@color/op_scrim">
 
+    <!-- content_layout：DialogUtils 据此施加右侧滑入动效（并消费点击） -->
     <ScrollView
+        android:id="@+id/content_layout"
         android:layout_width="@dimen/op_panel_width"
         android:layout_height="match_parent"
         android:layout_gravity="end"

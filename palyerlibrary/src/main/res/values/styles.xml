@@ -92,13 +92,15 @@
         <item name="android:textSize">13sp</item>
     </style>
 
+    <!-- 状态行允许两行：一行时「未安装 · 12.3MB · 系统要求 8.0」这类
+         组合状态会被省略号吃掉最关键的「系统要求」部分（窄屏更明显） -->
     <style name="BundleRowStatus">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/op_text_secondary</item>
         <item name="android:textSize">11sp</item>
         <item name="android:layout_marginTop">1dp</item>
-        <item name="android:maxLines">1</item>
+        <item name="android:maxLines">2</item>
         <item name="android:ellipsize">end</item>
     </style>
 
@@ -117,8 +119,8 @@
         <item name="android:textColor">@color/op_text_primary</item>
         <item name="android:textSize">12sp</item>
         <item name="android:gravity">center</item>
-        <item name="android:clickable">true</item>
-        <item name="android:focusable">true</item>
+        <!-- clickable/focusable 交给 setOnClickListener 置位：显式 true 会让
+             bindBundleRow 里 setOnClickListener(null)（不可用分支）之后仍可点 -->
         <item name="android:background">@drawable/btn_bundle_action_bg</item>
     </style>
 
@@ -135,15 +137,16 @@
          与橘子配色冲突。故按钮一律用 TextView + 显式 drawable，
          开关一律用 TextView + 自绘 pill 背景，不依赖任何主题属性。 -->
 
-    <!-- 面板内的整行按钮（40dp 高，文字居中） -->
+    <!-- 面板内的整行按钮（40dp 高，文字居中）。
+         不写 clickable/focusable：TextView 的 setOnClickListener() 会自动置位，
+         而显式写 true 会让 setOnClickListener(null) 之后**仍然可点**——
+         那时有按压反馈却无任何响应，用户以为坏了。 -->
     <style name="SubtitlePanelButton">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">40dp</item>
         <item name="android:textColor">@color/op_text_primary</item>
         <item name="android:textSize">13sp</item>
         <item name="android:gravity">center</item>
-        <item name="android:clickable">true</item>
-        <item name="android:focusable">true</item>
         <item name="android:background">@drawable/btn_subtitle_bg</item>
     </style>
 
@@ -160,8 +163,7 @@
         <item name="android:textColor">@color/op_text_primary</item>
         <item name="android:textSize">12sp</item>
         <item name="android:gravity">center</item>
-        <item name="android:clickable">true</item>
-        <item name="android:focusable">true</item>
+        <!-- clickable/focusable 同 SubtitlePanelButton：交给 setOnClickListener 置位 -->
         <!-- 初始文案：Java 侧 renderSwitchButton() 会按真实状态覆写。
              必须给默认值，否则布局预览与「Java 未跑到」时是一个无字橙块。 -->
         <item name="android:text">已关闭</item>

@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 字幕面板内的整行按钮。state_enabled 必须在最前：TextView 的
+     setEnabled(false) 不会改外观，没有这一项时「翻译中」「下载中…」
+     这类禁用态看起来和可点的一模一样，用户会反复点击。
+     与 btn_bundle_action_bg 同一处理。 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false">
+        <shape android:shape="rectangle">
+            <solid android:color="#2E2E2E" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
     <item android:state_pressed="true">
         <shape android:shape="rectangle">
             <solid android:color="#555555" />

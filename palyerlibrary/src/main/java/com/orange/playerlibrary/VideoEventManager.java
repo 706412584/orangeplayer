@@ -3888,9 +3888,13 @@ public class VideoEventManager {
                         aiStatus.setText("请先加载字幕（本地/网络）再使用 AI 翻译");
                         aiStatus.setTextColor(0xFFFF8F3F);
                     }
-                    ((android.widget.TextView) btnAiTranslate).setText("开始翻译");
-                    btnAiTranslate.setOnClickListener(v ->
-                            showToast("请先加载字幕再使用 AI 翻译"));
+                    // 按钮承担「去加载」而不是弹一句无出路的 toast：
+                    // 状态行已经说清了原因，按钮就该给下一步动作
+                    ((android.widget.TextView) btnAiTranslate).setText("去加载字幕");
+                    btnAiTranslate.setOnClickListener(v -> {
+                        dialog.dismiss();
+                        showSubtitleFilePicker();
+                    });
                 } else {
                     if (aiStatus != null) {
                         aiStatus.setText("将 " + mController.getSubtitleManager().getSubtitleCount()
@@ -3959,11 +3963,23 @@ public class VideoEventManager {
                     renderSwitchButton(asrTranslateSwitch, isChecked);
                     mSettingsManager.setAsrAutoTranslateEnabled(isChecked);
                     if (isChecked) {
-                        // 提示走的是哪条翻译链路（由「翻译引擎」设置决定，未配 Key 时本地兜底）
+                        // 提示走的是哪条翻译链路。不能只看「有没有 API Key」：
+                        // 引擎设为「仅本地」时即使配了 Key 也走本地，而本地又要求
+                        // MLKit 组件已下载——此前一律报「（本地模型）」，组件缺失时
+                        // 用户以为能用，实际翻译会静默失败。
                         String target = mSettingsManager.getAiTargetLang();
-                        boolean aiReady = isRemoteTranslationEnabled();
-                        showToast("识别后自动翻译为「" + (target == null ? "" : target) + "」"
-                                + (aiReady ? "（在线大模型）" : "（本地模型）"));
+                        String engine = mSettingsManager.getTranslateEngine();
+                        boolean localOk = com.orange.playerlibrary.ocr.OcrAvailabilityChecker
+                                .isMlKitTranslateAvailable();
+                        String route;
+                        if (PlayerSettingsManager.ENGINE_LOCAL.equals(engine)) {
+                            route = localOk ? "（本地模型）" : "（本地组件未下载，请先在 AI 设置中预装）";
+                        } else if (isRemoteTranslationEnabled()) {
+                            route = "（在线大模型）";
+                        } else {
+                            route = localOk ? "（本地模型）" : "（未配 API Key 且本地组件未下载）";
+                        }
+                        showToast("识别后自动翻译为「" + (target == null ? "" : target) + "」" + route);
                     }
                 });
             }
@@ -3991,12 +4007,15 @@ public class VideoEventManager {
                             showNativeLibsDialog();
                         });
                     } else {
+                        // 宿主没引 sherpa 依赖：App 内无解，别让用户以为「去装点什么就行」。
+                        // 与 AI 设置的翻译组件同一套措辞（本版本未集成 vs 未下载）
                         if (asrStatus != null) {
-                            asrStatus.setText("未安装 ASR 引擎");
+                            asrStatus.setText("本版本未集成语音识别模块");
                             asrStatus.setTextColor(0xFFFF6B6B);
                         }
+                        ((android.widget.TextView) btnAsrGenerate).setText("不可用");
                         btnAsrGenerate.setOnClickListener(v ->
-                                showToast("未安装 ASR 引擎模块"));
+                                showToast("本版本未集成语音识别模块，无法生成字幕"));
                     }
                 } else if (sAsrModelDownloader != null && sAsrModelDownloader.isDownloading()) {
                     // 模型正在下载：面板被关掉再打开时会走到这里。
@@ -6383,7 +6402,7 @@ public class VideoEventManager {
                 }
             }
             if (supported == 0) {
-                status.setText("本版本未集成扩展组件");
+                status.setText("本版本未集成任何可下载组件");
             } else {
                 status.setText("已安装 " + installed + "/" + supported
                         + (installed < supported ? " · 有组件可按需下载" : ""));
@@ -6731,8 +6750,11 @@ public class VideoEventManager {
     private void showOcrTranslateSettings() {
         View dialogView = View.inflate(mActivity, R.layout.dialog_ocr_settings, null);
         
+        // RIGHT 而非 CENTER：本布局是 layout_gravity="end" 的右侧面板，
+        // 只有 RIGHT 才会施加滑入动效与毛玻璃（见 DialogUtils）。
+        // 用 CENTER 时两者都静默失效，面板生硬弹出且背后无模糊。
         final AlertDialog dialog = DialogUtils.showCustomDialog(mActivity, dialogView,
-                DialogUtils.DialogPosition.CENTER, null, null);
+                DialogUtils.DialogPosition.RIGHT, null, null);
         
         // 语言包管理器
         final com.orange.playerlibrary.ocr.LanguagePackManager manager = 

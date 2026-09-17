@@ -9,7 +9,9 @@
     android:layout_height="match_parent"
     android:background="@color/op_scrim">
 
+    <!-- content_layout：DialogUtils 据此施加右侧滑入动效（并消费点击） -->
     <ScrollView
+        android:id="@+id/content_layout"
         android:layout_width="@dimen/op_panel_width"
         android:layout_height="match_parent"
         android:layout_gravity="end"
@@ -118,7 +120,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="兼容性不同，下载后在「播放核心」中切换"
+                android:text="兼容性不同，下载后在「播放内核」中切换"
                 android:textColor="@color/op_text_secondary"
                 android:textSize="11sp"
                 android:layout_marginBottom="6dp" />
