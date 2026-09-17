@@ -27,6 +27,8 @@ public class MlKitTranslationEngine implements TranslationEngine {
         }
 
         mContext = context == null ? null : context.getApplicationContext();
+        ensureMlKitInitialized(mContext);
+
         mSourceLanguage = sourceLanguage;
         mTargetLanguage = targetLanguage;
         
@@ -69,10 +71,86 @@ public class MlKitTranslationEngine implements TranslationEngine {
             Log.d(TAG, "ML Kit Translation initialized: " + sourceLanguage + " -> " + targetLanguage);
             
         } catch (Exception e) {
-            Log.e(TAG, "Failed to init ML Kit Translation", e);
+            // 反射调用把真实原因包在 InvocationTargetException 里，直接打 e 只会看到
+            // 一层反射壳。剥开才能看到「MlKitContext has not been initialized」这类关键信息。
+            Throwable cause = unwrap(e);
+            mLastError = cause.getClass().getSimpleName()
+                    + (cause.getMessage() == null ? "" : ": " + cause.getMessage());
+            Log.e(TAG, "Failed to init ML Kit Translation: " + mLastError, cause);
         }
     }
-    
+
+    /** 最近一次 {@link #init} 失败的原因；成功或未调用过时为 null */
+    private String mLastError;
+
+    /** 初始化失败的具体原因，供 UI 给出可操作的提示而非笼统的「初始化失败」 */
+    public String getLastError() {
+        return mLastError;
+    }
+
+    /**
+     * 确保 MLKit 已初始化；未初始化时补做。
+     *
+     * <p>正常 Gradle 集成时，MLKit 靠自身 aar 里注册的 {@code MlKitInitProvider}
+     * 在进程启动时初始化 {@code MlKitContext}。但**宿主若以 jar 形式引入**
+     * （iApp 的 {@code sdk/} 目录就是这样），jar 不支持 AndroidManifest.xml，
+     * provider 与 {@code MlKitComponentDiscoveryService} 的注册会整个丢失——
+     * 类都在（能通过 {@link OcrAvailabilityChecker} 的类存在性检查），
+     * 但 {@code MlKitContext.getInstance()} 永远抛
+     * {@code IllegalStateException: MlKitContext has not been initialized}，
+     * 于是 {@code Translation.getClient()} 失败、{@code mInitialized} 恒为 false，
+     * 面板报「本地翻译引擎初始化失败」/「Translator not initialized」。
+     *
+     * <p>**必须传 registrar 列表**：{@code initializeIfNeeded(Context)} 内部走
+     * {@code ComponentDiscovery.forContext(...).discoverLazy()}，那是从 manifest 的
+     * metadata 里读注册器名的；jar 集成读不到会返回**空列表**，组件注册表里就没有
+     * {@code TranslatorImpl$Factory}，初始化"成功"但翻译照样不可用。显式传入两个
+     * registrar 才等价于 aar 正常集成时的效果。
+     *
+     * <p>幂等：内部先查静态实例，非空直接返回，故 aar 正常集成的宿主里调用无害。
+     *
+     * <p>用反射而非直接调用：本库对 MLKit 是 {@code compileOnly}，宿主可能不引入
+     * 翻译模块，直接引用会导致类加载期失败（与 {@link OcrAvailabilityChecker}
+     * 的探测策略一致）。
+     */
+    private static void ensureMlKitInitialized(Context context) {
+        if (context == null) {
+            return;
+        }
+        // iApp 的 jar 集成没有 aapt 生成的 R 类（aar 资源链接被丢），注入式桩
+        // com.google.mlkit.nl.translate.R$xml/R$raw 首加载时要经 Rid 查宿主真实资源 id。
+        // 必须赶在任何 R 桩类被触碰前先喂好 Context，否则桩字段定格 0（默认值 xml
+        // 解析静默跳过、模型元数据读不到）。正常 gradle 宿主没有这个类，忽略即可。
+        try {
+            Class<?> rid = Class.forName("com.google.mlkit.compat.Rid");
+            rid.getMethod("init", Context.class).invoke(null, context);
+        } catch (Throwable ignored) {
+        }
+        try {
+            Class<?> ctxClass = Class.forName(
+                    "com.google.mlkit.common.sdkinternal.MlKitContext");
+            java.lang.reflect.Method m = ctxClass.getMethod(
+                    "initializeIfNeeded", Context.class, java.util.List.class);
+
+            // 与 MLKit 各 aar 里 manifest 注册的注册器一致：
+            // common（提供 MlKitContext 自身组件）+ translate（提供 TranslatorImpl$Factory）
+            java.util.List<Object> registrars = new java.util.ArrayList<>();
+            registrars.add(Class.forName("com.google.mlkit.common.internal.CommonComponentRegistrar")
+                    .getDeclaredConstructor().newInstance());
+            registrars.add(Class.forName("com.google.mlkit.nl.translate.NaturalLanguageTranslateRegistrar")
+                    .getDeclaredConstructor().newInstance());
+
+            m.invoke(null, context, registrars);
+            Log.d(TAG, "MLKit 已确保初始化（显式注册 " + registrars.size() + " 个组件注册器）");
+        } catch (ClassNotFoundException e) {
+            // 宿主未引入 MLKit，后续步骤会各自给出「未集成」提示
+            Log.d(TAG, "MLKit 不可用，跳过初始化: " + e.getMessage());
+        } catch (Throwable t) {
+            // 初始化失败不在此中断：让 init() 走原有流程，由它报出更具体的原因
+            Log.w(TAG, "MLKit 初始化失败", unwrap(t));
+        }
+    }
+
     private String getLanguageCode(Class<?> translateLanguageClass, String language) {
         // 先按语言码取常量名：MLKit 里非中日韩语种只有全称常量
         // （"fr" → FRENCH，而非 FR），靠 toUpperCase 猜字段名会失败，

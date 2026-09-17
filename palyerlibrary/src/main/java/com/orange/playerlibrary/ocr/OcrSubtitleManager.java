@@ -149,11 +149,23 @@ public class OcrSubtitleManager {
         }
         
         mTargetLanguage = targetLanguage;
-        mTranslationEngine = new MlKitTranslationEngine();
-        mTranslationEngine.init(mContext, mSourceLanguage, targetLanguage);
-        
+        final MlKitTranslationEngine engine = new MlKitTranslationEngine();
+        mTranslationEngine = engine;
+        engine.init(mContext, mSourceLanguage, targetLanguage);
+        if (!engine.isInitialized()) {
+            // 不带原因的话，UI 只能显示 downloadModel 抛出的
+            // 「Translator not initialized」——那是后果不是原因
+            String reason = engine.getLastError();
+            Log.e(TAG, "翻译引擎初始化失败: " + reason);
+            if (callback != null) {
+                callback.onError("翻译引擎初始化失败"
+                        + (reason == null ? "" : "：" + reason));
+            }
+            return;
+        }
+
         // 下载模型
-        mTranslationEngine.downloadModel(callback);
+        engine.downloadModel(callback);
     }
     
     /**
