@@ -279,8 +279,9 @@ public class VideoEventManager {
             return true;
         }
 
-        final boolean progressive = mSettingsManager.isAsrLiveEnabled()
-                && com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext);
+        final boolean progressiveAvailable =
+                com.orange.playerlibrary.speech.ProgressiveAsrSession.isAvailable(mContext);
+        final boolean progressive = mSettingsManager.isAsrLiveEnabled() && progressiveAvailable;
 
         // 本地文件 / 已缓存 mp4
         java.io.File local = resolveLocalVideoFileForAsr();
@@ -293,11 +294,9 @@ public class VideoEventManager {
             }
             // 尚未缓存完的网络视频：不等整片缓存（danikula 随播随下，等它等于要等到
             // 快播完），直接经本地代理按区间读取——边下边识别，且不重复下载
-            if (url.startsWith("http://") || url.startsWith("https://")) {
+            if (isNetworkUrl(url)) {
                 Log.d(TAG, "自动生成字幕（网络渐进，按区间读取）: " + url);
-                startProgressiveAsr(new com.orange.playerlibrary.speech.HttpBlockAudioSource(
-                        mContext, url, mVideoView != null ? mVideoView.getVideoHeaders() : null,
-                        mVideoView != null ? mVideoView.getDuration() : 0), url);
+                startHttpProgressiveAsr(url);
                 return true;
             }
             Log.d(TAG, "自动生成字幕：无本地文件且非网络地址，无法识别: " + url);
@@ -306,12 +305,35 @@ public class VideoEventManager {
 
         // 完整识别需要本地文件
         if (local == null) {
+            // 未缓存网络视频走不到完整识别：整片缓存要等到快播完才齐。
+            // 「新视频自动开始」的语义是「现在就为这集准备字幕」，让用户等一整集
+            // 才看到结果等于没生效，故渐进可用时直接改走边下边识别——这是此刻
+            // 唯一能立即开始的路径（用户不需要另外开「边看边识别」）。
+            if (progressiveAvailable && isNetworkUrl(url)) {
+                Log.d(TAG, "自动生成字幕（网络渐进兜底，按区间读取）: " + url);
+                startHttpProgressiveAsr(url);
+                return true;
+            }
             Log.d(TAG, "自动生成字幕：当前视频尚未缓存完整，等待播放完成: " + url);
             return false;
         }
         Log.d(TAG, "自动生成字幕（完整版）: " + url);
         startAsrGenerate(local, false, true);
         return true;
+    }
+
+    private boolean isNetworkUrl(String url) {
+        return url != null && (url.startsWith("http://") || url.startsWith("https://"));
+    }
+
+    /**
+     * 对未缓存的网络视频启动渐进识别：经 danikula 本地代理按区间读取音频，
+     * 已缓存部分直接命中、缺失部分按 byte range 补下，与播放器共用同一份缓存。
+     */
+    private void startHttpProgressiveAsr(String url) {
+        startProgressiveAsr(new com.orange.playerlibrary.speech.HttpBlockAudioSource(
+                mContext, url, mVideoView != null ? mVideoView.getVideoHeaders() : null,
+                mVideoView != null ? mVideoView.getDuration() : 0), url);
     }
     
     /**
@@ -3559,6 +3581,25 @@ public class VideoEventManager {
      * 显示字幕对话框
      * 按照 steering rules，从点击的 View 向上遍历找到正确的父组件
      */
+    /**
+     * 按开关状态刷新「开启/关闭」按钮文案与配色。
+     *
+     * <p>字幕面板的布尔项用 TextView 承载（而非原生 Switch）：宿主是 Material3
+     * 主题，Switch 的 thumb/track 取 colorSecondary，默认是紫色，与橘子配色冲突；
+     * 改 tint 还要在 Java 侧维护两套状态。按钮 + 文案与设置面板的去广告开关
+     * （{@code renderAdRemovalEntry}）完全一致，且不依赖任何主题属性。
+     */
+    private void renderSwitchButton(android.widget.TextView btn, boolean on) {
+        if (btn == null) {
+            return;
+        }
+        btn.setText(on ? "已开启" : "已关闭");
+        btn.setTextColor(on ? 0xFFFFFFFF : 0xB3FFFFFF);
+        btn.setBackgroundResource(on
+                ? R.drawable.btn_bundle_action_bg      // 开：品牌橙
+                : R.drawable.btn_bundle_delete_bg);    // 关：中性描边
+    }
+
     private void showSubtitleDialog(View clickedView) {
         hideController();
         
@@ -3577,14 +3618,18 @@ public class VideoEventManager {
                 layout.setOnClickListener(v -> dialog.dismiss());
             }
             
-            // 字幕开关
-            android.widget.Switch subtitleSwitch = dialogView.findViewById(R.id.subtitle_switch);
+            // 字幕开关（TextView + 文案切换，见 SubtitlePanelSwitch 样式注释）
+            android.widget.TextView subtitleSwitch = dialogView.findViewById(R.id.subtitle_switch);
             if (subtitleSwitch != null) {
                 // 原生渲染模式下 SubtitleView 可见性由宿主控制（启用时强制 hide），
                 // 开关语义映射为 mpv 字幕轨挂/卸，初始态用路径存在性判断
-                subtitleSwitch.setChecked(mNativeAssPath != null
-                        || mController.isSubtitleEnabled());
-                subtitleSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                final boolean[] subtitleOn = {mNativeAssPath != null
+                        || mController.isSubtitleEnabled()};
+                renderSwitchButton(subtitleSwitch, subtitleOn[0]);
+                subtitleSwitch.setOnClickListener(v -> {
+                    boolean isChecked = !subtitleOn[0];
+                    subtitleOn[0] = isChecked;
+                    renderSwitchButton(subtitleSwitch, isChecked);
                     mSettingsManager.setSubtitleEnabled(isChecked);
                     if (mNativeAssPath != null) {
                         // 原生模式：开关直接控制 mpv 字幕轨
@@ -3760,7 +3805,7 @@ public class VideoEventManager {
                             ocrStatus.setText("需要先下载文字识别与翻译组件");
                             ocrStatus.setTextColor(0xFFFF8F3F);
                         }
-                        ((android.widget.Button) btnOcrTranslate).setText("去下载组件");
+                        ((android.widget.TextView) btnOcrTranslate).setText("去下载组件");
                         btnOcrTranslate.setOnClickListener(v -> {
                             dialog.dismiss();
                             showNativeLibsDialog();
@@ -3770,7 +3815,7 @@ public class VideoEventManager {
                             ocrStatus.setText("需要安装额外依赖");
                             ocrStatus.setTextColor(0xFFFF6B6B);
                         }
-                        ((android.widget.Button) btnOcrTranslate).setText("查看安装说明");
+                        ((android.widget.TextView) btnOcrTranslate).setText("查看安装说明");
                         btnOcrTranslate.setOnClickListener(v -> {
                             dialog.dismiss();
                             showOcrInstallGuide();
@@ -3816,7 +3861,7 @@ public class VideoEventManager {
                         aiStatus.setText("翻译引擎已设为「仅本地」——批量翻译字幕需在线大模型");
                         aiStatus.setTextColor(0xFFFF8F3F);
                     }
-                    ((android.widget.Button) btnAiTranslate).setText("改设置");
+                    ((android.widget.TextView) btnAiTranslate).setText("改设置");
                     btnAiTranslate.setOnClickListener(v -> {
                         dialog.dismiss();
                         showAiSettingsDialog();
@@ -3826,7 +3871,7 @@ public class VideoEventManager {
                         aiStatus.setText("未配置 AI Key——点「AI 设置」填入接口地址与 Key");
                         aiStatus.setTextColor(0xFFFF6B6B);
                     }
-                    ((android.widget.Button) btnAiTranslate).setText("先配置 AI");
+                    ((android.widget.TextView) btnAiTranslate).setText("先配置 AI");
                     btnAiTranslate.setOnClickListener(v -> {
                         dialog.dismiss();
                         showAiSettingsDialog();
@@ -3836,14 +3881,14 @@ public class VideoEventManager {
                         aiStatus.setText("AI 翻译进行中，请稍候...");
                         aiStatus.setTextColor(0xFF4CAF50);
                     }
-                    ((android.widget.Button) btnAiTranslate).setText("翻译中");
+                    ((android.widget.TextView) btnAiTranslate).setText("翻译中");
                     btnAiTranslate.setEnabled(false);
                 } else if (!subtitleLoaded) {
                     if (aiStatus != null) {
                         aiStatus.setText("请先加载字幕（本地/网络）再使用 AI 翻译");
                         aiStatus.setTextColor(0xFFFF8F3F);
                     }
-                    ((android.widget.Button) btnAiTranslate).setText("开始翻译");
+                    ((android.widget.TextView) btnAiTranslate).setText("开始翻译");
                     btnAiTranslate.setOnClickListener(v ->
                             showToast("请先加载字幕再使用 AI 翻译"));
                 } else {
@@ -3862,10 +3907,14 @@ public class VideoEventManager {
             // ===== AI 语音生成字幕（离线 ASR）=====
             android.widget.TextView asrStatus = dialogView.findViewById(R.id.asr_status);
             View btnAsrGenerate = dialogView.findViewById(R.id.btn_asr_generate);
-            android.widget.Switch asrLiveSwitch = dialogView.findViewById(R.id.asr_live_switch);
+            android.widget.TextView asrLiveSwitch = dialogView.findViewById(R.id.asr_live_switch);
             if (asrLiveSwitch != null) {
-                asrLiveSwitch.setChecked(mSettingsManager.isAsrLiveEnabled());
-                asrLiveSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                final boolean[] liveOn = {mSettingsManager.isAsrLiveEnabled()};
+                renderSwitchButton(asrLiveSwitch, liveOn[0]);
+                asrLiveSwitch.setOnClickListener(v -> {
+                    boolean isChecked = !liveOn[0];
+                    liveOn[0] = isChecked;
+                    renderSwitchButton(asrLiveSwitch, isChecked);
                     mSettingsManager.setAsrLiveEnabled(isChecked);
                     if (!isChecked) {
                         // 关闭「边看边识别」：结束在途渐进会话、摘掉悬浮环，
@@ -3882,10 +3931,14 @@ public class VideoEventManager {
                     }
                 });
             }
-            android.widget.Switch asrAutoSwitch = dialogView.findViewById(R.id.asr_auto_switch);
+            android.widget.TextView asrAutoSwitch = dialogView.findViewById(R.id.asr_auto_switch);
             if (asrAutoSwitch != null) {
-                asrAutoSwitch.setChecked(mSettingsManager.isAsrAutoEnabled());
-                asrAutoSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                final boolean[] autoOn = {mSettingsManager.isAsrAutoEnabled()};
+                renderSwitchButton(asrAutoSwitch, autoOn[0]);
+                asrAutoSwitch.setOnClickListener(v -> {
+                    boolean isChecked = !autoOn[0];
+                    autoOn[0] = isChecked;
+                    renderSwitchButton(asrAutoSwitch, isChecked);
                     mSettingsManager.setAsrAutoEnabled(isChecked);
                     if (isChecked) {
                         // 拨开即对当前视频生效，与「边看边识别」开关行为一致。
@@ -3895,11 +3948,15 @@ public class VideoEventManager {
                     }
                 });
             }
-            android.widget.Switch asrTranslateSwitch =
+            android.widget.TextView asrTranslateSwitch =
                     dialogView.findViewById(R.id.asr_translate_switch);
             if (asrTranslateSwitch != null) {
-                asrTranslateSwitch.setChecked(mSettingsManager.isAsrAutoTranslateEnabled());
-                asrTranslateSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                final boolean[] trOn = {mSettingsManager.isAsrAutoTranslateEnabled()};
+                renderSwitchButton(asrTranslateSwitch, trOn[0]);
+                asrTranslateSwitch.setOnClickListener(v -> {
+                    boolean isChecked = !trOn[0];
+                    trOn[0] = isChecked;
+                    renderSwitchButton(asrTranslateSwitch, isChecked);
                     mSettingsManager.setAsrAutoTranslateEnabled(isChecked);
                     if (isChecked) {
                         // 提示走的是哪条翻译链路（由「翻译引擎」设置决定，未配 Key 时本地兜底）
@@ -3928,7 +3985,7 @@ public class VideoEventManager {
                                     + "，支持中/英/日/韩）");
                             asrStatus.setTextColor(0xFFFF8F3F);
                         }
-                        ((android.widget.Button) btnAsrGenerate).setText("去下载组件");
+                        ((android.widget.TextView) btnAsrGenerate).setText("去下载组件");
                         btnAsrGenerate.setOnClickListener(v -> {
                             dialog.dismiss();
                             showNativeLibsDialog();
@@ -3945,7 +4002,7 @@ public class VideoEventManager {
                     // 模型正在下载：面板被关掉再打开时会走到这里。
                     // 下载在后台继续（detachCallback 是有意设计），但旧回调已随对话框失效，
                     // 这里重新接管，否则用户看到的是「未下载 · 可下载」——进度凭空消失。
-                    ((android.widget.Button) btnAsrGenerate).setText("下载中…");
+                    ((android.widget.TextView) btnAsrGenerate).setText("下载中…");
                     btnAsrGenerate.setEnabled(false);
                     attachAsrDownloadUi(btnAsrGenerate, asrStatus, dialog);
                 } else if (!modelReady) {
@@ -3953,7 +4010,7 @@ public class VideoEventManager {
                         asrStatus.setText("ASR 模型未下载（约 228MB，支持中/英/日/韩）");
                         asrStatus.setTextColor(0xFFFF8F3F);
                     }
-                    ((android.widget.Button) btnAsrGenerate).setText("下载模型");
+                    ((android.widget.TextView) btnAsrGenerate).setText("下载模型");
                     btnAsrGenerate.setOnClickListener(v -> startAsrModelDownload(
                             btnAsrGenerate, asrStatus, () -> {
                                 // 模型就绪后：关掉设置面板并按「生成字幕」流程继续
@@ -4104,6 +4161,16 @@ public class VideoEventManager {
                 String tgt = selectedLangName(spinnerTarget, langs);
                 if (src.isEmpty() || tgt.isEmpty()) {
                     tvPreinstallStatus.setText("");
+                } else if (!com.orange.playerlibrary.ocr.OcrAvailabilityChecker
+                        .isMlKitTranslateAvailable()) {
+                    // 组件没下时把话说在这里：否则状态行只显示「当前选择：X ↔ Y」，
+                    // 用户点下去才吃到一句 toast，且当时没有任何出路
+                    boolean classPresent = com.orange.playerlibrary.tool.NativeLibManager
+                            .isSupported(
+                                    com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_TRANSLATE);
+                    tvPreinstallStatus.setText(classPresent
+                            ? "翻译组件未下载，点上方按钮后会引导到「扩展包管理」"
+                            : "本版本未集成翻译模块，本地翻译不可用");
                 } else {
                     tvPreinstallStatus.setText("当前选择：" + src + " ↔ " + tgt);
                 }
@@ -4128,7 +4195,7 @@ public class VideoEventManager {
                 spinnerTarget.setOnItemSelectedListener(refresh);
             }
             btnPreinstall.setOnClickListener(v -> preinstallLocalTranslationModel(
-                    spinnerSource, spinnerTarget, tvPreinstallStatus, langs,
+                    dialog, spinnerSource, spinnerTarget, tvPreinstallStatus, langs,
                     () -> refreshLangs[0].run()));
         }
 
@@ -4335,7 +4402,8 @@ public class VideoEventManager {
      * 日→中直接可用、不产生新下载。downloadModelIfNeeded 只取缺失的语言模型，
      * 已装过的语言立即完成、不发网络请求；OCR 翻译与语音识别渐进翻译共用同一份。
      */
-    private void preinstallLocalTranslationModel(final android.widget.Spinner spinnerSource,
+    private void preinstallLocalTranslationModel(final AlertDialog hostDialog,
+                                                 final android.widget.Spinner spinnerSource,
                                                  final android.widget.Spinner spinnerTarget,
                                                  final android.widget.TextView statusView,
                                                  final java.util.List<String> langs,
@@ -4358,7 +4426,30 @@ public class VideoEventManager {
             return;
         }
         if (!com.orange.playerlibrary.ocr.OcrAvailabilityChecker.isMlKitTranslateAvailable()) {
-            showToast("未集成 MLKit 翻译模块");
+            // 「未集成」其实是两种成因，给的操作完全不同，此前合并成一句
+            // 「未集成 MLKit 翻译模块」——用户既不知道差什么、也没有出路。
+            // 与字幕对话框的 OCR 按钮（见 showSubtitleDialog）同一套判定：
+            //   isSupported=false → 宿主没引依赖，只能改 gradle（面向 SDK 使用者）
+            //   isSupported=true  → 依赖在但 so 没下（终端用户去扩展包管理下载即可）
+            boolean classPresent = com.orange.playerlibrary.tool.NativeLibManager
+                    .isSupported(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_TRANSLATE);
+            if (classPresent) {
+                long size = com.orange.playerlibrary.tool.NativeLibManager
+                        .getBundle(com.orange.playerlibrary.tool.NativeLibManager.BUNDLE_TRANSLATE)
+                        .size();
+                showToast("翻译组件未下载（"
+                        + com.orange.playerlibrary.tool.NativeLibManager.formatSize(size)
+                        + "），请先下载");
+                // 先关掉 AI 设置面板再跳：DialogUtils 的毛玻璃没有引用计数，
+                // 两个面板叠加时先关的那个会把模糊一并清掉（与 bindNativeLibsEntry
+                // 同一处理）
+                if (hostDialog != null) {
+                    hostDialog.dismiss();
+                }
+                showNativeLibsDialog();
+            } else {
+                showToast("本版本未集成翻译模块，本地翻译不可用");
+            }
             return;
         }
 
@@ -4366,8 +4457,12 @@ public class VideoEventManager {
                 new com.orange.playerlibrary.ocr.MlKitTranslationEngine();
         engine.init(mContext, srcCode, tgtCode);
         if (!engine.isInitialized()) {
+            // 带上具体原因：笼统的「初始化失败」让用户与排查者都无从下手
+            String reason = engine.getLastError();
+            Log.e(TAG, "本地翻译引擎初始化失败: " + reason);
             engine.release();
-            showToast("本地翻译引擎初始化失败");
+            showToast(reason == null ? "本地翻译引擎初始化失败"
+                    : "本地翻译引擎初始化失败：" + reason);
             return;
         }
 
@@ -5294,8 +5389,8 @@ public class VideoEventManager {
                     downloaded / 1048576.0, snap[2] / 1048576.0));
             status.setTextColor(0xFF4CAF50);
         }
-        if (btn instanceof android.widget.Button && snap != null) {
-            ((android.widget.Button) btn).setText(snap[0] + "%");
+        if (btn instanceof android.widget.TextView && snap != null) {
+            ((android.widget.TextView) btn).setText(snap[0] + "%");
         }
         if (dialog != null) {
             dialog.setOnDismissListener(d -> {
@@ -5320,8 +5415,8 @@ public class VideoEventManager {
                             "下载模型 %d%%（%.0f/%.0f MB）",
                             percent, downloaded / 1048576.0, total / 1048576.0)
                             + (stage == null || stage.isEmpty() ? "" : " · " + stage);
-                    if (btn instanceof android.widget.Button) {
-                        ((android.widget.Button) btn).setText(percent + "%");
+                    if (btn instanceof android.widget.TextView) {
+                        ((android.widget.TextView) btn).setText(percent + "%");
                     }
                     if (status != null) {
                         status.setText(text);
@@ -5337,8 +5432,8 @@ public class VideoEventManager {
                         status.setText("模型已就绪，可开始生成字幕");
                         status.setTextColor(0xFF4CAF50);
                     }
-                    if (btn instanceof android.widget.Button) {
-                        ((android.widget.Button) btn).setText("生成字幕");
+                    if (btn instanceof android.widget.TextView) {
+                        ((android.widget.TextView) btn).setText("生成字幕");
                         btn.setEnabled(true);
                         // 关键：把监听器切到「生成字幕」，否则点击会再次进入下载路径
                         btn.setOnClickListener(v -> {
@@ -5358,8 +5453,8 @@ public class VideoEventManager {
                         status.setText("模型下载失败：" + error + "（可重试，支持续传）");
                         status.setTextColor(0xFFFF6B6B);
                     }
-                    if (btn instanceof android.widget.Button) {
-                        ((android.widget.Button) btn).setText("重试下载");
+                    if (btn instanceof android.widget.TextView) {
+                        ((android.widget.TextView) btn).setText("重试下载");
                         btn.setEnabled(true);
                     }
                 });
@@ -5395,11 +5490,18 @@ public class VideoEventManager {
             return true;
         }
         java.io.File local = resolveLocalVideoFileForAsr();
-        if (local == null) {
-            return false;
+        if (local != null) {
+            startProgressiveAsr(local);
+            return true;
         }
-        startProgressiveAsr(local);
-        return true;
+        // 未缓存的网络 mp4：与自动触发路径保持一致，经本地代理按区间读取，
+        // 否则拨开「边看边识别」会静默无反应（等整片缓存要等到快播完）
+        if (isNetworkUrl(url)) {
+            Log.d(TAG, "渐进 ASR（网络按区间读取）: " + url);
+            startHttpProgressiveAsr(url);
+            return true;
+        }
+        return false;
     }
 
     /**
