@@ -25,10 +25,13 @@
         android:layout_height="80dp"
         android:layout_marginBottom="16dp">
 
-        <!-- 背景圆环 -->
+        <!-- 背景圆环。用具体 style 而非 ?android:attr/progressBarStyleHorizontal：
+             后者取宿主主题的值，宿主换主题会改变本面板外观——与本系列面板
+             「不依赖任何主题属性」的约定冲突（progressDrawable 已完全自绘，
+             style 只影响次要默认属性，换具体 style 无副作用）。 -->
         <ProgressBar
             android:id="@+id/progress_bg"
-            style="?android:attr/progressBarStyleHorizontal"
+            style="@android:style/Widget.ProgressBar.Horizontal"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:indeterminate="false"
@@ -39,7 +42,7 @@
         <!-- 前景进度圆环 -->
         <ProgressBar
             android:id="@+id/progress_bar"
-            style="?android:attr/progressBarStyleHorizontal"
+            style="@android:style/Widget.ProgressBar.Horizontal"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:indeterminate="false"

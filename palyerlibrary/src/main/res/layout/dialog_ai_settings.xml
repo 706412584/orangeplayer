@@ -216,7 +216,7 @@
                 android:id="@+id/btn_ai_settings_cancel"
                 style="@style/SubtitlePanelButton"
                 android:layout_width="80dp"
-                android:layout_height="36dp"
+                android:layout_height="40dp"
                 android:background="@android:color/transparent"
                 android:textColor="@color/op_text_secondary"
                 android:text="取消" />
@@ -225,7 +225,7 @@
                 android:id="@+id/btn_ai_settings_save"
                 style="@style/SubtitlePanelButton"
                 android:layout_width="80dp"
-                android:layout_height="36dp"
+                android:layout_height="40dp"
                 android:layout_marginStart="8dp"
                 android:text="保存" />
         </LinearLayout>

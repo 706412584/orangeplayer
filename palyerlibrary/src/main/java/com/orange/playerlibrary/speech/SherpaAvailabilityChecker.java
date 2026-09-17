@@ -60,6 +60,31 @@ public class SherpaAvailabilityChecker {
         }
     }
 
+    /**
+     * 获取缺失依赖的提示信息（与 {@code OcrAvailabilityChecker} 同模式）。
+     *
+     * <p>分两种情况：宿主没引依赖（SDK 使用者需自己加 gradle 依赖），
+     * 以及依赖在但 so 未下载（终端用户在「扩展包管理」里下载即可）。
+     * 两者的操作完全不同，合成一句话会让用户无从下手。
+     */
+    public static String getMissingDependenciesMessage() {
+        boolean classPresent = NativeLibManager.isSupported(NativeLibManager.BUNDLE_ASR);
+        StringBuilder sb = new StringBuilder();
+        sb.append("AI 语音生成字幕需要以下组件：\n\n");
+        if (!classPresent) {
+            sb.append("· sherpa-onnx 语音识别模块\n");
+            sb.append("  请在 app/build.gradle 添加：\n");
+            sb.append("  implementation project(':orangeplayer-sherpa')\n");
+        } else {
+            sb.append("· 语音识别组件未下载（")
+                    .append(NativeLibManager.formatSize(
+                            NativeLibManager.getBundle(NativeLibManager.BUNDLE_ASR).size()))
+                    .append("，含 sherpa-onnx 与 onnxruntime 运行库）\n");
+            sb.append("\n在「设置 → 扩展包管理」中下载后即可使用。");
+        }
+        return sb.toString();
+    }
+
     /** 重置缓存（测试用） */
     public static void resetCache() {
         sAvailable = null;

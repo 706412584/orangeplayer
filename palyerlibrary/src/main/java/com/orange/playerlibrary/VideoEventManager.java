@@ -601,6 +601,9 @@ public class VideoEventManager {
             // 设置倍速选项
             setupSpeedOptions(dialogView, dialog);
         } catch (Exception e) {
+            // 不能静默：布局 inflate 或 DialogUtils 抛错时对话框根本不出现，
+            // 用户只看到「点了没反应」，没有日志就无从排查
+            Log.e(TAG, "倍速对话框创建失败", e);
         }
     }
     
@@ -4007,15 +4010,15 @@ public class VideoEventManager {
                             showNativeLibsDialog();
                         });
                     } else {
-                        // 宿主没引 sherpa 依赖：App 内无解，别让用户以为「去装点什么就行」。
-                        // 与 AI 设置的翻译组件同一套措辞（本版本未集成 vs 未下载）
+                        // 宿主没引 sherpa 依赖：App 内无解，但 SDK 使用者需要知道
+                        // 该加什么 gradle 依赖——给出与 OCR 侧对等的安装说明，
+                        // 而不是一句无从下手的 toast
                         if (asrStatus != null) {
                             asrStatus.setText("本版本未集成语音识别模块");
                             asrStatus.setTextColor(0xFFFF6B6B);
                         }
-                        ((android.widget.TextView) btnAsrGenerate).setText("不可用");
-                        btnAsrGenerate.setOnClickListener(v ->
-                                showToast("本版本未集成语音识别模块，无法生成字幕"));
+                        ((android.widget.TextView) btnAsrGenerate).setText("查看安装说明");
+                        btnAsrGenerate.setOnClickListener(v -> showAsrInstallGuide());
                     }
                 } else if (sAsrModelDownloader != null && sAsrModelDownloader.isDownloading()) {
                     // 模型正在下载：面板被关掉再打开时会走到这里。
@@ -6563,9 +6566,12 @@ public class VideoEventManager {
                 status.setTextColor(0xFFFF6B6B);
             }
             btn.setText("不可用");
-            // TextView 的 setEnabled(false) 不改外观，需显式降透明度
+            // TextView 的 setEnabled(false) 不改外观，需显式降透明度。
+            // 另需 setClickable(false)：setOnClickListener(null) 只摘监听器、
+            // 不会清 clickable 标志，按下仍有背景反馈却无响应。
             btn.setAlpha(0.4f);
             btn.setOnClickListener(null);
+            btn.setClickable(false);
             btn.setBackgroundResource(R.drawable.btn_bundle_delete_bg);
             return;
         }
@@ -6595,6 +6601,7 @@ public class VideoEventManager {
             btn.setText("内置");
             btn.setAlpha(0.4f);
             btn.setOnClickListener(null);
+            btn.setClickable(false);   // 同「不可用」分支：null 监听器不清 clickable
             btn.setBackgroundResource(R.drawable.btn_bundle_delete_bg);
             return;
         }
@@ -6736,9 +6743,26 @@ public class VideoEventManager {
      */
     private void showOcrInstallGuide() {
         String message = com.orange.playerlibrary.ocr.OcrAvailabilityChecker.getMissingDependenciesMessage();
-        
+
         new AlertDialog.Builder(mActivity)
             .setTitle("安装 OCR 翻译功能")
+            .setMessage(message)
+            .setPositiveButton("知道了", null)
+            .show();
+    }
+
+    /**
+     * 显示 ASR 安装指南（与 {@link #showOcrInstallGuide()} 对等）。
+     *
+     * <p>宿主没引 sherpa 模块时 App 内无解，但 SDK 使用者需要知道该加什么依赖；
+     * 此前只弹一句「未安装 ASR 引擎模块」，既没说清缺什么也没给下一步。
+     */
+    private void showAsrInstallGuide() {
+        String message = com.orange.playerlibrary.speech.SherpaAvailabilityChecker
+                .getMissingDependenciesMessage();
+
+        new AlertDialog.Builder(mActivity)
+            .setTitle("安装语音识别功能")
             .setMessage(message)
             .setPositiveButton("知道了", null)
             .show();

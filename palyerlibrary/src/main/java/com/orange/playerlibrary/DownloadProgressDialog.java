@@ -146,10 +146,15 @@ public class DownloadProgressDialog {
     }
 
     /**
-     * 下载失败：把原因留在屏上再关闭。
+     * 下载失败：把原因留在屏上，点击关闭。
      *
-     * 直接 dismiss 的话用户只看到弹窗瞬间消失，配合 toast 也容易漏看；
-     * 停留 {@link #FAIL_DISPLAY_MS} 让「为什么失败」可见。
+     * <p>直接 dismiss 的话用户只看到弹窗瞬间消失，配合 toast 也容易漏看。
+     * 但纯定时关闭对错误串不友好——hint 限 3 行，网络地址 + HTTP 码 + 建议
+     * 这类三行文案 2.5 秒读不完，而且弹窗设了 setCancelable(false) +
+     * setCanceledOnTouchOutside(false)，用户只能干等、无法提前关掉。
+     *
+     * <p>故改为「点击关闭 + 兜底定时」：给用户掌控权，同时保留自动关闭
+     * 以免弹窗永远留在屏上（失败路径没有别的地方会 dismiss 它）。
      */
     public void fail(String error) {
         fail("下载失败", error);
@@ -160,13 +165,23 @@ public class DownloadProgressDialog {
         mHandler.post(() -> {
             if (mTitleText != null) mTitleText.setText(title);
             if (mProgressText != null) mProgressText.setText("!");
-            if (mHintText != null && error != null) mHintText.setText(error);
+            if (mHintText != null) {
+                mHintText.setText((error == null ? "" : error + "\n") + "（点击关闭）");
+            }
+            // 失败态允许点击关闭：此时后台任务已结束，不再有误触打断的风险
+            if (mDialog != null && mDialog.getWindow() != null) {
+                View root = mDialog.getWindow().getDecorView();
+                root.setOnClickListener(v -> dismiss());
+            }
             mHandler.postDelayed(this::dismiss, FAIL_DISPLAY_MS);
         });
     }
 
-    /** 失败信息停留时长（毫秒），够看清一行错误提示 */
-    private static final long FAIL_DISPLAY_MS = 2500;
+    /**
+     * 失败信息兜底停留时长（毫秒）。用户点击可立即关闭，这里只保证
+     * 「即使没人点也不会一直挂着」——失败路径没有其它地方会 dismiss。
+     */
+    private static final long FAIL_DISPLAY_MS = 15000;
 
     /**
      * 关闭对话框
