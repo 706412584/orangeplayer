@@ -38,6 +38,13 @@ dependencies {
     // 打包时随 app 的 orangeAppReleaseAbis 裁到目标 ABI。
     api(name: 'sherpa-onnx-1.13.7', ext: 'aar')
 
+    // compileOnly：只为编译期可见 kotlin.jvm.functions.Function3。
+    // 不引入新的运行时要求——sherpa AAR 是 Kotlin 写的，其 process(float[])
+    // 本身就在调 kotlin/jvm/internal/Intrinsics，kotlin-stdlib 早就必须由宿主提供
+    // （app/build.gradle 的 implementation 即此）。故此处只补编译期可见性，
+    // 不打包、不传递，与 palyerlibrary 对可选组件的既有约定一致。
+    compileOnly 'org.jetbrains.kotlin:kotlin-stdlib:1.5.30'
+
     testImplementation 'junit:junit:4.13.2'
 }
 

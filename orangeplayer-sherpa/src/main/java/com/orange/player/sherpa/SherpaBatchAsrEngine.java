@@ -372,7 +372,11 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
                 return SpeakerTimeline.EMPTY;
             }
             callback.onProgress(0, "说话人分离");
-            OfflineSpeakerDiarizationSegment[] segs = diarizer.process(samples);
+            // 用带回调的版本：分离在 262s 素材上实测耗时 111s，只报首尾两帧
+            // 会让进度环长时间不动（真机症状：卡在 86%/40% 看着像死了）。
+            // 回调粒度是「已算完的 embedding 分块 / 总块数」，即真实的分离进度。
+            OfflineSpeakerDiarizationSegment[] segs = diarizer.processWithCallback(
+                    samples, new DiarProgressCallback(callback), 0L);
             if (segs == null || segs.length == 0) {
                 Log.d(TAG, "说话人分离无输出");
                 return SpeakerTimeline.EMPTY;
@@ -407,6 +411,53 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
         } catch (Throwable t) {
             Log.w(TAG, "说话人分离失败，本次结果不含说话人", t);
             return SpeakerTimeline.EMPTY;
+        }
+    }
+
+    /**
+     * 说话人分离的进度回调。
+     *
+     * <p>native 侧（libsherpa-onnx-jni.so）用 {@code GetMethodID} 按**字面签名**
+     * {@code (IIJ)Ljava/lang/Integer;} 查找 {@code invoke}——与 Kotlin 的
+     * {@code Function3<Integer,Integer,Long,Integer>} 擦除后同形。Java 泛型方法
+     * 擦除得到的是装箱签名 {@code (Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;)}
+     * 且**不会**合成原始类型桥方法（只有 Kotlin 编译器会），所以这里必须手写
+     * {@code invoke(int,int,long)}，否则 native 找不到方法：不崩，回调静默失效。
+     *
+     * <p>返回值：上游 pyannote 实现忽略它。返回 null 以免调用方对「非空返回值」
+     * 产生错误期待。
+     *
+     * <p>性能：native 每算完一个 embedding 块回调一次（数百毫秒级），
+     * 无锁、无分配，不构成瓶颈。
+     */
+    static final class DiarProgressCallback
+            implements kotlin.jvm.functions.Function3<Integer, Integer, Long, Integer> {
+
+        private final BatchAsrCallback callback;
+
+        DiarProgressCallback(BatchAsrCallback callback) {
+            this.callback = callback;
+        }
+
+        /** JNI 实际查找的那个重载（原始类型描述符）。 */
+        public Integer invoke(int processed, int total, long arg) {
+            report(processed, total);
+            return null;
+        }
+
+        /** 泛型契约实现：Kotlin/Java 侧若以泛型方式调用会走到这里。 */
+        @Override
+        public Integer invoke(Integer processed, Integer total, Long arg) {
+            report(processed == null ? 0 : processed, total == null ? 0 : total);
+            return null;
+        }
+
+        private void report(int processed, int total) {
+            if (callback == null || total <= 0) {
+                return;
+            }
+            int pct = (int) (processed * 100L / total);
+            callback.onProgress(Math.max(0, Math.min(pct, 100)), "说话人分离");
         }
     }
 
