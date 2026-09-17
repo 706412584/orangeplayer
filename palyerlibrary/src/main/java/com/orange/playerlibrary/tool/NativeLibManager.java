@@ -225,6 +225,13 @@ public final class NativeLibManager {
     /** 应用私有目录；由 {@link #install(Context)} 设置，so 必须落在此目录内 */
     private static volatile File sFilesDir;
 
+    /**
+     * 「APK 内已带」是否已探测过（见 {@link #install(Context)}）。
+     * 探测有真实加载副作用，且必须在下载目录进入搜索路径**之前**完成，
+     * 故整个进程只做一次。
+     */
+    private static volatile boolean sProbed;
+
     /** 已注入 classloader 搜索路径的 so 目录（避免重复插入） */
     private static volatile File sInjectedDir;
 
@@ -527,9 +534,12 @@ public final class NativeLibManager {
         // 下载目录已在搜索路径上，再探测时 loadLibrary 会命中下载来的 so，
         // 把「已下载」误判成「APK 内置」——真机表现是下载完成后重开面板，
         // 状态从「已安装 · 可删除」变成「已内置 · 随应用分发」且按钮置灰。
-        // 用 sInjectedDir 作「本进程是否已注入过」的标记，天然只在首次为 null。
-        if (sInjectedDir == null) {
+        //
+        // 用独立标记而非 sInjectedDir：后者只在注入成功时才赋值，ABI 不受支持
+        // 或注入失败时恒为 null，探测会反复执行（等于没修）。
+        if (!sProbed) {
             probeBundled();
+            sProbed = true;
         }
         // 再注入一次搜索路径（目录不存在也注入：NativeLibraryElement
         // 按路径惰性查找，后续下载完成即可生效）。这样运行中下载组件时
@@ -1017,6 +1027,7 @@ public final class NativeLibManager {
         sFilesDir = null;
         sAbiOverride = null;
         sInjectedDir = null;
+        sProbed = false;
     }
 
     /** 注入应用私有目录（测试用） */

@@ -424,14 +424,19 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
      * 且**不会**合成原始类型桥方法（只有 Kotlin 编译器会），所以这里必须手写
      * {@code invoke(int,int,long)}，否则 native 找不到方法：不崩，回调静默失效。
      *
-     * <p>返回值：上游 pyannote 实现忽略它。返回 null 以免调用方对「非空返回值」
-     * 产生错误期待。
+     * <p>返回值：上游 pyannote 实现忽略它（既不判空也不解箱），但返回 0 而非 null
+     * ——Kotlin 的 {@code Function3} 返回值类型是非空 {@code Integer}，返回 null
+     * 会违背该契约；万一将来上游改为解箱返回值，null 会直接 NPE 崩在 native 栈上。
+     * 代价为零，不留这个隐患。
      *
      * <p>性能：native 每算完一个 embedding 块回调一次（数百毫秒级），
      * 无锁、无分配，不构成瓶颈。
      */
     static final class DiarProgressCallback
             implements kotlin.jvm.functions.Function3<Integer, Integer, Long, Integer> {
+
+        /** 非空返回值（见类注释）：0 = 继续，与上游「忽略返回值」的语义一致。 */
+        private static final Integer CONTINUE = 0;
 
         private final BatchAsrCallback callback;
 
@@ -442,14 +447,14 @@ public class SherpaBatchAsrEngine implements BatchAsrEngine {
         /** JNI 实际查找的那个重载（原始类型描述符）。 */
         public Integer invoke(int processed, int total, long arg) {
             report(processed, total);
-            return null;
+            return CONTINUE;
         }
 
         /** 泛型契约实现：Kotlin/Java 侧若以泛型方式调用会走到这里。 */
         @Override
         public Integer invoke(Integer processed, Integer total, Long arg) {
             report(processed == null ? 0 : processed, total == null ? 0 : total);
-            return null;
+            return CONTINUE;
         }
 
         private void report(int processed, int total) {
