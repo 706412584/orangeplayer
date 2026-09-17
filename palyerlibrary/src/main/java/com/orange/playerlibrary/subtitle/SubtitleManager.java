@@ -420,6 +420,49 @@ public class SubtitleManager {
     }
     
     /**
+     * 字幕内容大小上限。
+     *
+     * <p>正常字幕远小于此：两小时影片的 SRT 约 100-200KB，ASS 带特效也就 1MB 上下。
+     * 4MB 足够宽松，同时挡住「用户把视频地址填进字幕框」这类误操作——
+     * 旧实现无上限，实测误填视频链接时 StringBuilder 要分配 546MB → OutOfMemoryError
+     * （不是崩溃在解析，而是崩在读入阶段）。
+     */
+    private static final long MAX_SUBTITLE_BYTES = 4L * 1024 * 1024;
+
+    /**
+     * 按字节读入并限制总量；超限抛异常而不是 OOM。
+     *
+     * <p>按**字节**而非字符计数：中文在 UTF-8 下 1 字符 = 3 字节，
+     * 用 {@code String.length()} 会把实际上限放大到约 3 倍。
+     *
+     * @param declaredLength Content-Length（或文件长度），未知传 -1
+     */
+    private static String readAllLimited(InputStream is, long declaredLength, String what)
+            throws Exception {
+        if (declaredLength > MAX_SUBTITLE_BYTES) {
+            throw new java.io.IOException(what + " 过大（" + (declaredLength / 1048576)
+                    + "MB，上限 " + (MAX_SUBTITLE_BYTES / 1048576) + "MB）："
+                    + "请确认填的是字幕文件地址（.srt/.ass/.vtt），不是视频地址");
+        }
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream(
+                declaredLength > 0 ? (int) Math.min(declaredLength, 1 << 16) : 8192);
+        byte[] buf = new byte[8192];
+        int n;
+        long total = 0;
+        while ((n = is.read(buf)) != -1) {
+            total += n;
+            if (total > MAX_SUBTITLE_BYTES) {
+                // Content-Length 缺失或撒谎（分块传输）时，靠累计字节兜底
+                throw new java.io.IOException(what + " 超过 "
+                        + (MAX_SUBTITLE_BYTES / 1048576) + "MB 上限，已中止："
+                        + "请确认填的是字幕文件地址（.srt/.ass/.vtt），不是视频地址");
+            }
+            bos.write(buf, 0, n);
+        }
+        return new String(bos.toByteArray(), "UTF-8");
+    }
+
+    /**
      * 下载字幕文件
      */
     private String downloadSubtitle(String urlStr) throws Exception {
@@ -427,32 +470,27 @@ public class SubtitleManager {
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(10000);
-        
-        try (InputStream is = conn.getInputStream();
-             BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append("\n");
+
+        try {
+            // 用 getContentLength()（int，API 1 起可用）：minSdk 14 下不能调
+            // getContentLengthLong()（API 24+），旧设备会 NoSuchMethodError。
+            // 本上限只有 4MB，int 足够。
+            int declared = conn.getContentLength();
+            try (InputStream is = conn.getInputStream()) {
+                return readAllLimited(is, declared, "字幕文件");
             }
-            return sb.toString();
         } finally {
             conn.disconnect();
         }
     }
-    
+
     /**
      * 读取本地文件
      */
     private String readLocalFile(String path) throws Exception {
-        try (FileInputStream fis = new FileInputStream(path);
-             BufferedReader reader = new BufferedReader(new InputStreamReader(fis, "UTF-8"))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append("\n");
-            }
-            return sb.toString();
+        File f = new File(path);
+        try (FileInputStream fis = new FileInputStream(f)) {
+            return readAllLimited(fis, f.length(), "字幕文件");
         }
     }
     
