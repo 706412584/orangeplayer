@@ -160,26 +160,23 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
 
-                <Button
-                    android:id="@+id/btn_cancel"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1"
-                    android:text="取消"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_subtitle_bg"
-                    android:layout_marginEnd="8dp" />
+                <TextView
+                android:id="@+id/btn_cancel"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="40dp"
+                android:layout_marginEnd="8dp"
+                android:text="取消" />
 
-                <Button
-                    android:id="@+id/btn_start_ocr"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1"
-                    android:text="开始识别"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_primary_bg" />
+                <TextView
+                android:id="@+id/btn_start_ocr"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="40dp"
+                android:background="@drawable/btn_primary_bg"
+                android:text="开始识别" />
             </LinearLayout>
         </LinearLayout>
     </ScrollView>

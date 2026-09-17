@@ -146,16 +146,14 @@
                 android:singleLine="true"
                 android:imeOptions="actionNext" />
 
-            <Button
+            <TextView
                 android:id="@+id/btn_ai_fetch_models"
+                style="@style/SubtitlePanelButton"
                 android:layout_width="wrap_content"
                 android:layout_height="44dp"
                 android:layout_marginStart="8dp"
                 android:paddingHorizontal="14dp"
-                android:text="获取模型"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
+                android:text="获取模型" />
         </LinearLayout>
 
         <!-- 目标语言 -->
@@ -190,15 +188,12 @@
             android:background="@drawable/spinner_bg"
             android:layout_marginBottom="8dp" />
 
-        <Button
-            android:id="@+id/btn_ai_preinstall_model"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:text="预装本地翻译模型"
-            android:textColor="@color/op_text_primary"
-            android:textSize="13sp"
-            android:background="@drawable/btn_subtitle_bg"
-            android:layout_marginBottom="8dp" />
+        <TextView
+                android:id="@+id/btn_ai_preinstall_model"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="预装本地翻译模型" />
 
         <TextView
             android:id="@+id/tv_ai_preinstall_status"
@@ -215,24 +210,22 @@
             android:orientation="horizontal"
             android:gravity="end">
 
-            <Button
+            <TextView
                 android:id="@+id/btn_ai_settings_cancel"
+                style="@style/SubtitlePanelButton"
                 android:layout_width="80dp"
                 android:layout_height="36dp"
-                android:text="取消"
+                android:background="@android:color/transparent"
                 android:textColor="@color/op_text_secondary"
-                android:textSize="14sp"
-                android:background="@android:color/transparent" />
+                android:text="取消" />
 
-            <Button
+            <TextView
                 android:id="@+id/btn_ai_settings_save"
+                style="@style/SubtitlePanelButton"
                 android:layout_width="80dp"
                 android:layout_height="36dp"
-                android:text="保存"
-                android:textColor="@color/op_text_primary"
-                android:textSize="14sp"
-                android:background="@drawable/btn_subtitle_bg"
-                android:layout_marginStart="8dp" />
+                android:layout_marginStart="8dp"
+                android:text="保存" />
         </LinearLayout>
         </LinearLayout>
     </ScrollView>

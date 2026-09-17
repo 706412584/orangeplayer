@@ -45,10 +45,9 @@
                     android:textColor="@color/op_text_primary"
                     android:textSize="14sp" />
 
-                <Switch
+                <TextView
                     android:id="@+id/subtitle_switch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
+                    style="@style/SubtitlePanelSwitch" />
             </LinearLayout>
 
             <!-- 字幕状态 -->
@@ -78,24 +77,17 @@
                 android:textStyle="bold"
                 android:layout_marginBottom="12dp" />
 
-            <Button
+            <TextView
                 android:id="@+id/btn_load_local"
+                style="@style/SubtitlePanelButton"
                 android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="从本地加载"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg"
-                android:layout_marginBottom="8dp" />
+                android:text="从本地加载" />
 
-            <Button
+            <TextView
                 android:id="@+id/btn_load_url"
+                style="@style/SubtitlePanelButton"
                 android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="从网络加载"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
+                android:text="从网络加载" />
 
             <!-- 分隔线 -->
             <View
@@ -124,14 +116,11 @@
                 android:textSize="12sp"
                 android:layout_marginBottom="8dp" />
 
-            <Button
+            <TextView
                 android:id="@+id/btn_ocr_translate"
+                style="@style/SubtitlePanelButton"
                 android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="开启 OCR 翻译"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
+                android:text="开启 OCR 翻译" />
 
             <!-- 分隔线 -->
             <View
@@ -173,26 +162,20 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
 
-                <Button
-                    android:id="@+id/btn_ai_translate"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="40dp"
-                    android:text="开始翻译"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_subtitle_bg"
-                    android:layout_marginEnd="8dp" />
+                <TextView
+                android:id="@+id/btn_ai_translate"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:text="开始翻译" />
 
-                <Button
-                    android:id="@+id/btn_ai_settings"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="40dp"
-                    android:text="AI 设置"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_subtitle_bg" />
+                <TextView
+                android:id="@+id/btn_ai_settings"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:text="AI 设置" />
             </LinearLayout>
 
             <!-- 分隔线 -->
@@ -238,10 +221,9 @@
                     android:textColor="@color/op_text_primary"
                     android:textSize="13sp" />
 
-                <Switch
+                <TextView
                     android:id="@+id/asr_live_switch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
+                    style="@style/SubtitlePanelSwitch" />
             </LinearLayout>
 
             <!-- 自动生成字幕开关 -->
@@ -260,10 +242,9 @@
                     android:textColor="@color/op_text_primary"
                     android:textSize="13sp" />
 
-                <Switch
+                <TextView
                     android:id="@+id/asr_auto_switch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
+                    style="@style/SubtitlePanelSwitch" />
             </LinearLayout>
 
             <!-- 识别后自动翻译开关 -->
@@ -282,20 +263,16 @@
                     android:textColor="@color/op_text_primary"
                     android:textSize="13sp" />
 
-                <Switch
+                <TextView
                     android:id="@+id/asr_translate_switch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
+                    style="@style/SubtitlePanelSwitch" />
             </LinearLayout>
 
-            <Button
+            <TextView
                 android:id="@+id/btn_asr_generate"
+                style="@style/SubtitlePanelButton"
                 android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="生成本视频字幕"
-                android:textColor="@color/op_text_primary"
-                android:textSize="13sp"
-                android:background="@drawable/btn_subtitle_bg" />
+                android:text="生成本视频字幕" />
 
             <!-- 分隔线 -->
             <View
@@ -319,8 +296,15 @@
                 android:id="@+id/subtitle_size_bar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:background="@null"
                 android:max="100"
-                android:progress="50" />
+                android:maxHeight="4dp"
+                android:minHeight="4dp"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:progress="50"
+                android:progressDrawable="@drawable/seekbar_progress"
+                android:thumb="@drawable/dkplayer_seekbar_thumb" />
 
             <!-- 分隔线 -->
             <View
@@ -346,37 +330,28 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
-                <Button
-                    android:id="@+id/btn_subtitle_delay_minus"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="40dp"
-                    android:text="- 0.5s"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_subtitle_bg"
-                    android:layout_marginEnd="8dp" />
+                <TextView
+                android:id="@+id/btn_subtitle_delay_minus"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:text="- 0.5s" />
 
-                <Button
-                    android:id="@+id/btn_subtitle_delay_reset"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="40dp"
-                    android:text="重置"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_subtitle_bg"
-                    android:layout_marginEnd="8dp" />
+                <TextView
+                android:id="@+id/btn_subtitle_delay_reset"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:text="重置" />
 
-                <Button
-                    android:id="@+id/btn_subtitle_delay_plus"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="40dp"
-                    android:text="+ 0.5s"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_subtitle_bg" />
+                <TextView
+                android:id="@+id/btn_subtitle_delay_plus"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:text="+ 0.5s" />
             </LinearLayout>
 
             <!-- 音频延迟（mpv 内核音画同步补偿，正值延后音频） -->
@@ -404,37 +379,28 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
-                <Button
-                    android:id="@+id/btn_audio_delay_minus"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="40dp"
-                    android:text="- 0.1s"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_subtitle_bg"
-                    android:layout_marginEnd="8dp" />
+                <TextView
+                android:id="@+id/btn_audio_delay_minus"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:text="- 0.1s" />
 
-                <Button
-                    android:id="@+id/btn_audio_delay_reset"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="40dp"
-                    android:text="重置"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_subtitle_bg"
-                    android:layout_marginEnd="8dp" />
+                <TextView
+                android:id="@+id/btn_audio_delay_reset"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:text="重置" />
 
-                <Button
-                    android:id="@+id/btn_audio_delay_plus"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="40dp"
-                    android:text="+ 0.1s"
-                    android:textColor="@color/op_text_primary"
-                    android:textSize="13sp"
-                    android:background="@drawable/btn_subtitle_bg" />
+                <TextView
+                android:id="@+id/btn_audio_delay_plus"
+                style="@style/SubtitlePanelButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:text="+ 0.1s" />
             </LinearLayout>
 
         </LinearLayout>
