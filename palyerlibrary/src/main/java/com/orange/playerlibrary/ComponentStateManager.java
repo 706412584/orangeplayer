@@ -243,7 +243,9 @@ public class ComponentStateManager {
             return;
         }
 
-        String url = videoView.getVideoUrl();
+        // 用统一的存储键（优先原始播放源）。不能用 getVideoUrl()——去广告后它会变成
+        // 回环代理地址，端口每次启动随机，会导致保存的进度跨启动读不回来。
+        String url = videoView.getProgressStorageKey();
         if (url == null || url.isEmpty()) {
             return;
         }

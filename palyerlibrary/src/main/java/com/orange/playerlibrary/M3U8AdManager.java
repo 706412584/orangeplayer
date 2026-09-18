@@ -36,6 +36,11 @@ public class M3U8AdManager {
     private M3U8AdManager(Context context) {
         mContext = context;
         mRemover = new M3U8AdRemover(context);
+        // 从持久化设置恢复开关状态。此前只在用户点击开关时写内存（setEnabled），
+        // 重启后 mEnabled 回到默认值，而 PlayerSettingsManager 里存的用户选择
+        // 无人回读，表现为「去广告开关没有持久化」。
+        mEnabled = com.orange.playerlibrary.PlayerSettingsManager
+                .getInstance(context).isAdRemovalEnabled();
     }
     
     /**

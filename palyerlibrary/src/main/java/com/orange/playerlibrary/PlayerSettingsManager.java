@@ -574,6 +574,93 @@ public class PlayerSettingsManager {
         return mPreferences.getBoolean(KEY_AD_REMOVAL_ENABLED, true);
     }
 
+    /**
+     * 用户是否显式设置过去广告开关。
+     *
+     * 用于区分「从未设置」（应给默认值）与「用户主动关闭」（必须尊重），
+     * 否则调用方的默认值写入会把用户的关闭操作覆盖掉。
+     */
+    public boolean hasAdRemovalPreference() {
+        return mPreferences.contains(KEY_AD_REMOVAL_ENABLED);
+    }
+
+    /**
+     * 仅在用户从未设置过时写入默认值。
+     *
+     * @param enabled 首次运行要采用的默认值
+     */
+    public void applyAdRemovalDefaultIfAbsent(boolean enabled) {
+        if (!hasAdRemovalPreference()) {
+            setAdRemovalEnabled(enabled);
+        }
+    }
+
+    /**
+     * 用户是否显式设置过记忆播放开关。语义同 {@link #hasAdRemovalPreference()}。
+     */
+    public boolean hasMemoryPlayPreference() {
+        return mPreferences.contains(KEY_MEMORY_PLAY_ENABLED);
+    }
+
+    /**
+     * 仅在用户从未设置过时写入记忆播放默认值。
+     */
+    public void applyMemoryPlayDefaultIfAbsent(boolean enabled) {
+        if (!hasMemoryPlayPreference()) {
+            setMemoryPlayEnabled(enabled);
+        }
+    }
+
+    // ===== 选集记忆（上次播到哪一集）=====
+
+    /**
+     * 按「剧集」存储上次播放的集数下标。
+     *
+     * 进度本身已由 {@link PlaybackProgressManager} 按单集 URL 绑定（每集地址不同，
+     * 天然区分），这里只需记住**是哪一集**，重启后才能切回去。
+     *
+     * 键用剧集标识（列表 hash）而不是单集 URL：同一个列表里换集不应产生新记录，
+     * 否则会积累一堆互不相干的键。
+     */
+    private static final String KEY_LAST_EPISODE_PREFIX = "last_episode_";
+
+    /**
+     * 记录某剧集上次播放的集数下标。
+     *
+     * @param seriesKey 剧集标识（见 VideoEventManager 的列表 hash）
+     * @param index     集数下标（从 0 开始）；传负数表示清除记录
+     */
+    public void setLastEpisodeIndex(String seriesKey, int index) {
+        if (seriesKey == null || seriesKey.isEmpty()) {
+            return;
+        }
+        String key = KEY_LAST_EPISODE_PREFIX + seriesKey;
+        if (index < 0) {
+            mPreferences.edit().remove(key).apply();
+        } else {
+            mPreferences.edit().putInt(key, index).apply();
+        }
+    }
+
+    /**
+     * 取某剧集上次播放的集数下标。
+     *
+     * @return 下标；无记录返回 -1
+     */
+    public int getLastEpisodeIndex(String seriesKey) {
+        if (seriesKey == null || seriesKey.isEmpty()) {
+            return -1;
+        }
+        return mPreferences.getInt(KEY_LAST_EPISODE_PREFIX + seriesKey, -1);
+    }
+
+    /**
+     * 清除某剧集的选集记忆。
+     */
+    public void clearLastEpisodeIndex(String seriesKey) {
+        setLastEpisodeIndex(seriesKey, -1);
+    }
+
     // ===== 记忆播放设置 =====
 
     /**
