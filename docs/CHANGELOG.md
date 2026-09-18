@@ -1,20 +1,37 @@
 # OrangePlayer 更新日志
-## [1.5.5] - 2026-09-15
+## [1.5.5] - 2026-09-19
 
 ### ✨ 新增
 
 - **组件下载加 Gitee 源，国内直连可用**：原下载链只有 GitHub 与两个加速镜像，国内用户首下（最大 11MB 的组件包）常失败。现改为 **Gitee 优先 → gh-proxy → ghfast → GitHub 原址**，四源内容相同、逐个回退，每源都支持 Range 断点续传，切源时已下字节保留。组件 zip 都在 11MB 内，不受 Gitee 单文件 100MB 限制
 - **门面补齐字幕 / 种子播放 / 画中画**（iApp 宿主）：字幕支持加载回调与开关持久化；种子播放新增 `TorrentListener`（见下）；画中画接入 `PiPHelper`，并补 PiP 感知的 `onPause`/`onStop`/`onResume`
+- **选集记忆**：切集时自动记住看到第几集，重启后自动切回那一集并续播。键用剧集标识（列表 hash），同一列表内换集不产生新记录；选集对话框高亮同步支持——重启后尚未起播时也能标出上次那一集
+- **设置面板新增「记忆播放」「选集记忆」条目**：记忆播放开关可即时切换（无需重启）；选集记忆显示上次看到第几集，并提供清除
+- **v3 demo 扩展示例按钮**：在原有 4 个按钮后追加 8 组共 16 个示例（播放控制、面板入口、记忆与弹幕、调节与信息）。门面同步补齐 `showSetup`/`showPlaylist`/`showSkipSetting`/`togglePlay`/`toggleDanmaku` 等便捷入口
 
 ### 🐛 修复
 
 - **下载中重开面板进度丢失**：关掉面板后下载继续跑（`detachCallback` 是有意设计），但重开时 UI 无法感知「正在下载」——ASR 字幕设置与扩展包面板都表现为进度凭空消失、状态退回「未下载/未安装」，再点还会被拒（"下载已在进行中"）。根因是 `ResumableFileDownloader.mCallback` 为单字段、`download()` 遇重复调用直接拒绝。新增 `attachCallback()`（只换回调不重发）与进度快照，`NativeLibManager` 加进程级状态表，两处 UI 重开时接管进度
 - **门面替换 controller 导致画中画后点击全失灵**：`init()` 无条件 `new OrangeVideoController` 再 `setVideoController`，触发旧实例 `releaseOnReplaced()` → `VideoEventManager.release()` → `stopOcrTranslate()`；后者检测到 Exo 默认的 `forceTextureViewMode=true` 就 release 播放器 + `releaseAllVideos` + 重新 `setUp` + 切回 SurfaceView（并弹「已切换回 SurfaceView 模式」）。真机表现为画面仍在但触摸无响应。改为复用 `getVideoController()`，仅 null 时兜底新建
 - **宿主直接实现 `TorrentCallback` 会崩**：该接口的父类实现了 `org.libtorrent4j.AlertListener`，宿主未引入 libtorrent4j 时在**类加载期**解析父接口失败 → `NoClassDefFoundError`，连 SDK 的「组件未安装」提示都走不到。门面新增自有的 `TorrentListener`（不引用 torrent 包任何类型）+ 前置门禁 `isTorrentAvailable()`
+- **记忆播放每次重进都是新进度**：进度用 `mVideoUrl` 作存储键，而 M3U8 去广告会把它改写成回环代理地址 `http://127.0.0.1:<port>/cleaned/<hash>.m3u8`——**端口每次启动随机分配**（真机实测同一视频三次启动分别是 41167 / 39725 / 37161，hash 固定），跨启动读写永远不命中。改为统一用原始播放源作键，覆盖 5 个进度方法与播放历史自动保存
+- **去广告开关不持久化**：门面 `init()` 硬编码 `setEnabled(true)`，每次启动覆盖用户选择；且 SDK 侧 `isAdRemovalEnabled()` 无任何回读调用点。`M3U8AdManager` 改为构造时从持久化设置恢复；门面改为「仅在用户从未设置过时写默认值」，保持默认体验但不再覆盖用户选择
+- **第一集播放不显示标题**：`updateTitleViewDisplay` 的两条路径都要求 TitleView 的 `windowToken` 非 null，而 iApp 的 `loading` 事件在布局刚加载时调 `setVideoSource`，此时必然附加不了，标题静默丢失（后续集经 `playEpisode` 设置时视图已附加，故只有第一集受影响）。改为在 `onPrepared`（视图必定已附加）补显示
+- **选集「点下一集提示已经是最后一集了」**：`playNextEpisode()` 用 `getUrl()` 与列表做全等匹配定位当前集，但 `getUrl()` 返回的是**当前实际在播的地址**，去广告后已变成回环代理地址，索引恒为 -1。改为按「原始播放源 → 当前地址 → 忽略 query」三级精确匹配。同一个 bug 的另一处（选集对话框的当前集高亮）一并修复
+- **选集拿到 HTML 分享页地址**：采集接口的 `vod_play_url` 用 `$$$` 分成多条线路，而 iyu 只取第一段。实测两条线路性质完全不同——`liangzi` 返回 `text/html` 分享页，`lzm3u8` 才是真 m3u8。新增 `VodPlayUrlParser` 按地址形态挑选可播线路，并兼容 `list` 为对象/数组两种形态
+- **ASR 进度环冻结在 86%**：引擎报的是**阶段内进度**（每阶段从 0 重启），而消费侧按全局映射 + 单调守卫，后续阶段被吞掉。改为补上抽音频与说话人分离的真实进度
+- **CRLF 字幕只解析出第一条**：字幕读入从 `readLine()` 换成按字节读后，丢掉了行尾规范化副作用；而 `parseSrt` 用 `split("\n\n")` 分块，CRLF 切不开导致整个文件挤成一块、每块只取首个时间行。已在读取阶段规范化行尾
+- **字幕读入无上限导致 OOM**：误填视频地址时会把整个视频当字幕读入。加上读取上限
+- **内置组件探测只在首次**：原用 `sInjectedDir` 作「是否已探测」的代理标记，但它只在注入成功时赋值，ABI 不支持时恒为 null → 每次 `install()` 都重探，等于没修。改用独立状态位 `sProbed`
+- **iApp jar 集成下 MLKit 翻译初始化失败**：jar 无 manifest，`MlKitInitProvider` 不会注册。补显式 `initializeIfNeeded(Context, List<ComponentRegistrar>)`
+- **iApp 跨 dex 脱糖缺口**：iApp 对 `sdk/` 下每个文件独立 dex 且以 min-api < 24 运行，实现类与接口分属不同 dex 时不会补 default 方法转发 → `AbstractMethodError`；静态接口方法调用保留原样 → `NoSuchMethodError`。新增 `tools/iapp-desugar-bridge`（ASM 字节码改写），实测消除 18 组跨 aar 缺口共 1207 处
+- **字幕设置面板未继承主题**：面板跟随宿主 Material3 配色（`<Button>` 被换成 MaterialButton 自带 inset、`<Switch>` 用 colorSecondary）。改为纯 `TextView` + 显式 drawable + 文本开关，并修滑入动效失效（四个面板都缺 `content_layout`）、重复分隔线、OCR 面板误用 `CENTER` 导致无毛玻璃、`setOnClickListener(null)` 后仍可点等 14 项
+- **「只提示不给路」的交互**：AI 设置缺翻译组件、ASR 未集成、AI 批量翻译缺字幕等分支此前只弹一句 toast，用户无路可走。均改为给出跳转或安装指引
 
 ### 🏗️ 构建与发布
 
 - **组件 zip 增加 Gitee 分发**：`tools/sync-to-gitee.ps1` 支持同步 so 包，与 APK 一并上传，作为国内下载兜底
+- **iApp aar 脱糖补丁工具**：`tools/iapp-desugar-bridge`（`patch_aars.py` + ASM 改写）。**每次更新本地 aar 后必须重打**，否则退回 `AbstractMethodError`
 
 ---
 
