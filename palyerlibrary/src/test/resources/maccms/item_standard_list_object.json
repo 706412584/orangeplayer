@@ -1,0 +1,15 @@
+{
+  "page": 1,
+  "total": 1,
+  "code": 1,
+  "msg": "数据列表",
+  "list": {
+    "data": [
+      {
+        "vod_name": "剑来",
+        "vod_play_from": "liangzi$$$lzm3u8",
+        "vod_play_url": "第01集$https://v.cdnlz22.com/share/94ef7214c4a90790186e255304f8fd1f#第02集$https://v.cdnlz22.com/share/9d752cb08ef466fc480fba981cfa44a1$$$第01集$https://v.cdnlz22.com/20240815/3725_2916c479/index.m3u8#第02集$https://v.cdnlz22.com/20240815/3734_7cd1c271/index.m3u8"
+      }
+    ]
+  }
+}

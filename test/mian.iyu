@@ -238,45 +238,11 @@ t()
 	
 	javax(视频管理器,null,Playmanager,"getInstance")
 	fr("@item.json",xjdata)
-	json(xjdata,dajs)
-	json(dajs,"list","list",选集列表)
-	json(选集列表,"data",0,xjlist)
-	json(xjlist,"get","vod_play_url",播放源)
-	sj(播放源,"$$$",null,选集)
-	sl(选集,"#",xjsz)
-	json("[]",zhdata)
-	s czsj=0
-	for(lb;xjsz)
-	{
-		sl(lb,"$",选集数据)
-		sgsz(选集数据,0,标题)
-		sgsz(选集数据,1,播放地址)
-		f(标题==null||标题==""||标题=="null")
-		{
-			endcode
-		}
-		json("{}",items)
-		json(items,"set","name",标题)
-		json(items,"set","url",播放地址)
-		json(items,"set","isSpecial",false)
-		json(zhdata,"set",czsj,items)
-		s+(1,czsj)
-	}
-	
-	json(zhdata,"size",gxsize)
-	
-	f(gxsize&gt;0)
-	{
-		
-		javax(null,视频管理器,Playmanager,"addVideosFromJsonArray","org.json.JSONArray",zhdata)
-		//传入完毕
-		
-		syso("传入选集")
-		
-	}else
-	{
-		syso("选集数量0")
-	}
+	//解析交给 SDK：采集源的 vod_play_url 用 $$$ 分成多条线路，
+	//且不是每条线路都可播（实测「liangzi」线路返回的是 HTML 分享页，
+	//「lzm3u8」才是真 m3u8 直链）。SDK 会按地址形态挑出可播的那条线路，
+	//并正确切分 # 剧集、$ 标题与地址，避免把网页地址当视频播放。
+	javax(null,视频管理器,Playmanager,"addVideosFromMacCmsJson","String",xjdata)
 	
 }</eventItme><eventItme type="destroy">cls("com.orange.player.VideoPlayerManager",Playmanager)
 

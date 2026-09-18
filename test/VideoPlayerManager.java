@@ -645,7 +645,70 @@ public class VideoPlayerManager {
             debug("解析JSON数组失败：" + e.getMessage());
         }
     }
-    
+
+    /**
+     * 从 MacCMS（苹果 CMS）采集接口的选集 JSON 批量添加选集。
+     *
+     * <p>采集接口返回的 {@code vod_play_url} 形如：
+     * <pre>
+     * "第01集$url1#第02集$url2$$$第01集$url3#第02集$url4"
+     *  └──── 线路0（liangzi）────┘└── 线路1（lzm3u8）──┘
+     * </pre>
+     * {@code $$$} 分隔线路、{@code #} 分隔剧集、{@code $} 分隔「剧集名」与「播放地址」。
+     * 不同线路的同一集地址完全不同，且**并非所有线路都是可播直链**——实测同一采集源里
+     * {@code liangzi} 线路返回 HTML 播放页，{@code lzm3u8} 才是真 m3u8。因此必须挑线路，
+     * 不能把各线路拼在一起（剧集会重复且混入不可播地址）。
+     *
+     * <p>调用方式（iApp）：
+     * <pre>
+     * javax(null, 视频管理器, Playmanager, "addVideosFromMacCmsJson", "String", json文本)
+     * </pre>
+     * json 文本需含 {@code list[0].vod_play_url} 与（可选）{@code list[0].vod_play_from}。
+     *
+     * @param jsonStr 采集接口返回的完整 JSON 文本
+     * @return 实际添加的集数；解析失败返回 0
+     */
+    public int addVideosFromMacCmsJson(String jsonStr) {
+        if (jsonStr == null || jsonStr.isEmpty()) {
+            debug("addVideosFromMacCmsJson: 输入为空");
+            return 0;
+        }
+        // JSON 结构提取放在库侧（VodPlayUrlParser.parseJson），那里有单测覆盖
+        return addVideosFromMacCmsResult(
+                com.orange.playerlibrary.utils.VodPlayUrlParser.parseJson(jsonStr));
+    }
+
+    /**
+     * 从采集接口的 {@code vod_play_url} / {@code vod_play_from} 原文添加选集。
+     *
+     * @return 实际添加的集数
+     */
+    public int addVideosFromMacCmsItem(String vodPlayUrl, String vodPlayFrom) {
+        return addVideosFromMacCmsResult(
+                com.orange.playerlibrary.utils.VodPlayUrlParser.parse(vodPlayUrl, vodPlayFrom));
+    }
+
+    /**
+     * 把解析结果写入播放器的选集列表。
+     */
+    private int addVideosFromMacCmsResult(
+            com.orange.playerlibrary.utils.VodPlayUrlParser.Result r) {
+        if (r == null || r.isEmpty()) {
+            debug("addVideosFromMacCms: 无有效剧集");
+            return 0;
+        }
+        debug("addVideosFromMacCms: 选中线路[" + r.groupIndex + "]=" + r.groupName
+                + "，共 " + r.episodes.size() + " 集");
+        int added = 0;
+        for (int i = 0; i < r.episodes.size(); i++) {
+            com.orange.playerlibrary.utils.VodPlayUrlParser.Episode ep = r.episodes.get(i);
+            String name = ep.name != null ? ep.name : ("第" + (i + 1) + "集");
+            addVideo(name, ep.url, false);
+            added++;
+        }
+        return added;
+    }
+
     /**
      * 解析颜色字符串
      */
