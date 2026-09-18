@@ -111,17 +111,30 @@ public class VideoPlayerManager {
         }
 
         // ===== 设置项 =====
-        com.orange.playerlibrary.M3U8AdManager.getInstance(activity).setEnabled(true); // 开启 M3U8 去广告
         // 下载路径：应用私有目录，避免外部存储权限问题
         java.io.File privateDir = new java.io.File(activity.getFilesDir(), "MyCustomDownload");
         com.orange.playerlibrary.download.SimpleDownloadManager.getInstance(activity)
                 .setDownloadPath(privateDir.getAbsolutePath());
         PlayerSettingsManager settings = PlayerSettingsManager.getInstance(activity);
-        settings.setDownloadEnabled(true);      // 下载功能
-        settings.setMemoryPlayEnabled(true);    // 记忆播放
+
+        // 去广告 / 记忆播放：不再无条件写死 true。
+        //
+        // 原来 init() 里 setEnabled(true) + setMemoryPlayEnabled(true) 会在每次启动
+        // 覆盖用户在设置弹窗里的选择，表现为「开关没有持久化」。改为：仅当用户从未
+        // 设置过时才写入默认值（保持 v3 原有默认体验），之后一律以用户选择为准。
+        settings.applyAdRemovalDefaultIfAbsent(true);
+        settings.applyMemoryPlayDefaultIfAbsent(true);
+
+        com.orange.playerlibrary.M3U8AdManager adManager =
+                com.orange.playerlibrary.M3U8AdManager.getInstance(activity);
+        adManager.setEnabled(settings.isAdRemovalEnabled());
+        debug("init: 去广告开关 = " + adManager.isEnabled()
+                + " (用户设置过=" + settings.hasAdRemovalPreference() + ")");
 
         // 记忆播放开关作用于本实例
-        this.mVideoView.setKeepVideoPlaying(true);
+        this.mVideoView.setKeepVideoPlaying(settings.isMemoryPlayEnabled());
+        debug("init: 记忆播放 = " + settings.isMemoryPlayEnabled()
+                + " (用户设置过=" + settings.hasMemoryPlayPreference() + ")");
 
         // 内核：沿用用户上次的选择；没有则用默认。都走 selectEngine 的可用性门禁，
         // 避免把未下载的内核写进偏好（那样播放时会静默回退到系统内核）。
@@ -320,6 +333,50 @@ public class VideoPlayerManager {
         if (this.mVideoView.isPlaying()) {
             this.mVideoView.pause();
         }
+    }
+
+    /**
+     * 播放/暂停切换（供 iApp 的单个按钮复用）。
+     *
+     * @return true 表示切换后处于播放中
+     */
+    public boolean togglePlay() {
+        checkInitState();
+        if (this.mVideoView.isPlaying()) {
+            this.mVideoView.pause();
+            return false;
+        }
+        this.mVideoView.start();
+        return true;
+    }
+
+    /**
+     * 是否正在播放。
+     */
+    public boolean isPlaying() {
+        return this.mVideoView != null && this.mVideoView.isPlaying();
+    }
+
+    /**
+     * 切换弹幕显示开关。
+     *
+     * @return true 表示切换后弹幕开启
+     */
+    public boolean toggleDanmaku() {
+        if (mDanmakuController == null) {
+            debug("toggleDanmaku: 弹幕控制器未初始化");
+            return false;
+        }
+        boolean enabled = !mDanmakuController.isDanmakuEnabled();
+        mDanmakuController.setDanmakuEnabled(enabled);
+        return enabled;
+    }
+
+    /**
+     * 弹幕是否开启。
+     */
+    public boolean isDanmakuEnabled() {
+        return mDanmakuController != null && mDanmakuController.isDanmakuEnabled();
     }
     
     /**
@@ -706,6 +763,15 @@ public class VideoPlayerManager {
             addVideo(name, ep.url, false);
             added++;
         }
+        // 列表就绪后自动切回上次播放的那一集（选集记忆）并起播。
+        // 内部走 playEpisode，与用户点选集同一条路径。
+        if (added > 0 && mVideoController != null
+                && mVideoController.getVideoEventManager() != null) {
+            int restored = mVideoController.getVideoEventManager().restoreLastEpisode();
+            if (restored >= 0) {
+                debug("addVideosFromMacCms: 已恢复到第 " + (restored + 1) + " 集");
+            }
+        }
         return added;
     }
 
@@ -855,6 +921,45 @@ public class VideoPlayerManager {
     }
 
     /**
+     * 恢复上次播放的那一集（选集记忆）。
+     *
+     * <p>切集时会自动持久化当前集；重启后由本方法切回去并开始播放。
+     * 进度秒数由记忆播放按单集 URL 绑定，无需额外处理。
+     *
+     * @return 恢复到的集数下标（从 0 开始）；无记录或列表为空返回 -1
+     */
+    public int restoreLastEpisode() {
+        if (mVideoController == null || mVideoController.getVideoEventManager() == null) {
+            debug("restoreLastEpisode: 播放器未初始化");
+            return -1;
+        }
+        return mVideoController.getVideoEventManager().restoreLastEpisode();
+    }
+
+    /**
+     * 取上次播放的集数下标（无副作用），供 UI 高亮。
+     *
+     * @return 下标（从 0 开始）；无记录返回 -1
+     */
+    public int getLastEpisodeIndex() {
+        if (mVideoController == null || mVideoController.getVideoEventManager() == null) {
+            return -1;
+        }
+        return mVideoController.getVideoEventManager().getLastEpisodeIndex();
+    }
+
+    /**
+     * 清除选集记忆（下次启动从头播）。
+     */
+    public void clearLastEpisode() {
+        if (mActivity == null) {
+            return;
+        }
+        PlayerSettingsManager.getInstance(mActivity).clearLastEpisodeIndex(
+                "s" + mVideoController.getVideoEventManager().getSeriesKeyForStorage());
+    }
+
+    /**
      * 播放方式：顺序 / 单集循环 / 列表循环 / 随机。
      *
      * @param mode 见 PlayerSettingsManager 的取值约定
@@ -925,6 +1030,39 @@ public class VideoPlayerManager {
             return;
         }
         mVideoController.getVideoEventManager().showNativeLibsDialog();
+    }
+
+    /**
+     * 打开播放设置面板（倍速、画面比例、跳过片头尾、去广告、记忆播放等）。
+     */
+    public void showSetup() {
+        if (mVideoController == null || mVideoController.getVideoEventManager() == null) {
+            debug("showSetup: 播放器未初始化");
+            return;
+        }
+        mVideoController.getVideoEventManager().showSetupDialog();
+    }
+
+    /**
+     * 打开选集列表（列表为空时提示「暂无选集」）。
+     */
+    public void showPlaylist() {
+        if (mVideoController == null || mVideoController.getVideoEventManager() == null) {
+            debug("showPlaylist: 播放器未初始化");
+            return;
+        }
+        mVideoController.getVideoEventManager().showPlaylistDialog();
+    }
+
+    /**
+     * 打开跳过片头/片尾设置。
+     */
+    public void showSkipSetting() {
+        if (mVideoController == null || mVideoController.getVideoEventManager() == null) {
+            debug("showSkipSetting: 播放器未初始化");
+            return;
+        }
+        mVideoController.getVideoEventManager().showSkipDialog();
     }
 
     /**

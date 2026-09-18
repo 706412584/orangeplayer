@@ -8,7 +8,7 @@ gravity=center_vertical</ppt>
 
 javax(视频管理器,null,Playmanager,"getInstance")
 
-//暂停播放器
+//恢复播放
 javax(null,视频管理器,Playmanager,"onVideoResume")
 
 syso("播放")</eventItme></event>
@@ -34,7 +34,7 @@ background=through</ppt>
 padding=5dp
 layout_margin=5dp
 height=-2
-text=Orange播放器plusv1.7_完美继承DK播放器vison.3.3.7\n1.新增选集界面\n2.优化弹窗沉浸，点击不显示底部导航栏\n3.设置新增保存视频功能，可触发下载事件\n4.设置支持阿里云,ijk内核,exo内核,android系统内核切换\n5.支持视频TCP网速加载显示0KB/s\n6.设置支持剧集顺序播放设置\n7.0.35x-10.0x无级变速播放\n8.新增下一集按钮\n9.新增投屏功能\n10.新增拖动进度小窗预览窗口\n11.支持播放顺序切换\n12.新增下一集按钮实现！\n13.新增实时弹幕，自定义弹幕，批量时间段弹幕\n14.新增视频嗅探播放功能\n15.新增视频第一帧缩略图显示(不支持m3u8格式)\n16.新增支持28种内置加载动画切换\n更新时间2025-8-21</ppt>
+text=Orange播放器V3_剔除so按需下载版\n1.默认ExoPlayer内核（纯Java解码，装完即用无需下载）\n2.IJK/阿里云/MPV内核通过「扩展包下载」按需拉取so\n3.内核切换持久保存，重启后生效不被覆盖\n4.新增选集界面\n5.设置支持视频保存下载\n6.支持0.35x-10.0x无级变速播放\n7.支持投屏功能\n8.拖动进度小窗预览\n9.实时弹幕/自定义弹幕/批量时间段弹幕\n10.视频嗅探播放\n11.28种内置加载动画切换\n更新时间2026-9-15</ppt>
 <event></event>
 </View>
 <View id="6" did="0" type="ScrollView">
@@ -72,8 +72,8 @@ cls("com.orange.player.VideoPlayerManager",Playmanager)
 
 javax(视频管理器,null,Playmanager,"getInstance")
 
-javax(null,视频管理器,Playmanager,"selectEngine","String","default")
-
+//注意：不要再硬编码 selectEngine，否则会覆盖用户选择的内核。
+//内核以「内核切换」按钮的选择为准，init 时自动沿用上次选择（默认exo）。
 javax(null,视频管理器,Playmanager,"stop")
 
 javax(null,视频管理器,Playmanager,"setVideoSource","String",url,"String","未知视频")
@@ -100,18 +100,304 @@ javax(视频管理器,null,Playmanager,"getInstance")
 
 javax(null,视频管理器,Playmanager,"stop")
 javax(null,视频管理器,Playmanager,"setVideoSource","String",url,"String","未知视频")
-//开始播放
+//开始播放（嗅探模式）
 javax(null,视频管理器,Playmanager,"startSniffing")</eventItme></event>
 </View>
-<UIEventset><eventItme type="loading">//注意，v3编辑权限配置，更多权限配置打开后才能正常编译，正式打包后才有效果。在线运行不支持。因为需要编译sdk/如果觉得包体太大，去掉xyz.doikki.android.dkplayer:player-ijk:3.3.7依赖后大概10M左右的大小，去掉阿里内com.aliyun.sdk.android:AliyunPlayer:5.4.7.1-full后大概5-6M大小，只保留系统内核。
+<View id="11" did="0" type="LinearLayout">
+<ppt>width=-1
+height=-2
+orientation=horizontal
+gravity=center_vertical</ppt>
+<event></event>
+</View>
+<View id="12" did="11" type="Button">
+<ppt>width=0dp
+height=-2
+text=内核切换
+layout_weight=1
+layout_margin=5dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+//弹内核选择对话框（门面内部处理可用性判断与扩展包跳转）
+javax(null,视频管理器,Playmanager,"showEngineChooser")</eventItme></event>
+</View>
+<View id="13" did="11" type="Button">
+<ppt>width=0dp
+height=-2
+text=扩展包下载
+layout_weight=1
+layout_margin=5dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+//打开扩展包管理面板：播放内核so / m3u8合并 / 下载组件 等按需下载
+javax(null,视频管理器,Playmanager,"showNativeLibs")</eventItme></event>
+</View>
+<View id="21" did="0" type="LinearLayout">
+<ppt>width=-1
+height=-2
+orientation=horizontal
+gravity=center_vertical</ppt>
+<event></event>
+</View>
+<View id="22" did="21" type="Button">
+<ppt>width=0dp
+height=-2
+text=暂停继续
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"togglePlay")</eventItme></event>
+</View>
+<View id="23" did="21" type="Button">
+<ppt>width=0dp
+height=-2
+text=停止
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"stop")</eventItme></event>
+</View>
+<View id="24" did="0" type="LinearLayout">
+<ppt>width=-1
+height=-2
+orientation=horizontal
+gravity=center_vertical</ppt>
+<event></event>
+</View>
+<View id="25" did="24" type="Button">
+<ppt>width=0dp
+height=-2
+text=全屏
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"toggleFullScreen")</eventItme></event>
+</View>
+<View id="26" did="24" type="Button">
+<ppt>width=0dp
+height=-2
+text=画中画
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"enterPiP")</eventItme></event>
+</View>
+<View id="27" did="0" type="LinearLayout">
+<ppt>width=-1
+height=-2
+orientation=horizontal
+gravity=center_vertical</ppt>
+<event></event>
+</View>
+<View id="28" did="27" type="Button">
+<ppt>width=0dp
+height=-2
+text=设置面板
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"showSetup")</eventItme></event>
+</View>
+<View id="29" did="27" type="Button">
+<ppt>width=0dp
+height=-2
+text=选集列表
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"showPlaylist")</eventItme></event>
+</View>
+<View id="30" did="0" type="LinearLayout">
+<ppt>width=-1
+height=-2
+orientation=horizontal
+gravity=center_vertical</ppt>
+<event></event>
+</View>
+<View id="31" did="30" type="Button">
+<ppt>width=0dp
+height=-2
+text=跳过片头尾
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"showSkipSetting")</eventItme></event>
+</View>
+<View id="32" did="30" type="Button">
+<ppt>width=0dp
+height=-2
+text=字幕开关
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"toggleSubtitle")</eventItme></event>
+</View>
+<View id="33" did="0" type="LinearLayout">
+<ppt>width=-1
+height=-2
+orientation=horizontal
+gravity=center_vertical</ppt>
+<event></event>
+</View>
+<View id="34" did="33" type="Button">
+<ppt>width=0dp
+height=-2
+text=恢复上次
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"restoreLastEpisode")</eventItme></event>
+</View>
+<View id="35" did="33" type="Button">
+<ppt>width=0dp
+height=-2
+text=清除记录
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"clearLastEpisode")</eventItme></event>
+</View>
+<View id="36" did="0" type="LinearLayout">
+<ppt>width=-1
+height=-2
+orientation=horizontal
+gravity=center_vertical</ppt>
+<event></event>
+</View>
+<View id="37" did="36" type="Button">
+<ppt>width=0dp
+height=-2
+text=弹幕开关
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"toggleDanmaku")</eventItme></event>
+</View>
+<View id="38" did="36" type="Button">
+<ppt>width=0dp
+height=-2
+text=发弹幕
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"sendDanmu","String","测试弹幕","String","#ffe5a845","boolean",false)</eventItme></event>
+</View>
+<View id="39" did="0" type="LinearLayout">
+<ppt>width=-1
+height=-2
+orientation=horizontal
+gravity=center_vertical</ppt>
+<event></event>
+</View>
+<View id="40" did="39" type="Button">
+<ppt>width=0dp
+height=-2
+text=倍速1.5
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"setPlaybackSpeed","float",1.5)</eventItme></event>
+</View>
+<View id="41" did="39" type="Button">
+<ppt>width=0dp
+height=-2
+text=倍速1.0
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"setPlaybackSpeed","float",1.0)</eventItme></event>
+</View>
+<View id="42" did="0" type="LinearLayout">
+<ppt>width=-1
+height=-2
+orientation=horizontal
+gravity=center_vertical</ppt>
+<event></event>
+</View>
+<View id="43" did="42" type="Button">
+<ppt>width=0dp
+height=-2
+text=顺序播放
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"setPlayMode","String","sequential")</eventItme></event>
+</View>
+<View id="44" did="42" type="Button">
+<ppt>width=0dp
+height=-2
+text=全屏设置
+layout_weight=1
+layout_margin=4dp</ppt>
+<event><eventItme type="clicki">cls("com.orange.player.VideoPlayerManager",Playmanager)
+
+javax(视频管理器,null,Playmanager,"getInstance")
+
+javax(null,视频管理器,Playmanager,"showSetup")</eventItme></event>
+</View>
+
+<UIEventset><eventItme type="loading">//注意，v3编辑权限配置，更多权限配置打开后才能正常编译，正式打包后才有效果。在线运行不支持。因为需要编译sdk/
+//本版为「剔除so按需下载」：所有 aar 已去 jni/ so，APK 很小；
+//IJK/阿里/MPV 等内核首次使用时到「扩展包下载」拉取对应组件即可。
+
 //QQ706412584，原创禁止共享空间倒卖
+
+//开源https://github.com/706412584/orangeplayer
 
 /.activity的标签需要设置&lt;activity android:name="填你的activity名字，具体参考本demo" android:exported="true" android:screenOrientation="portrait" android:supportsPictureInPicture="true" android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation" android:resizeableActivity="true"&gt;
 否则无法开启全屏个画中画
 ./
 
 
-tw("yyds666")
 
 cls("com.orange.player.VideoPlayerManager",Playmanager)
 
@@ -126,16 +412,14 @@ gvs(4,playui)
 javax(视频管理器,null,Playmanager,"getInstance")
 
 
-//初始化播放器
+//初始化播放器（init内部自动沿用上次内核选择，默认ExoPlayer，无需再手动selectEngine）
 javax(null,视频管理器,Playmanager,"init","android.app.Activity",activity,"android.view.ViewGroup",playui)
 //设置加载动画 1-28，默认22
 javax(null,视频管理器,Playmanager,"setLoading","int",22)
 
 //设置数据源，标题可为空""
 javax(null,视频管理器,Playmanager,"setVideoSource","String",videourl2,"String","剑来-第一集")
-//开始播放
-javax(null,视频管理器,Playmanager,"selectEngine","String","ali")
-
+//开始播放（需要时取消注释）
 //javax(null,视频管理器,Playmanager,"start")
 //开启投屏（新版SDK需要用户自行实现投屏功能）
 //javax(null,视频管理器,Playmanager,"openScreenTv")
@@ -143,6 +427,8 @@ javax(null,视频管理器,Playmanager,"selectEngine","String","ali")
 //javax(null,视频管理器,Playmanager,"setFullScreenVertical","boolean",true)
 //显示下一集（新版SDK通过VideoList自动管理选集按钮）
 //javax(null,视频管理器,Playmanager,"setPlayNextVisibility","boolean",true)
+//切换内核示例（默认exo无需；ijk/ali/mpv需先下载扩展包，否则返回false并提示）
+//f(javax(null,视频管理器,Playmanager,"selectEngine","String","ijk")==false){ tw("IJK未下载，请到扩展包下载") }
 
 
 //显示下一集
@@ -173,7 +459,7 @@ javacb(hd,DebugLogger)
 		sgsz(st_aS,1,msg)
 		syso(tag+":"+msg)
 	}
-	
+
 }
 
 javax(null,null,Controller,"setDebugLogger",DebugLogger,hd)
@@ -186,9 +472,9 @@ javax(null,null,Controller,"setdebug","boolean",true)
 //批量设置弹幕
 t()
 {
-	
+
 	syso("准备加载弹幕")
-	
+
 	javax(视频管理器,null,Playmanager,"getInstance")
 	fr("@danmu.json",danmu)
 	json(danmu,dajs)
@@ -213,37 +499,71 @@ t()
 		json(zhdatas,"set",czsj,items)
 		s+(1,czsj)
 	}
-	
+
 	json(zhdatas,"size",gxsize)
-	
+
 	f(gxsize&gt;0)
 	{
-		
+
 		javax(code,视频管理器,Playmanager,"setDanmuListFromJson","org.json.JSONArray",zhdatas)
-		
+
 		//传入完毕
-		
+
 		syso("传入弹幕"+code)
-		
+
 	}else
 	{
 		syso("弹幕数量0")
 	}
-	
+
 }
 //批量设置选集
 t()
 {
 	syso("准备选集")
-	
+
 	javax(视频管理器,null,Playmanager,"getInstance")
 	fr("@item.json",xjdata)
-	//解析交给 SDK：采集源的 vod_play_url 用 $$$ 分成多条线路，
-	//且不是每条线路都可播（实测「liangzi」线路返回的是 HTML 分享页，
-	//「lzm3u8」才是真 m3u8 直链）。SDK 会按地址形态挑出可播的那条线路，
-	//并正确切分 # 剧集、$ 标题与地址，避免把网页地址当视频播放。
-	javax(null,视频管理器,Playmanager,"addVideosFromMacCmsJson","String",xjdata)
-	
+	json(xjdata,dajs)
+	json(dajs,"list","list",选集列表)
+	json(选集列表,"data",0,xjlist)
+	json(xjlist,"get","vod_play_url",播放源)
+	sj(播放源,"$$$",null,选集)
+	sl(选集,"#",xjsz)
+	json("[]",zhdata)
+	s czsj=0
+	for(lb;xjsz)
+	{
+		sl(lb,"$",选集数据)
+		sgsz(选集数据,0,标题)
+		sgsz(选集数据,1,播放地址)
+		f(标题==null||标题==""||标题=="null")
+		{
+			endcode
+		}
+		json("{}",items)
+		json(items,"set","name",标题)
+		json(items,"set","url",播放地址)
+		json(items,"set","isSpecial",false)
+		json(zhdata,"set",czsj,items)
+		s+(1,czsj)
+	}
+
+	json(zhdata,"size",gxsize)
+
+	f(gxsize&gt;0)
+	{
+
+		javax(null,视频管理器,Playmanager,"addVideosFromJsonArray","org.json.JSONArray",zhdata)
+		//传入完毕
+
+		syso("传入选集")
+
+	}else
+	{
+		syso("选集数量0")
+	}
+
 }</eventItme><eventItme type="destroy">cls("com.orange.player.VideoPlayerManager",Playmanager)
 
 javax(视频管理器,null,Playmanager,"getInstance")
@@ -262,18 +582,18 @@ javax(null,视频管理器,Playmanager,"onPause")
 
 javax(视频管理器,null,Playmanager,"getInstance")
 
-//暂停播放器
+//恢复播放
 javax(null,视频管理器,Playmanager,"onVideoResume")</eventItme><eventItme type="downkey">f(st_kC==4)
 {
-	
+
     cls("com.orange.player.VideoPlayerManager",Playmanager)
-    
+
     cls("com.orange.playerlibrary.OrangevideoView",videoView)
-    
+
     javax(视频管理器,null,Playmanager,"getInstance")
-    
+
     javax(isfull,视频管理器,Playmanager,"isFullScreen")
-    
+
     f(isfull==true)
     {
     	javax(null,视频管理器,Playmanager,"toggleFullScreen")
