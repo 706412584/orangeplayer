@@ -63,6 +63,41 @@ public class M3U8AdRemovalStateTest {
         assertFalse(state.isBypassOnce());
     }
 
+    /**
+     * 回归：clear() 不得清掉 mSourceUrl。
+     *
+     * clear() 在每次 setUp 开头都会执行。去广告绑定与引擎切换等内部路径会用
+     * 回环代理地址/本地路径重新 setUp，此时 clear() 先清空、而 rememberSourceUrl
+     * 又因地址是回环而拒绝写回 → 源地址永久丢失 → 选集索引反查恒为 -1，
+     * 表现为「点下一集提示已经是最后一集了」。
+     */
+    @Test
+    public void clear_不清除sourceUrl_否则选集索引反查会失效() {
+        String source = "https://v.example.com/20240815/3725/index.m3u8";
+        state.setSourceUrl(source);
+
+        state.clear();
+
+        assertEquals("clear() 必须保留调用方原始播放源", source, state.getSourceUrl());
+    }
+
+    @Test
+    public void cancelPendingRequests_不清除sourceUrl() {
+        String source = "https://v.example.com/a/index.m3u8";
+        state.setSourceUrl(source);
+
+        state.cancelPendingRequests();
+
+        assertEquals(source, state.getSourceUrl());
+    }
+
+    @Test
+    public void sourceUrl_可被后续setUp覆盖() {
+        state.setSourceUrl("https://a.com/1.m3u8");
+        state.setSourceUrl("https://a.com/2.m3u8");
+        assertEquals("https://a.com/2.m3u8", state.getSourceUrl());
+    }
+
     @Test
     public void clear_递增请求token_用于作废过期回调() {
         int tokenBefore = state.getRequestToken();

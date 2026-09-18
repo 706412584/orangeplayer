@@ -3119,10 +3119,17 @@ public class VideoEventManager {
     public void playNextEpisode() {
         ArrayList<HashMap<String, Object>> videoList = mController.getVideoList();
         if (videoList == null || videoList.isEmpty()) {
+            android.util.Log.d("VideoEventManager", "playNextEpisode: videoList 为空, size="
+                    + (videoList == null ? "null" : videoList.size()));
             return;
         }
 
         int currentIndex = findCurrentEpisodeIndex(videoList);
+        android.util.Log.d("VideoEventManager", "playNextEpisode: size=" + videoList.size()
+                + ", currentIndex=" + currentIndex
+                + ", sourceUrl=" + mVideoView.getSourceUrl()
+                + ", playingUrl=" + mVideoView.getUrl()
+                + ", item[0]=" + getItemUrl(videoList, 0));
 
         if (currentIndex >= 0 && currentIndex < videoList.size() - 1) {
             playEpisode(currentIndex + 1);

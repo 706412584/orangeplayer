@@ -1492,6 +1492,8 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo info =
                 com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(url);
         if (info.isLoopbackProxy || info.isLocalFile) {
+            // 内部路径（去广告绑定、引擎切换）会用回环代理/本地路径重新 setUp，
+            // 那不是调用方的原始地址，不能覆盖已有值。
             return;
         }
         mAdState.setSourceUrl(url);

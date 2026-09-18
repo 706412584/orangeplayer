@@ -42,7 +42,12 @@ public class M3U8AdRemovalState {
         mDiscontinuityCheckedUrl = null;
         mBypassOnce = false;
         mOriginalUrl = null;
-        mSourceUrl = null;
+        // 注意：mSourceUrl 不在这里清。它记录的是「调用方传入的播放源」，
+        // 语义上属于播放会话，而不是去广告流程的临时状态。clear() 会在每次
+        // setUp 开头被调用，若在此清空，任何「用回环代理/本地路径重新 setUp」
+        // 的内部路径（去广告绑定、引擎切换）都会先把源地址抹掉，
+        // 而随后的 rememberSourceUrl 又会因地址是回环而拒绝写回，
+        // 导致源地址永久丢失、选集索引反查恒为 -1。
         mOriginalHeaders = null;
         mOriginalTitle = "";
         mOriginalCacheWithPlay = true;
