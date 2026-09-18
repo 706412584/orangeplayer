@@ -831,6 +831,80 @@ public class VideoEventManager {
     }
     
     /**
+     * 恢复上次播放的集数（选集记忆）。
+     *
+     * <p>由调用方在「选集列表填充完成后」调用一次。内部直接走 {@link #playEpisode(int)}，
+     * 与用户点选集完全同一条路径（切源 + 设标题 + 起播），因此会立即开始播放该集；
+     * 进度续播由播放器自身的记忆播放（按单集 URL 绑定）在 onPrepared 阶段完成。
+     *
+     * @return 实际恢复到的集数下标；无记录或列表为空时返回 -1
+     */
+    public int restoreLastEpisode() {
+        ArrayList<HashMap<String, Object>> videoList = mController.getVideoList();
+        if (videoList == null || videoList.isEmpty()) {
+            android.util.Log.d("VideoEventManager", "restoreLastEpisode: 列表为空");
+            return -1;
+        }
+        String seriesKey = getSeriesKey();
+        int index = mSettingsManager.getLastEpisodeIndex(seriesKey);
+        android.util.Log.d("VideoEventManager", "restoreLastEpisode: seriesKey=" + seriesKey
+                + ", savedIndex=" + index + ", size=" + videoList.size());
+        if (index < 0 || index >= videoList.size()) {
+            return -1;
+        }
+
+        HashMap<String, Object> item = videoList.get(index);
+        String url = item.get("url") != null ? item.get("url").toString() : "";
+        if (url.isEmpty()) {
+            return -1;
+        }
+
+        // 直接复用 playEpisode：恢复路径与「用户点选集」走同一套代码，
+        // 避免两处逻辑漂移（标题、headers、release+startPlayLogic 的顺序都一致）。
+        //
+        // 调用方可能在工作线程填列表（iApp 的加载块就是），而 setUrl/startPlayLogic
+        // 会触碰视图，必须在主线程执行，否则抛「新线程里不允许直接对视图更新」。
+        final int idx = index;
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            mVideoView.post(new Runnable() {
+                @Override
+                public void run() {
+                    playEpisode(idx);
+                }
+            });
+            return index;
+        }
+
+        playEpisode(index);
+        return index;
+    }
+
+    /**
+     * 取上次播放的集数下标（不产生任何播放副作用），供 UI 高亮使用。
+     *
+     * @return 下标；无记录返回 -1
+     */
+    public int getLastEpisodeIndex() {
+        return mSettingsManager.getLastEpisodeIndex(getSeriesKey());
+    }
+
+    /**
+     * 取上次播放那一集的地址。用于 UI 高亮——比下标可靠，因为显示列表可能被
+     * 排序或反转，下标会错位。
+     *
+     * @return 地址；无记录或下标越界时返回 null
+     */
+    public String getLastEpisodeUrl() {
+        int index = getLastEpisodeIndex();
+        ArrayList<HashMap<String, Object>> videoList = mController.getVideoList();
+        if (index < 0 || videoList == null || index >= videoList.size()) {
+            return null;
+        }
+        String url = getItemUrl(videoList, index);
+        return url.isEmpty() ? null : url;
+    }
+
+    /**
      * 设置新的剧集列表（外部调用，用于标记剧集切换）
      */
     public void onVideoListChanged() {
@@ -1015,7 +1089,10 @@ public class VideoEventManager {
 
         // 去广告开关：全屏观看时也能直接切换，与主界面按钮同状态
         bindAdRemovalEntry(dialogView);
-        
+
+        // 记忆播放 / 选集记忆
+        bindMemoryPlayEntry(dialogView);
+
         // 设置解码方式按钮
         setupDecodeModeButtons(decodeHardwareBtn, decodeSoftwareBtn);
         
@@ -2959,13 +3036,24 @@ public class VideoEventManager {
         String title = itemData.get("name") != null ? itemData.get("name").toString() : "第" + (position + 1) + "集";
         titleTv.setText(title);
 
-        // 高亮当前播放集数：用描边+浅填充卡片区分，字号保持稳定
-        // （不能只比对 getUrl()——去广告后它会变成回环代理地址，见 findCurrentEpisodeIndex）
+        // 高亮当前播放集数：用描边+浅填充卡片区分，字号保持稳定。
+        //
+        // 两级判据：
+        //   1) 地址匹配——正在播放时最准（注意不能只比 getUrl()，去广告后它会变成
+        //      回环代理地址，见 findCurrentEpisodeIndex）
+        //   2) 持久化的那一集地址——重启后还没起播时第 1 级必然全部落空，
+        //      此时靠选集记忆把上次那一集高亮出来。
+        //      注意不能用 position 比对下标：显示列表可能被排序/反转，position
+        //      与真实列表下标已不对应，按地址比才可靠。
         String itemUrl = itemData.get("url") != null ? itemData.get("url").toString() : "";
         boolean isCurrent = matchesCurrentEpisodeUrl(itemUrl);
+        if (!isCurrent) {
+            String savedUrl = getLastEpisodeUrl();
+            isCurrent = savedUrl != null && savedUrl.equals(itemUrl);
+        }
         titleTv.setSelected(isCurrent);
         titleTv.setTextColor(isCurrent ? COLOR_HIGHLIGHT : COLOR_NORMAL);
-        
+
         // 点击事件
         titleTv.setOnClickListener(v -> {
             playEpisodeFromList(itemData);
@@ -2979,15 +3067,18 @@ public class VideoEventManager {
     private void playEpisodeFromList(HashMap<String, Object> item) {
         String url = item.get("url") != null ? item.get("url").toString() : "";
         String name = item.get("name") != null ? item.get("name").toString() : "";
-        
+
         if (url.isEmpty()) {
             showToast("播放地址异常");
             return;
         }
-        
+
+        // 记住这一集，供下次启动恢复
+        rememberCurrentEpisodeIndex(item);
+
         // 直接设置标题，不拼接
         mController.setVideoTitle(name);
-        
+
         // 播放视频
         @SuppressWarnings("unchecked")
         HashMap<String, String> headers = (HashMap<String, String>) item.get("headers");
@@ -2995,6 +3086,47 @@ public class VideoEventManager {
         mVideoView.release();
         mVideoView.startPlayLogic();
     }
+
+    /**
+     * 持久化「当前播到哪一集」。
+     *
+     * 进度秒数本身已由 PlaybackProgressManager 按单集 URL 绑定（每集地址不同，
+     * 天然区分），这里只记录集数下标，重启后才能切回同一集。
+     */
+    private void rememberCurrentEpisodeIndex(HashMap<String, Object> item) {
+        ArrayList<HashMap<String, Object>> videoList = mController.getVideoList();
+        if (videoList == null || videoList.isEmpty()) {
+            return;
+        }
+        String itemUrl = item.get("url") != null ? item.get("url").toString() : "";
+        if (itemUrl.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < videoList.size(); i++) {
+            if (itemUrl.equals(getItemUrl(videoList, i))) {
+                mSettingsManager.setLastEpisodeIndex(getSeriesKey(), i);
+                android.util.Log.d("VideoEventManager", "rememberCurrentEpisodeIndex: index=" + i
+                        + ", seriesKey=" + getSeriesKey());
+                return;
+            }
+        }
+    }
+
+    /**
+     * 剧集标识：用于把「上次播到哪一集」绑定到某个选集列表。
+     * 复用列表 hash，同一列表内换集不会产生新记录。
+     */
+    private String getSeriesKey() {
+        return "s" + getVideoListHash();
+    }
+
+    /**
+     * 供外部（门面）构造同一套存储键，用于清除选集记忆等操作。
+     */
+    public String getSeriesKeyForStorage() {
+        return getSeriesKey();
+    }
+
     
     /**
      * 视频列表排序（智能排序）
@@ -3058,10 +3190,13 @@ public class VideoEventManager {
             showToast("播放地址异常");
             return;
         }
-        
+
+        // 记住这一集，供下次启动恢复
+        rememberCurrentEpisodeIndex(item);
+
         // 直接设置标题，不拼接
         mController.setVideoTitle(name);
-        
+
         // 播放视频
         @SuppressWarnings("unchecked")
         HashMap<String, String> headers = (HashMap<String, String>) item.get("headers");
@@ -3069,7 +3204,7 @@ public class VideoEventManager {
         mVideoView.release();
         mVideoView.startPlayLogic();
     }
-    
+
     /**
      * 在选集列表中定位当前播放集的下标。
      *
@@ -6495,6 +6630,88 @@ public class VideoEventManager {
             status.setText(enabled
                     ? "播放 m3u8 时自动跳过广告片段 · 重新加载后生效"
                     : "当前不做广告片段清洗");
+        }
+    }
+
+    /**
+     * 记忆播放 / 选集记忆条目。
+     *
+     * <p>两个开关的区别：
+     * <ul>
+     *   <li><b>记忆播放</b>——记住每集的播放进度（秒数），按单集地址绑定，
+     *       下次播到同一集会从上次位置续播。开关由
+     *       {@code PlayerSettingsManager.isMemoryPlayEnabled()} 持久化。</li>
+     *   <li><b>选集记忆</b>——记住上次看到第几集，重启后自动切回那一集。
+     *       它依赖记忆播放开关（进度续播需要前者），所以关闭记忆播放时
+     *       一并停止生效，但记录本身保留——用户重新打开即可恢复。</li>
+     * </ul>
+     *
+     * <p>这里不提供「选集记忆」的开关：它是记忆播放的自然延伸，单独开关
+     * 会让用户面对两个语义相近的选项。提供「清除」按钮即可满足重置需求。
+     */
+    private void bindMemoryPlayEntry(View dialogView) {
+        final android.widget.TextView status =
+                dialogView.findViewById(R.id.tv_setup_memory_play_status);
+        final android.widget.TextView btn =
+                dialogView.findViewById(R.id.btn_setup_memory_play);
+        final android.widget.TextView epStatus =
+                dialogView.findViewById(R.id.tv_setup_episode_memory_status);
+        final android.widget.TextView epBtn =
+                dialogView.findViewById(R.id.btn_setup_episode_memory_clear);
+
+        if (btn != null) {
+            renderMemoryPlayEntry(status, btn);
+            btn.setOnClickListener(v -> {
+                boolean enabled = !mSettingsManager.isMemoryPlayEnabled();
+                mSettingsManager.setMemoryPlayEnabled(enabled);
+                // 开关作用于本实例：立即生效，无需重启
+                if (mVideoView != null) {
+                    mVideoView.setKeepVideoPlaying(enabled);
+                }
+                renderMemoryPlayEntry(status, btn);
+                renderEpisodeMemoryEntry(epStatus, epBtn);
+            });
+        }
+
+        if (epBtn != null) {
+            renderEpisodeMemoryEntry(epStatus, epBtn);
+            epBtn.setOnClickListener(v -> {
+                mSettingsManager.clearLastEpisodeIndex(getSeriesKey());
+                // 已保存的进度也一并清掉，否则「清除」后下次仍会从中间续播
+                if (mVideoView != null) {
+                    mVideoView.clearSavedProgress();
+                }
+                renderEpisodeMemoryEntry(epStatus, epBtn);
+                showToast("已清除本剧集的播放记录");
+            });
+        }
+    }
+
+    /** 刷新记忆播放条目的按钮文案与副标题 */
+    private void renderMemoryPlayEntry(android.widget.TextView status,
+                                       android.widget.TextView btn) {
+        boolean enabled = mSettingsManager.isMemoryPlayEnabled();
+        btn.setText(enabled ? "已开启" : "已关闭");
+        if (status != null) {
+            status.setText(enabled
+                    ? "记住每集进度，下次从上次位置续播"
+                    : "每次都从头播放");
+        }
+    }
+
+    /** 刷新选集记忆条目的状态文案 */
+    private void renderEpisodeMemoryEntry(android.widget.TextView status,
+                                          android.widget.TextView btn) {
+        if (status == null) {
+            return;
+        }
+        int index = getLastEpisodeIndex();
+        if (!mSettingsManager.isMemoryPlayEnabled()) {
+            status.setText("记忆播放已关闭，暂不生效");
+        } else if (index >= 0) {
+            status.setText("上次看到第 " + (index + 1) + " 集，重启后自动续播");
+        } else {
+            status.setText("尚无记录 · 切集后自动记住");
         }
     }
 

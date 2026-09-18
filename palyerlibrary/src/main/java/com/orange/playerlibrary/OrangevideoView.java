@@ -376,6 +376,15 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                     mVideoScaleManager.applyVideoScale();
                 }
 
+                // 补显示标题。调用方可能在视图附加到窗口之前就设置了标题
+                // （iApp 的 loading 事件在布局刚加载时执行 setVideoSource），
+                // 而 updateTitleViewDisplay 要求 TitleView 的 windowToken 非 null，
+                // 否则静默跳过——表现为「第一集播放时不显示标题」（后续集数
+                // 经 playEpisode 设置时视图已附加，所以正常）。此处视图必然已附加。
+                if (mOrangeController != null) {
+                    mOrangeController.reapplyTitleIfNeeded();
+                }
+
                 if (mFullscreenHelper != null && mFullscreenHelper.getPendingSeekPosition() > 0) {
                     final long pendingPosition = mFullscreenHelper.getPendingSeekPosition();
                     final boolean pendingResume = mFullscreenHelper.isPendingResume();
@@ -3523,8 +3532,38 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         return mKeepVideoPlaying;
     }
 
+    /**
+     * 记忆播放的存储键。
+     *
+     * 必须用「调用方传入的原始播放源」，不能用 {@link #mVideoUrl}：后者会被库内部
+     * 改写——M3U8 去广告后变成回环代理地址 {@code http://127.0.0.1:<port>/cleaned/<hash>.m3u8}，
+     * 而**该端口每次启动随机分配**（实测同一视频三次启动分别是 41167 / 39725 / 37161，
+     * hash 固定）。用它作键会导致跨启动读写永远不命中，表现为「每次重进都是新进度」。
+     *
+     * 回退顺序：原始播放源 → 当前播放地址（覆盖未走内部改写的普通场景）。
+     */
+    private String getProgressKey() {
+        String source = mAdState.getSourceUrl();
+        if (source != null && !source.isEmpty()) {
+            return source;
+        }
+        return mVideoUrl;
+    }
+
+    /**
+     * 供同包内的进度/历史记录组件复用同一存储键，避免各处自行取 URL 导致不一致。
+     * 语义与 {@link #getProgressKey()} 相同：优先原始播放源。
+     */
+    public String getProgressStorageKey() {
+        return getProgressKey();
+    }
+
     public void savePlaybackProgress() {
-        if (!mKeepVideoPlaying || mVideoUrl == null || mVideoUrl.isEmpty()) {
+        if (!mKeepVideoPlaying) {
+            return;
+        }
+        String key = getProgressKey();
+        if (key == null || key.isEmpty()) {
             return;
         }
 
@@ -3533,17 +3572,21 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
         if (position > 0 && duration > 0) {
             PlaybackProgressManager.getInstance(getContext())
-                    .saveProgress(mVideoUrl, position, duration);
+                    .saveProgress(key, position, duration);
         }
     }
 
     public boolean restorePlaybackProgress() {
-        if (!mKeepVideoPlaying || mVideoUrl == null || mVideoUrl.isEmpty()) {
+        if (!mKeepVideoPlaying) {
+            return false;
+        }
+        String key = getProgressKey();
+        if (key == null || key.isEmpty()) {
             return false;
         }
 
         PlaybackProgressManager manager = PlaybackProgressManager.getInstance(getContext());
-        long resumePosition = manager.getResumePosition(mVideoUrl, getContext());
+        long resumePosition = manager.getResumePosition(key, getContext());
 
         if (resumePosition > 0) {
             seekTo(resumePosition);
@@ -3553,24 +3596,27 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     public long getSavedProgress() {
-        if (mVideoUrl == null || mVideoUrl.isEmpty()) {
+        String key = getProgressKey();
+        if (key == null || key.isEmpty()) {
             return 0;
         }
-        return PlaybackProgressManager.getInstance(getContext()).getProgress(mVideoUrl);
+        return PlaybackProgressManager.getInstance(getContext()).getProgress(key);
     }
 
     public boolean hasSavedProgress() {
-        if (mVideoUrl == null || mVideoUrl.isEmpty()) {
+        String key = getProgressKey();
+        if (key == null || key.isEmpty()) {
             return false;
         }
-        return PlaybackProgressManager.getInstance(getContext()).hasProgress(mVideoUrl);
+        return PlaybackProgressManager.getInstance(getContext()).hasProgress(key);
     }
 
     public void clearSavedProgress() {
-        if (mVideoUrl == null || mVideoUrl.isEmpty()) {
+        String key = getProgressKey();
+        if (key == null || key.isEmpty()) {
             return;
         }
-        PlaybackProgressManager.getInstance(getContext()).removeProgress(mVideoUrl);
+        PlaybackProgressManager.getInstance(getContext()).removeProgress(key);
     }
 
     // ==================== 播放历史功能 ====================
@@ -3579,7 +3625,10 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
      * 启动播放历史自动保存
      */
     private void startPlayHistoryAutoSave() {
-        if (mVideoUrl == null || mVideoUrl.isEmpty()) {
+        // 与记忆播放共用同一存储键（优先原始播放源），否则历史记录也会因
+        // 去广告后的回环端口变化而每次新建一条，读不回来。
+        String key = getProgressKey();
+        if (key == null || key.isEmpty()) {
             return;
         }
 
@@ -3589,7 +3638,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         }
         final OrangevideoView self = this;
         PlayHistoryManager.getInstance(getContext()).startAutoSave(
-                mVideoUrl,
+                key,
                 title,
                 new PlayHistoryManager.ProgressProvider() {
                     @Override

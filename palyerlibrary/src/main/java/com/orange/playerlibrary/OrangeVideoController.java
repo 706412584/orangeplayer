@@ -31,7 +31,12 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
     
     // ===== 视频标题 =====
     private String mVideoTitle = "";
-    
+    /**
+     * 标题是否已成功写入 TitleView。用于区分「设置了但视图未附加导致没显示」
+     * 与「已正常显示」，前者需要由播放器在 onPrepared 阶段补显示。
+     */
+    private boolean mTitleApplied = false;
+
     // ===== 视频列表（集数管理）=====
     private ArrayList<HashMap<String, Object>> mVideoList;
     
@@ -546,6 +551,8 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
      */
     public void setVideoTitle(String title) {
         mVideoTitle = title;
+        // 换了标题就重新判定写入状态：写入失败时留给 onPrepared 补显示
+        mTitleApplied = false;
         // 更新 TitleView 显示
         updateTitleViewDisplay(title);
     }
@@ -566,6 +573,7 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
      */
     public void setTitle(String title) {
         mVideoTitle = title;
+        mTitleApplied = false;
         // 更新 TitleView 显示
         updateTitleViewDisplay(mVideoTitle);
     }
@@ -578,16 +586,36 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
         if (title == null || title.isEmpty()) {
             return;
         }
-        
+
+        if (applyTitleToTitleView(title)) {
+            mTitleApplied = true;
+        }
+    }
+
+    /**
+     * 尝试把标题写入 TitleView。
+     *
+     * 两条路径都要求 TitleView 的 windowToken 非 null（即已附加到窗口）。
+     * 调用方可能在视图附加之前就设置标题——iApp 的 loading 事件在布局刚加载时
+     * 执行 setVideoSource，此时必然附加不了，标题会静默丢失。这种情况由
+     * {@link #reapplyTitleIfNeeded()} 在 onPrepared 阶段补显示。
+     *
+     * @return 是否写入成功
+     */
+    private boolean applyTitleToTitleView(String title) {
+        if (title == null || title.isEmpty()) {
+            return false;
+        }
+
         // 方案一：通过 VideoView 获取 TitleView（可能是旧实例）
         if (mVideoView != null) {
             com.orange.playerlibrary.component.TitleView titleView = mVideoView.getTitleView();
             if (titleView != null && titleView.getWindowToken() != null) {
                 titleView.setTitle(title);
-                return;
+                return true;
             }
         }
-        
+
         // 方案二：遍历父容器找到正确的 TitleView 实例
         if (mVideoView != null) {
             android.view.ViewParent parent = mVideoView.getParent();
@@ -596,15 +624,31 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
                 for (int i = 0; i < container.getChildCount(); i++) {
                     android.view.View child = container.getChildAt(i);
                     if (child instanceof com.orange.playerlibrary.component.TitleView) {
-                        com.orange.playerlibrary.component.TitleView titleView = 
-                            (com.orange.playerlibrary.component.TitleView) child;
+                        com.orange.playerlibrary.component.TitleView titleView =
+                                (com.orange.playerlibrary.component.TitleView) child;
                         if (titleView.getWindowToken() != null) {
                             titleView.setTitle(title);
-                            return;
+                            return true;
                         }
                     }
                 }
             }
+        }
+        return false;
+    }
+
+    /**
+     * 补显示标题（供播放器在 onPrepared 等「视图必定已附加」的时机调用）。
+     *
+     * 仅在存在待显示标题且尚未成功写入时执行；已写入过的不重复设置，
+     * 避免覆盖用户/调用方之后设置的标题。
+     */
+    public void reapplyTitleIfNeeded() {
+        if (mTitleApplied || mVideoTitle == null || mVideoTitle.isEmpty()) {
+            return;
+        }
+        if (applyTitleToTitleView(mVideoTitle)) {
+            mTitleApplied = true;
         }
     }
 
