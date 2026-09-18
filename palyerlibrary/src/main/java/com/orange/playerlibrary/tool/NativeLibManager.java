@@ -85,7 +85,7 @@ public final class NativeLibManager {
      * 组件包所属的 release tag。发版时需与 APK 同步更新：
      * 资产地址为 releases/download/&lt;tag&gt;/&lt;bundle&gt;-&lt;abi&gt;.zip。
      */
-    private static final String RELEASE_TAG = "v1.5.5";
+    private static final String RELEASE_TAG = "v1.5.6";
 
     private static final String RELEASE_URL_PREFIX =
             "https://github.com/706412584/orangeplayer/releases/download/";

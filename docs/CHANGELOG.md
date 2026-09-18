@@ -1,4 +1,14 @@
 # OrangePlayer 更新日志
+## [1.5.6] - 2026-09-19
+
+### 🐛 修复
+
+- **Maven Central 补齐全部模块**：v1.5.5 只发布了 `orangeplayer` 主模块，而它的 pom 声明了 5 个同版本传递依赖（`gsyVideoPlayer-base` / `-proxy_cache` / `-java`、`orange-downloader`、`orange-ffmpeg`），这些在中央仓库上并不存在——用户添加 `implementation 'io.github.706412584:orangeplayer:1.5.5'` 会因解析不到传递依赖而失败。本版一次性发布全部 15 个模块（主模块 + 10 个 gsyVideoPlayer 模块 + orange-downloader + orange-ffmpeg + orangeplayer-mpv；`libmpv` 版本跟随上游固定 1.0.0，已在仓库中无需重发）。**中央仓库不允许覆盖已发布版本，故以 1.5.6 修正，请使用 1.5.6 而非 1.5.5**
+
+> 除上述发布修正外，1.5.6 的代码与 1.5.5 完全相同。
+
+---
+
 ## [1.5.5] - 2026-09-19
 
 ### ✨ 新增

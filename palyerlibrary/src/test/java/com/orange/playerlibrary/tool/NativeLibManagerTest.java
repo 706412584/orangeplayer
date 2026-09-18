@@ -147,8 +147,15 @@ public class NativeLibManagerTest {
         assertEquals(4, arm64.urls.length);
         for (String url : arm64.urls) {
             assertTrue(url, url.endsWith("/asr-arm64-v8a.zip"));
-            // 每个源都必须带 tag，否则会 404（组件 zip 按 tag 分目录存放）
-            assertTrue(url, url.contains("/v1.5.5/"));
+            // 每个源都必须带 tag，否则会 404（组件 zip 按 tag 分目录存放）。
+            // 不硬编码具体版本号——否则每次发版都要改测试。这里只校验形态，
+            // 再单独断言四个源的 tag 一致（混用会让跨源续传拿到不同字节）。
+            assertTrue("URL 缺少版本段: " + url,
+                    url.matches(".*/v\\d+\\.\\d+\\.\\d+/asr-arm64-v8a\\.zip"));
+        }
+        String tag = extractTag(arm64.urls[0]);
+        for (String url : arm64.urls) {
+            assertEquals("各镜像源必须指向同一 tag", tag, extractTag(url));
         }
         // 顺序即回退优先级：国内直连的 Gitee 优先，GitHub 原址兜底
         assertTrue(arm64.urls[0].startsWith("https://gitee.com/"));
@@ -349,5 +356,12 @@ public class NativeLibManagerTest {
         try (FileOutputStream out = new FileOutputStream(f)) {
             out.write(content.getBytes("UTF-8"));
         }
+    }
+
+    /** 从组件下载 URL 里取出 tag 段（如 "v1.5.6"）；取不到返回 null。 */
+    private static String extractTag(String url) {
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("/(v\\d+\\.\\d+\\.\\d+)/").matcher(url);
+        return m.find() ? m.group(1) : null;
     }
 }
