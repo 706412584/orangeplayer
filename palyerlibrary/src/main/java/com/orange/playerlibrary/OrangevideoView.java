@@ -1382,6 +1382,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         android.util.Log.d(TAG, "setUp() called with url=" + url);
         mVideoHeaders = null;
         clearM3U8AdRemovalState();
+        // 记录调用方原始播放源（clear 之后写，否则会被清掉）。后续内部会把播放地址
+        // 改写成回环代理/本地路径，getUrl() 不再等于入参，选集索引需要这个原值。
+        rememberSourceUrl(url);
         // 新视频：作废跳段自愈的 pending seek（release 不清，靠这里与 onPrepared 消费清）
         mPendingSkipSeekMs = -1;
         if (!TextUtils.equals(url, mSegmentSkipUrl)) {
@@ -1472,6 +1475,26 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
      */
     private void clearM3U8AdRemovalState() {
         mAdState.clear();
+    }
+
+    /**
+     * 记录调用方原始播放源，供「按地址反查」场景（选集索引）使用。
+     *
+     * 库内部有几处会用 {@link #getUrl()} 重新 setUp（引擎切换、内核恢复等），
+     * 此时 getUrl() 可能已经是去广告的回环代理地址或本地 file:// 路径——
+     * 那不是调用方的原始地址，写进去会让选集反查再次失配。故只在入参
+     * 看起来像「原始网络地址」时才覆盖：回环代理与本地文件一律忽略。
+     */
+    private void rememberSourceUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        com.orange.playerlibrary.utils.UrlProtocolClassifier.UrlInfo info =
+                com.orange.playerlibrary.utils.UrlProtocolClassifier.parse(url);
+        if (info.isLoopbackProxy || info.isLocalFile) {
+            return;
+        }
+        mAdState.setSourceUrl(url);
     }
 
     private boolean shouldProcessM3U8WithAdRemoval(String url) {
@@ -1657,6 +1680,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     public boolean setUp(String url, boolean cacheWithPlay, java.io.File cachePath, String title) {
         mVideoHeaders = null;
         clearM3U8AdRemovalState();
+        rememberSourceUrl(url);
         saveVideoUrl(url);
 
         // 重置临时设置（跳过片头片尾、倍速、画面比例）
@@ -1695,6 +1719,7 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             String title) {
         mVideoHeaders = mapHeadData != null ? new HashMap<>(mapHeadData) : null;
         clearM3U8AdRemovalState();
+        rememberSourceUrl(url);
         saveVideoUrl(url);
 
         // 重置临时设置（跳过片头片尾、倍速、画面比例）
@@ -1822,6 +1847,19 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     public String getUrl() {
         return mOriginUrl != null ? mOriginUrl : mVideoUrl;
+    }
+
+    /**
+     * 调用方最初传入的播放源地址（未经库内部改写）。
+     *
+     * getUrl() 返回的是「当前实际在播的地址」，M3U8 去广告后会变成回环代理地址、
+     * 已下载视频会变成 file:// 本地路径。需要与调用方传入的地址比对时（例如按
+     * 选集列表反查当前集索引）应当用本方法。
+     *
+     * @return 原始播放源；若从未 setUp 过则返回 null
+     */
+    public String getSourceUrl() {
+        return mAdState.getSourceUrl();
     }
 
     public String getVideoUrl() {

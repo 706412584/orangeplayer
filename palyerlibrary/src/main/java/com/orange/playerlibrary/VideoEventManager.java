@@ -2960,9 +2960,9 @@ public class VideoEventManager {
         titleTv.setText(title);
 
         // 高亮当前播放集数：用描边+浅填充卡片区分，字号保持稳定
-        String currentUrl = mVideoView.getUrl();
+        // （不能只比对 getUrl()——去广告后它会变成回环代理地址，见 findCurrentEpisodeIndex）
         String itemUrl = itemData.get("url") != null ? itemData.get("url").toString() : "";
-        boolean isCurrent = currentUrl != null && currentUrl.equals(itemUrl);
+        boolean isCurrent = matchesCurrentEpisodeUrl(itemUrl);
         titleTv.setSelected(isCurrent);
         titleTv.setTextColor(isCurrent ? COLOR_HIGHLIGHT : COLOR_NORMAL);
         
@@ -3071,6 +3071,49 @@ public class VideoEventManager {
     }
     
     /**
+     * 在选集列表中定位当前播放集的下标。
+     *
+     * 不能只看 {@code mVideoView.getUrl()}：库内部会改写实际播放地址——M3U8 去广告
+     * 后变成回环代理地址（{@code http://127.0.0.1:port/cleaned/<hash>.m3u8}）、已下载
+     * 视频变成 {@code file://} 本地路径。此时 getUrl() 与列表里的原始地址不相等，
+     * 反查会失败（表现为「点下一集没反应/提示已经是最后一集了」）。
+     *
+     * 依次尝试三个候选值，全部精确匹配（不做模糊/前缀匹配，避免不同集撞车）：
+     * <ol>
+     *   <li>{@code getSourceUrl()} —— 调用方最初传入的地址，最可靠</li>
+     *   <li>{@code getUrl()} —— 当前实际播放地址，覆盖列表本身存的就是改写后地址的情况</li>
+     *   <li>去掉 query 后比较 —— 部分源站会在播放过程中改写 URL 的查询串</li>
+     * </ol>
+     *
+     * @return 命中下标；无法定位时返回 -1
+     */
+    private int findCurrentEpisodeIndex(ArrayList<HashMap<String, Object>> videoList) {
+        if (videoList == null || videoList.isEmpty()) {
+            return -1;
+        }
+        for (int i = 0; i < videoList.size(); i++) {
+            if (matchesCurrentEpisodeUrl(getItemUrl(videoList, i))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 判断某个选集条目的地址是否就是当前正在播放的那一集。
+     * 匹配规则见 {@link com.orange.playerlibrary.utils.EpisodeUrlMatcher}。
+     */
+    private boolean matchesCurrentEpisodeUrl(String itemUrl) {
+        return com.orange.playerlibrary.utils.EpisodeUrlMatcher.matches(
+                itemUrl, mVideoView.getSourceUrl(), mVideoView.getUrl());
+    }
+
+    private static String getItemUrl(ArrayList<HashMap<String, Object>> videoList, int index) {
+        Object url = videoList.get(index).get("url");
+        return url != null ? url.toString() : "";
+    }
+
+    /**
      * 播放下一集
      */
     public void playNextEpisode() {
@@ -3078,25 +3121,16 @@ public class VideoEventManager {
         if (videoList == null || videoList.isEmpty()) {
             return;
         }
-        
-        String currentUrl = mVideoView.getUrl();
-        int currentIndex = -1;
-        
-        for (int i = 0; i < videoList.size(); i++) {
-            String url = videoList.get(i).get("url") != null ? videoList.get(i).get("url").toString() : "";
-            if (url.equals(currentUrl)) {
-                currentIndex = i;
-                break;
-            }
-        }
-        
+
+        int currentIndex = findCurrentEpisodeIndex(videoList);
+
         if (currentIndex >= 0 && currentIndex < videoList.size() - 1) {
             playEpisode(currentIndex + 1);
         } else {
             showToast("已经是最后一集了");
         }
     }
-    
+
     /**
      * 检查是否有下一集
      */
@@ -3105,18 +3139,8 @@ public class VideoEventManager {
         if (videoList == null || videoList.isEmpty()) {
             return false;
         }
-        
-        String currentUrl = mVideoView.getUrl();
-        int currentIndex = -1;
-        
-        for (int i = 0; i < videoList.size(); i++) {
-            String url = videoList.get(i).get("url") != null ? videoList.get(i).get("url").toString() : "";
-            if (url.equals(currentUrl)) {
-                currentIndex = i;
-                break;
-            }
-        }
-        
+
+        int currentIndex = findCurrentEpisodeIndex(videoList);
         return currentIndex >= 0 && currentIndex < videoList.size() - 1;
     }
     

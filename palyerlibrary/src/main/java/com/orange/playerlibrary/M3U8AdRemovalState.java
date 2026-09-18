@@ -9,6 +9,16 @@ import java.util.Map;
 public class M3U8AdRemovalState {
 
     private String mOriginalUrl = null;
+    /**
+     * 调用方传入的播放源地址，未经任何内部改写。
+     *
+     * 与 mOriginalUrl 的区别：mOriginalUrl 是去广告重试路径的临时状态，会被
+     * 每次 setUp 的 clear() 抹掉、且只在去广告时才有值。本字段在 setUp 入口
+     * 无条件写入，供「按地址反查选集索引」这类场景使用——播放地址在内部会被
+     * 改写（M3U8 去广告换成回环代理地址、已下载视频换成 file:// 本地路径），
+     * 此时 getUrl() 不再等于调用方当初传入的地址，选集列表按 getUrl() 反查会失败。
+     */
+    private String mSourceUrl = null;
     private Map<String, String> mOriginalHeaders = null;
     private String mOriginalTitle = "";
     private boolean mOriginalCacheWithPlay = true;
@@ -32,6 +42,7 @@ public class M3U8AdRemovalState {
         mDiscontinuityCheckedUrl = null;
         mBypassOnce = false;
         mOriginalUrl = null;
+        mSourceUrl = null;
         mOriginalHeaders = null;
         mOriginalTitle = "";
         mOriginalCacheWithPlay = true;
@@ -67,6 +78,14 @@ public class M3U8AdRemovalState {
 
     public void setOriginalUrl(String url) {
         mOriginalUrl = url;
+    }
+
+    public String getSourceUrl() {
+        return mSourceUrl;
+    }
+
+    public void setSourceUrl(String url) {
+        mSourceUrl = url;
     }
 
     public Map<String, String> getOriginalHeaders() {
