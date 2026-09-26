@@ -53,11 +53,22 @@
     </LinearLayout>
 
     <ImageView
-        android:id="@+id/btn_delete"
+        android:id="@+id/btn_download"
         android:layout_width="36dp"
         android:layout_height="36dp"
         android:layout_gravity="center_vertical"
         android:layout_marginStart="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="下载"
+        android:padding="8dp"
+        android:src="@drawable/ic_download" />
+
+    <ImageView
+        android:id="@+id/btn_delete"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="center_vertical"
+        android:layout_marginStart="4dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="删除"
         android:padding="8dp"

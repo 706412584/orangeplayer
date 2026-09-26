@@ -22,16 +22,18 @@ public class EpisodeMemoryKeyTest {
     }
 
     /**
-     * 复刻 getVideoListHash：基于列表大小 + 首尾 URL。
+     * 调用**真实**的列表摘要实现。
+     *
+     * <p>这里曾经复刻了一份「size + 首 + 末」的算法。复刻件不会随实现更新，
+     * 于是实现里的缺陷（中间换集认不出、不同剧撞键）能安然躲过测试。
+     * 改为直接委托 {@code VideoEventManager.computeListHash}，实现改了这里就会红。
+     * 高亮/边界等更完整的场景见 {@link EpisodeHighlightRegressionTest}。
      */
     private static int listHash(java.util.List<String> urls) {
         if (urls == null || urls.isEmpty()) {
             return 0;
         }
-        int hash = urls.size();
-        hash = hash * 31 + urls.get(0).hashCode();
-        hash = hash * 31 + urls.get(urls.size() - 1).hashCode();
-        return hash;
+        return VideoEventManager.computeListHash(urls.toArray(new String[0]));
     }
 
     private static final String EP1 = "https://v.cdnlz22.com/20240815/3725_2916c479/index.m3u8";

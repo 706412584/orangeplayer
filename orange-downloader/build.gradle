@@ -30,6 +30,14 @@ android {
         checkReleaseBuilds false
     }
 
+    testOptions {
+        unitTests {
+            // TsProbe 等纯逻辑类由单测覆盖，而 LogUtils 等会触碰 android.util.Log；
+            // 让未 mock 的 Android 方法返回默认值而不是抛 "not mocked"。
+            returnDefaultValues = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11

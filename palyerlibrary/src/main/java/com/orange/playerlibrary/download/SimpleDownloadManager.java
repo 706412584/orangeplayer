@@ -60,6 +60,18 @@ public class SimpleDownloadManager {
      * @return 下载任务 ID（-1 表示使用 VideoDownloader）
      */
     public long startDownload(String url, String title, String description) {
+        // 显式转型消歧：null 同时匹配 String 与 Map 两个重载
+        return startDownload(url, title, (java.util.Map<String, String>) null);
+    }
+
+    /**
+     * 开始下载（支持所有格式：M3U8、MP4、FLV 等），可携带请求头。
+     *
+     * <p>嗅探结果需要这条入口：防盗链站点要求清单与分片请求带 Referer/Cookie。
+     *
+     * @param headers 附加到清单/分片请求上的头，可为 null
+     */
+    public long startDownload(String url, String title, java.util.Map<String, String> headers) {
         android.util.Log.d("SimpleDownloadManager", "startDownload() called");
         android.util.Log.d("SimpleDownloadManager", "URL: " + url);
         android.util.Log.d("SimpleDownloadManager", "Title: " + title);
@@ -80,7 +92,7 @@ public class SimpleDownloadManager {
                     }
                     // 使用 VideoDownloader 统一处理所有格式
                     // VideoDownloader 会自动识别视频类型（M3U8、MP4、FLV 等）
-                    mVideoDownloader.downloadM3U8(downloadUrl, title,
+                    mVideoDownloader.downloadM3U8(downloadUrl, title, headers,
                             new VideoDownloaderWrapper.DownloadCallback() {
                                 @Override
                                 public void onProgress(int progress, String message) {
@@ -185,7 +197,7 @@ public class SimpleDownloadManager {
         }
         
         // 开始下载
-        startDownload(url, title, null);
+        startDownload(url, title, (java.util.Map<String, String>) null);
         return null;
     }
 }

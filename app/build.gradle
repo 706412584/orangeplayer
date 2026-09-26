@@ -127,6 +127,16 @@ android {
         }
     }
 
+    // debug 构建把 iApp 门面（test/VideoPlayerManager.java）一起编进来，
+    // 这样能在**官方 demo** 上复现并验证宿主集成路径（iApp 的反射调用链、
+    // 选集数组的 null 槽位等），不必依赖设备上的 iApp 工程。
+    // release 不编入：门面是 iApp 宿主侧源码，不是 SDK 发行物的一部分。
+    sourceSets {
+        debug {
+            java.srcDir "$rootDir/test"
+        }
+    }
+
 }
 
 

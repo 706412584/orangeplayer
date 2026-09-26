@@ -58,6 +58,10 @@ public class SniffingView extends FrameLayout implements IControlComponent {
     // 数据
     private SniffingResultAdapter mAdapter;
     private List<VideoSniffing.VideoInfo> mVideoList = new ArrayList<>();
+    /** 录制模式开关控件 */
+    private TextView mBtnRecordToggle;
+    private TextView mTvRecordHint;
+    private android.os.Handler mRecordTickHandler;
     // 移除持久化管理器，改为使用私有变量（app 重启失效）
     
     // 回调
@@ -94,6 +98,8 @@ public class SniffingView extends FrameLayout implements IControlComponent {
         mTvEmpty = findViewById(R.id.tv_empty);
         mBtnClose = findViewById(R.id.btn_close);
         mBtnClear = findViewById(R.id.btn_clear);
+        mBtnRecordToggle = findViewById(R.id.btn_record_toggle);
+        mTvRecordHint = findViewById(R.id.tv_record_hint);
         
         // 移除持久化管理器初始化
         
@@ -114,6 +120,11 @@ public class SniffingView extends FrameLayout implements IControlComponent {
             }
 
             @Override
+            public void onDownloadClick(VideoSniffing.VideoInfo videoInfo) {
+                startDownload(videoInfo);
+            }
+
+            @Override
             public void onDeleteClick(VideoSniffing.VideoInfo videoInfo, int position) {
                 // 删除单个结果（仅从内存中删除）
                 mVideoList.remove(position);
@@ -127,6 +138,12 @@ public class SniffingView extends FrameLayout implements IControlComponent {
         
         // 清空按钮
         mBtnClear.setOnClickListener(v -> clearAllResults());
+
+        // 录制模式开关
+        if (mBtnRecordToggle != null) {
+            mBtnRecordToggle.setOnClickListener(v -> toggleRecording());
+        }
+        updateRecordUi();
         
         // 移除加载持久化结果的调用
     }
@@ -274,6 +291,149 @@ public class SniffingView extends FrameLayout implements IControlComponent {
     }
 
     /**
+     * 把嗅探到的资源交给下载模块。
+     *
+     * <p>嗅探与下载此前完全没打通——结果只能播，不能存。这里接上
+     * {@link SimpleDownloadManager}：m3u8 会自动解析分片并合并，mp4 直接下载。
+     *
+     * @param videoInfo 嗅探结果
+     */
+    private void startDownload(VideoSniffing.VideoInfo videoInfo) {
+        if (videoInfo == null || videoInfo.url == null || videoInfo.url.isEmpty()) {
+            return;
+        }
+        Context ctx = getContext();
+        if (ctx == null) {
+            return;
+        }
+        String title = videoInfo.title;
+        if (title == null || title.isEmpty() || "null".equals(title)) {
+            title = "嗅探视频";
+        }
+
+        // 嗅探存的是**响应头**，不能直接当请求头用：响应里的 Content-Length /
+        // Content-Type 等一旦被复制进请求会干扰下载。只挑与防盗链相关的字段。
+        java.util.Map<String, String> reqHeaders = new java.util.HashMap<>();
+        if (videoInfo.headers != null) {
+            for (java.util.Map.Entry<String, String> e : videoInfo.headers.entrySet()) {
+                String k = e.getKey();
+                if (k == null || e.getValue() == null) continue;
+                String lower = k.toLowerCase();
+                if (lower.equals("referer") || lower.equals("origin")
+                        || lower.equals("cookie") || lower.equals("user-agent")) {
+                    reqHeaders.put(k, e.getValue());
+                }
+            }
+        }
+
+        com.orange.playerlibrary.download.SimpleDownloadManager
+                .getInstance(ctx)
+                .startDownload(videoInfo.url, title, reqHeaders.isEmpty() ? null : reqHeaders);
+
+        android.widget.Toast.makeText(ctx, "已加入下载：" + title,
+                android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * 切换录制模式。
+     *
+     * <p>开启后**需要重新加载页面**：MSE 的 hook 必须赶在播放器调用
+     * {@code addSourceBuffer} 之前完成，页面已初始化过就包不住了。
+     * 这里直接给出提示，不假装能对已加载的页面生效。
+     */
+    private void toggleRecording() {
+        Context ctx = getContext();
+        if (ctx == null) {
+            return;
+        }
+        if (VideoSniffing.isRecording()) {
+            List<java.io.File> files = VideoSniffing.stopRecording();
+            stopRecordTicker();
+            updateRecordUi();
+            if (files == null || files.isEmpty()) {
+                toast("录制结束，但没有捕获到数据（页面未播放或不是 MSE 播放）");
+            } else {
+                StringBuilder sb = new StringBuilder("录制结束，产物 " + files.size() + " 个：\n");
+                for (java.io.File f : files) {
+                    sb.append(f.getName()).append("（")
+                            .append(formatSize(f.length())).append("）\n");
+                }
+                if (files.size() > 1) {
+                    sb.append("注意：音视频是分开的，需要合并才能正常播放");
+                }
+                toast(sb.toString());
+            }
+        } else {
+            java.io.File dir = new java.io.File(
+                    ctx.getExternalFilesDir(null), "Download/recorded");
+            VideoSniffing.startRecording(ctx, dir);
+            updateRecordUi();
+            startRecordTicker();
+            toast("已开启录制，请重新加载页面并播放，边播边录");
+        }
+    }
+
+    private void startRecordTicker() {
+        stopRecordTicker();
+        mRecordTickHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        mRecordTickHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                updateRecordUi();
+                if (VideoSniffing.isRecording() && mRecordTickHandler != null) {
+                    mRecordTickHandler.postDelayed(this, 1000);
+                }
+            }
+        });
+    }
+
+    private void stopRecordTicker() {
+        if (mRecordTickHandler != null) {
+            mRecordTickHandler.removeCallbacksAndMessages(null);
+            mRecordTickHandler = null;
+        }
+    }
+
+    /** 刷新录制开关的文案与提示 */
+    private void updateRecordUi() {
+        if (mBtnRecordToggle == null) {
+            return;
+        }
+        boolean recording = VideoSniffing.isRecording();
+        mBtnRecordToggle.setText(recording ? "录制中：停" : "录制模式：关");
+        if (mTvRecordHint != null) {
+            if (recording) {
+                mTvRecordHint.setText("已录 " + formatSize(VideoSniffing.getRecordedBytes())
+                        + " · 边播边录，可点停止");
+            } else {
+                mTvRecordHint.setText("blob: 场景用录制；开启后需重载页面");
+            }
+        }
+    }
+
+    private static String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0);
+        if (bytes < 1024L * 1024 * 1024) {
+            return String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024));
+        }
+        return String.format(java.util.Locale.US, "%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+
+    private void toast(String msg) {
+        Context ctx = getContext();
+        if (ctx != null) {
+            android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        stopRecordTicker();
+    }
+
+    /**
      * 设置视频选择监听器
      */
     public void setOnVideoSelectedListener(OnVideoSelectedListener listener) {
@@ -296,6 +456,7 @@ public class SniffingView extends FrameLayout implements IControlComponent {
 
         interface OnItemClickListener {
             void onItemClick(VideoSniffing.VideoInfo videoInfo);
+            void onDownloadClick(VideoSniffing.VideoInfo videoInfo);
             void onDeleteClick(VideoSniffing.VideoInfo videoInfo, int position);
         }
 
@@ -328,13 +489,14 @@ public class SniffingView extends FrameLayout implements IControlComponent {
 
         static class ViewHolder extends RecyclerView.ViewHolder {
             TextView tvTitle, tvUrl, tvType;
-            ImageView btnDelete;
+            ImageView btnDownload, btnDelete;
 
             ViewHolder(@NonNull View itemView) {
                 super(itemView);
                 tvTitle = itemView.findViewById(R.id.tv_video_title);
                 tvUrl = itemView.findViewById(R.id.tv_video_url);
                 tvType = itemView.findViewById(R.id.tv_video_type);
+                btnDownload = itemView.findViewById(R.id.btn_download);
                 btnDelete = itemView.findViewById(R.id.btn_delete);
             }
 
@@ -366,6 +528,13 @@ public class SniffingView extends FrameLayout implements IControlComponent {
                 itemView.setOnClickListener(v -> {
                     if (listener != null) {
                         listener.onItemClick(videoInfo);
+                    }
+                });
+
+                // 下载按钮
+                btnDownload.setOnClickListener(v -> {
+                    if (listener != null) {
+                        listener.onDownloadClick(videoInfo);
                     }
                 });
 

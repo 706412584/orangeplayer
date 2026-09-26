@@ -48,7 +48,15 @@ public class VideoDownloaderWrapper {
      */
     public void init() {
         android.util.Log.d("VideoDownloaderWrapper", "========== init() START ==========");
-        
+
+        // 幂等守卫：downloadM3U8() 在未初始化时会自行补调 init()，
+        // 而宿主 App 通常已在 Application.onCreate() 里调过一次。
+        // 重复执行会重建下载管理器内部状态，白跑一遍配置。
+        if (mInitialized) {
+            android.util.Log.d("VideoDownloaderWrapper", "Already initialized, skip");
+            return;
+        }
+
         // 优先使用自定义下载路径，否则使用应用私有目录
         File cacheDir;
         if (mCustomDownloadPath != null) {
@@ -219,6 +227,19 @@ public class VideoDownloaderWrapper {
      * @param callback 下载回调
      */
     public void downloadM3U8(String url, String title, DownloadCallback callback) {
+        downloadM3U8(url, title, null, callback);
+    }
+
+    /**
+     * 下载视频（可带请求头）。
+     *
+     * <p>防盗链站点要求清单与分片请求带上 Referer/Cookie 等头，否则分片会 403。
+     * 嗅探结果里存的是响应头，不适用于此处；调用方按需传入真正要发的请求头。
+     *
+     * @param headers 附加到清单/分片请求上的头，可为 null
+     */
+    public void downloadM3U8(String url, String title, Map<String, String> headers,
+                             DownloadCallback callback) {
         android.util.Log.d("VideoDownloaderWrapper", "========== downloadM3U8() START ==========");
         android.util.Log.d("VideoDownloaderWrapper", "URL: " + url);
         android.util.Log.d("VideoDownloaderWrapper", "Title: " + title);
@@ -282,7 +303,11 @@ public class VideoDownloaderWrapper {
         // 开始下载
         try {
             android.util.Log.d("VideoDownloaderWrapper", "Calling VideoDownloadManager.startDownload()...");
-            manager.startDownload(taskItem);
+            if (headers != null && !headers.isEmpty()) {
+                manager.startDownload(taskItem, headers);
+            } else {
+                manager.startDownload(taskItem);
+            }
             android.util.Log.d("VideoDownloaderWrapper", "startDownload() called successfully");
             android.util.Log.d("VideoDownloaderWrapper", "========== downloadM3U8() END ==========");
             // Toast由事件管理器统一处理，此处不再显示

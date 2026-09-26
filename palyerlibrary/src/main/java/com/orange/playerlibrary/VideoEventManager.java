@@ -60,6 +60,12 @@ public class VideoEventManager {
     private String mCurrentScreenScale = "默认";  // 画面比例
     private String mCurrentVideoUrl = null;  // 当前视频 URL（用于判断是否切换视频）
     private int mCurrentVideoListHash = 0;  // 当前剧集列表hash（用于判断是否切换剧集）
+
+    /**
+     * 已经自动恢复过选集记忆的列表 hash（0 表示尚未恢复）。
+     * 用于防止同一份列表被重复填充时反复 playEpisode、打断用户当前播放。
+     */
+    private int mRestoredForListHash = 0;
     
     // OCR 全屏切换相关
     private boolean mOcrPausedForFullscreen = false;
@@ -819,15 +825,86 @@ public class VideoEventManager {
         if (videoList == null || videoList.isEmpty()) {
             return 0;
         }
-        // 基于列表大小和第一个/最后一个URL生成hash
-        int hash = videoList.size();
-        if (!videoList.isEmpty()) {
-            String firstUrl = videoList.get(0).get("url") != null ? videoList.get(0).get("url").toString() : "";
-            String lastUrl = videoList.get(videoList.size() - 1).get("url") != null ? videoList.get(videoList.size() - 1).get("url").toString() : "";
-            hash = hash * 31 + firstUrl.hashCode();
-            hash = hash * 31 + lastUrl.hashCode();
+        return computeListHash(collectUrls(videoList));
+    }
+
+    /** 取出列表里每一条的地址（保序）。 */
+    private static String[] collectUrls(ArrayList<HashMap<String, Object>> videoList) {
+        if (videoList == null) {
+            return new String[0];
         }
-        return hash;
+        String[] urls = new String[videoList.size()];
+        for (int i = 0; i < videoList.size(); i++) {
+            urls[i] = getItemUrl(videoList, i);
+        }
+        return urls;
+    }
+
+    /**
+     * 剧集列表的内容摘要（**保序**）。
+     *
+     * <p>取代旧的 {@code size*31² + 首*31 + 末} 算法，它有两个坑：
+     * <ol>
+     *   <li>两部不同的剧只要集数、首地址、末地址相同就撞键，选集记忆串剧；</li>
+     *   <li>列表中间换掉若干集（同 size、同首末）认不出来。</li>
+     * </ol>
+     * 保序是必要的：存的是**下标**，顺序变了下标就指错集。
+     *
+     * <p>纯函数，便于单测直接验证真实实现（不要再在测试里复刻一份逻辑——
+     * 复刻件与实现漂移正是「高亮重复」这类 bug 能躲过测试的原因）。
+     *
+     * <p>注意：换算法会让老用户已存的记忆失效一次。可接受——旧键本来就会在
+     * 换线路/增删集时静默失效。
+     */
+    static int computeListHash(String[] urls) {
+        if (urls == null || urls.length == 0) {
+            return 0;
+        }
+        return java.util.Arrays.hashCode(urls);
+    }
+
+    /**
+     * 选出**唯一**的高亮目标地址。
+     *
+     * <p>优先级：正在播放的那一集 &gt; 持久化的那一集，二者取其一，绝不并列。
+     * 纯函数，便于单测断言「全局至多一条高亮」。
+     *
+     * @param urls       列表每一条的地址（保序）
+     * @param sourceUrl  调用方传入的原始播放源地址
+     * @param playingUrl 当前实际播放地址（可能被改写成回环代理/本地路径）
+     * @param savedUrl   持久化的那一集地址；无记录或记忆播放关闭时传 null
+     * @return 高亮目标地址；无法判定时返回 null
+     */
+    static String resolveHighlightTarget(String[] urls, String sourceUrl,
+                                         String playingUrl, String savedUrl) {
+        // 有在播的 → 返回它；否则一律退回 savedUrl（无记录/记忆关闭时它是 null）。
+        // 列表为空或 null 时没有可高亮的条目，直接返回 savedUrl 即可，保持一致。
+        if (urls != null) {
+            for (String url : urls) {
+                if (com.orange.playerlibrary.utils.EpisodeUrlMatcher.matches(
+                        url, sourceUrl, playingUrl)) {
+                    return url;
+                }
+            }
+        }
+        return savedUrl;
+    }
+
+    /**
+     * 统计有多少条会命中高亮目标。生产代码里恒为 0 或 1；
+     * 单测用它把「至多一条」这条不变量钉死。
+     */
+    static int countHighlighted(String[] urls, String targetUrl) {
+        if (urls == null || targetUrl == null) {
+            return 0;
+        }
+        int count = 0;
+        for (String url : urls) {
+            if (targetUrl.equals(url)) {
+                count++;
+            }
+        }
+        return count;
     }
     
     /**
@@ -840,6 +917,13 @@ public class VideoEventManager {
      * @return 实际恢复到的集数下标；无记录或列表为空时返回 -1
      */
     public int restoreLastEpisode() {
+        // 与「记忆播放」开关保持一致：面板文案承诺「关闭记忆播放时一并停止生效」，
+        // 而进度续播那条确实受开关管。此前这里不看开关，导致关掉后位置不续了、
+        // 集数却照跳，与文案矛盾。
+        if (!mSettingsManager.isMemoryPlayEnabled()) {
+            android.util.Log.d("VideoEventManager", "restoreLastEpisode: 记忆播放已关闭，跳过");
+            return -1;
+        }
         ArrayList<HashMap<String, Object>> videoList = mController.getVideoList();
         if (videoList == null || videoList.isEmpty()) {
             android.util.Log.d("VideoEventManager", "restoreLastEpisode: 列表为空");
@@ -853,11 +937,25 @@ public class VideoEventManager {
             return -1;
         }
 
+        // 同一份列表只自动恢复一次。门面可能对同一份列表重复触发填充
+        // （重新拉取、切换线路、重新进入页面），若无此守卫，每次都会再
+        // playEpisode 一次，把用户当前正在看的剧集打断。
+        // 用列表摘要做标记：换了列表（摘要不同）则重新获得一次恢复机会。
+        // listHash 为 0 时不做拦截——0 同时是「尚未恢复」的哨兵值，
+        // 这种极小概率的碰撞下宁可多恢复一次，也不要漏恢复。
+        int listHash = getVideoListHash();
+        if (listHash != 0 && mRestoredForListHash != 0 && mRestoredForListHash == listHash) {
+            android.util.Log.d("VideoEventManager", "restoreLastEpisode: 该列表已恢复过，跳过");
+            return -1;
+        }
         HashMap<String, Object> item = videoList.get(index);
         String url = item.get("url") != null ? item.get("url").toString() : "";
         if (url.isEmpty()) {
+            // 先校验再置标记：否则「地址为空」这种未真正恢复的情况也会消耗掉
+            // 本列表的唯一一次恢复机会，之后永不重试。
             return -1;
         }
+        mRestoredForListHash = listHash;
 
         // 直接复用 playEpisode：恢复路径与「用户点选集」走同一套代码，
         // 避免两处逻辑漂移（标题、headers、release+startPlayLogic 的顺序都一致）。
@@ -877,6 +975,114 @@ public class VideoEventManager {
 
         playEpisode(index);
         return index;
+    }
+
+    /**
+     * 选集列表填充完成后**设置播放源但不开始播放**。
+     *
+     * <p>与 {@link #restoreLastEpisode()} 的区别：本方法只 {@code setUrl}（准备），
+     * 不调 {@code startPlayLogic()}。起播时机交给宿主——iApp（v3）的交互是
+     * 「列表就绪后停在待播状态，用户点播放才起播」，自动起播会打断宿主自己的流程。
+     *
+     * <p>选哪一集：有选集记忆用记忆那一集，没有则**第 1 集**。
+     * 这样「填充完选集后没有播放地址」的问题不再出现（此前 viewUrl 一直是 null，
+     * 表现为加载动画一直转）。
+     *
+     * <p>「谁后传谁覆盖」：宿主若在填充后又调 {@code setVideoSource}，
+     * 那次调用会覆盖这里设的地址；反之亦然。不做任何「已设过就跳过」的拦截，
+     * 否则宿主无法覆盖。
+     *
+     * @return 实际选中的集数下标；列表为空返回 -1
+     */
+    public int prepareEpisodeSourceWithoutPlay() {
+        ArrayList<HashMap<String, Object>> videoList = mController.getVideoList();
+        if (videoList == null || videoList.isEmpty()) {
+            android.util.Log.d("VideoEventManager", "prepareEpisodeSourceWithoutPlay: 列表为空");
+            return -1;
+        }
+
+        // 守卫：若「正在播的那一集」已经在这份列表里，说明是同一部剧的重复填充
+        // （iApp 重跑加载块 / 重新拉取），此时**不能**改写播放源——否则用户正在看的
+        // 第 7 集会被 setUrl 换成记忆集或第 1 集，mOriginUrl 与播放状态回 NORMAL，
+        // UI/进度条/高亮全部指向错集。
+        //
+        // 与 restoreLastEpisode 的 mRestoredForListHash 守卫目的相同，但判据更准：
+        // 那个拦的是「同一份列表再恢复一次」，这里拦的是「不要动正在播的源」。
+        int playingIndex = findCurrentEpisodeIndex(videoList);
+        if (playingIndex >= 0) {
+            android.util.Log.d("VideoEventManager",
+                    "prepareEpisodeSourceWithoutPlay: 第 " + (playingIndex + 1)
+                            + " 集正在播且已在列表中，不改写播放源");
+            return playingIndex;
+        }
+
+        int index = 0;   // 默认第 1 集
+        if (mSettingsManager.isMemoryPlayEnabled()) {
+            int saved = mSettingsManager.getLastEpisodeIndex(getSeriesKey());
+            if (saved >= 0 && saved < videoList.size()) {
+                index = saved;
+            }
+        }
+
+        HashMap<String, Object> item = videoList.get(index);
+        String url = item.get("url") != null ? item.get("url").toString() : "";
+        if (url.isEmpty()) {
+            android.util.Log.d("VideoEventManager", "prepareEpisodeSourceWithoutPlay: 第 " + (index + 1) + " 集地址为空");
+            return -1;
+        }
+        final String name = item.get("name") != null ? item.get("name").toString() : "";
+        @SuppressWarnings("unchecked")
+        final HashMap<String, String> headers = (HashMap<String, String>) item.get("headers");
+
+        android.util.Log.d("VideoEventManager", "prepareEpisodeSourceWithoutPlay: index=" + index
+                + " name=" + name + " url=" + url);
+
+        // 只设源（setUp 准备），不 startPlayLogic —— 起播由宿主决定。
+        // 填充列表的调用方可能在工作线程（iApp 的加载块就是），setUp 会触碰视图，
+        // 必须回主线程。
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            mVideoView.post(new Runnable() {
+                @Override
+                public void run() {
+                    applySourceWithoutPlay(url, name, headers);
+                }
+            });
+        } else {
+            applySourceWithoutPlay(url, name, headers);
+        }
+        return index;
+    }
+
+    /** 设源 + 标题，不起播。 */
+    private void applySourceWithoutPlay(String url, String name, HashMap<String, String> headers) {
+        if (mVideoView == null) {
+            return;
+        }
+        mVideoView.setUrl(url, headers);
+        if (name != null && !name.isEmpty()) {
+            mController.setVideoTitle(name);
+        }
+    }
+
+    /**
+     * 清空选集列表。
+     *
+     * <p>门面在**重新填充**剧集列表前调用（两个填充入口已自动调用，宿主通常无需
+     * 自己调）。此前门面只追加不清空，二次填充会把新剧集拼在旧列表后面：
+     * 列表 size 变化 → 剧集键（含 size）随之变化 → 已存的选集记忆读不回来，
+     * 表现为「第一次好使，之后就不灵了」，同时列表里堆叠重复剧集。
+     *
+     * <p>**有意不复位 `mRestoredForListHash`**：那个标记是「这份列表已自动恢复过」
+     * 的守卫，复位它会让下一次 {@code restoreLastEpisode()} 再执行一次
+     * {@code playEpisode}，把用户当前正在看的剧集打断。清空列表本身不改变
+     * 「用户是否正在看某集」这个事实，所以守卫应当保留。
+     * 需要重新获得恢复机会时，填充后的列表摘要会变（列表内容变了），
+     * 守卫自然失效，无需在此复位。
+     */
+    public void clearEpisodeList() {
+        if (mController != null) {
+            mController.removeVideoList();
+        }
     }
 
     /**
@@ -1954,11 +2160,15 @@ public class VideoEventManager {
      * 显示下载选集对话框
      */
     private void showDownloadPlaylistDialog() {
-        final ArrayList<HashMap<String, Object>> originalList = mController.getVideoList();
-        if (originalList == null || originalList.isEmpty()) {
+        // 取防御性副本，不要持有内部列表的别名：
+        // removeVideoList() 是**就地 clear()** 旧对象，而重新填充会新建 ArrayList，
+        // 于是对话框手里的旧引用会永久停在「被清空」的状态（与真实列表脱钩）。
+        ArrayList<HashMap<String, Object>> live = mController.getVideoList();
+        if (live == null || live.isEmpty()) {
             showToast("暂无选集");
             return;
         }
+        final ArrayList<HashMap<String, Object>> originalList = new ArrayList<>(live);
 
         // 创建自定义对话框
         android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(mContext);
@@ -2923,11 +3133,17 @@ public class VideoEventManager {
      * 显示选集列表
      */
     public void showPlaylistDialog() {
-        final ArrayList<HashMap<String, Object>> originalList = mController.getVideoList();
-        if (originalList == null || originalList.isEmpty()) {
+        // 取防御性副本，不要持有内部列表的别名：
+        // removeVideoList() 是**就地 clear()** 旧对象，而重新填充会新建 ArrayList，
+        // 于是对话框手里的旧引用会永久停在「被清空」的状态（与真实列表脱钩）——
+        // 表现为对话框里剧集不全或为空。元素引用仍是同一批（浅拷贝），
+        // 所以 getItemIndexInOriginal 的对象比对不受影响。
+        ArrayList<HashMap<String, Object>> live = mController.getVideoList();
+        if (live == null || live.isEmpty()) {
             showToast("暂无选集");
             return;
         }
+        final ArrayList<HashMap<String, Object>> originalList = new ArrayList<>(live);
         
         hideController();
         
@@ -3024,6 +3240,50 @@ public class VideoEventManager {
     }
     
     /**
+     * 解析出**唯一**的高亮目标地址。
+     *
+     * <p>优先级：正在播放的那一集 &gt; 持久化的那一集。
+     * 二者取其一，绝不并列——否则会出现「第 1 集和上次那一集同时高亮」。
+     *
+     * @return 目标地址；无法判定时返回 null
+     */
+    private String resolveHighlightUrl() {
+        // 持久化的那一集必须同样受「记忆播放」开关约束：开关关闭时不恢复播放，
+        // 若这里仍高亮那一集，就会出现「在播第 1 集 + 高亮上次那一集」的
+        // 重复高亮——正是要修的那个症状。
+        String savedUrl = mSettingsManager.isMemoryPlayEnabled() ? getLastEpisodeUrl() : null;
+        return resolveHighlightTarget(
+                collectUrls(mController.getVideoList()),
+                mVideoView == null ? null : mVideoView.getSourceUrl(),
+                mVideoView == null ? null : mVideoView.getUrl(),
+                savedUrl);
+    }
+
+    /**
+     * 反查某个显示条目在**原始列表**里的下标。
+     *
+     * <p>显示列表是排序/反转后的副本，{@code position} 与真实下标不对应，
+     * 所以按条目对象本身定位。
+     *
+     * @return 真实下标；找不到返回 -1
+     */
+    private int getItemIndexInOriginal(HashMap<String, Object> itemData) {
+        if (itemData == null) {
+            return -1;
+        }
+        ArrayList<HashMap<String, Object>> list = mController.getVideoList();
+        if (list == null) {
+            return -1;
+        }
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == itemData) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
      * 绑定选集列表项
      */
     private void bindPlaylistItemView(OrangeRecyclerViewAdapter.ViewHolder holder,
@@ -3031,26 +3291,24 @@ public class VideoEventManager {
                                       int position, AlertDialog dialog) {
         HashMap<String, Object> itemData = dataList.get(position);
         android.widget.TextView titleTv = holder.itemView.findViewById(R.id.title);
-        
-        // 绑定标题
-        String title = itemData.get("name") != null ? itemData.get("name").toString() : "第" + (position + 1) + "集";
+
+        // 绑定标题。集数用**真实列表下标**，不能用 position：显示列表会被排序/反转，
+        // position 与真实下标不对应，反转后「第N集」会错位。
+        int realIndex = getItemIndexInOriginal(itemData);
+        String title = itemData.get("name") != null ? itemData.get("name").toString()
+                : "第" + (realIndex >= 0 ? realIndex + 1 : position + 1) + "集";
         titleTv.setText(title);
 
-        // 高亮当前播放集数：用描边+浅填充卡片区分，字号保持稳定。
+        // 高亮：先算出**唯一**的「高亮目标地址」，再逐条比较，保证全局至多一条高亮。
         //
-        // 两级判据：
-        //   1) 地址匹配——正在播放时最准（注意不能只比 getUrl()，去广告后它会变成
-        //      回环代理地址，见 findCurrentEpisodeIndex）
-        //   2) 持久化的那一集地址——重启后还没起播时第 1 级必然全部落空，
-        //      此时靠选集记忆把上次那一集高亮出来。
-        //      注意不能用 position 比对下标：显示列表可能被排序/反转，position
-        //      与真实列表下标已不对应，按地址比才可靠。
+        // 这里曾经是两条独立判据（先比正在播的地址，不中就再比持久化的那一集）。
+        // 单条内虽是 if/else，但**跨条目两条判据各自命中**：启动时直接播第 1 集
+        // （嗅探自动播放 / setVideoSource(list[0])，都没走 restoreLastEpisode）时，
+        // 判据 1 点亮在播的第 1 集、判据 2 点亮上次存的那一集 → 两条同时高亮。
+        // 改为单一目标后，从结构上不可能出现两条都亮。
+        String targetUrl = resolveHighlightUrl();
         String itemUrl = itemData.get("url") != null ? itemData.get("url").toString() : "";
-        boolean isCurrent = matchesCurrentEpisodeUrl(itemUrl);
-        if (!isCurrent) {
-            String savedUrl = getLastEpisodeUrl();
-            isCurrent = savedUrl != null && savedUrl.equals(itemUrl);
-        }
+        boolean isCurrent = !itemUrl.isEmpty() && itemUrl.equals(targetUrl);
         titleTv.setSelected(isCurrent);
         titleTv.setTextColor(isCurrent ? COLOR_HIGHLIGHT : COLOR_NORMAL);
 
@@ -3239,6 +3497,9 @@ public class VideoEventManager {
      * 匹配规则见 {@link com.orange.playerlibrary.utils.EpisodeUrlMatcher}。
      */
     private boolean matchesCurrentEpisodeUrl(String itemUrl) {
+        if (mVideoView == null) {
+            return false;
+        }
         return com.orange.playerlibrary.utils.EpisodeUrlMatcher.matches(
                 itemUrl, mVideoView.getSourceUrl(), mVideoView.getUrl());
     }
@@ -6676,14 +6937,47 @@ public class VideoEventManager {
         if (epBtn != null) {
             renderEpisodeMemoryEntry(epStatus, epBtn);
             epBtn.setOnClickListener(v -> {
-                mSettingsManager.clearLastEpisodeIndex(getSeriesKey());
-                // 已保存的进度也一并清掉，否则「清除」后下次仍会从中间续播
-                if (mVideoView != null) {
-                    mVideoView.clearSavedProgress();
-                }
+                clearEpisodeMemory();
                 renderEpisodeMemoryEntry(epStatus, epBtn);
                 showToast("已清除本剧集的播放记录");
             });
+        }
+    }
+
+    /**
+     * 清除本剧集的选集记忆：集数下标 + **该剧所有集**的播放进度。
+     *
+     * <p>为什么要连进度一起清：只清「当前这一集」的进度（原来的
+     * {@code mVideoView.clearSavedProgress()}）会留下同剧其它集的记录，
+     * 用户点「清除本剧集的播放记录」后重启，仍会从某一集的中间续播——
+     * 记录并没有真的清掉。
+     *
+     * <p>门面（iApp）也走这里，避免两边各拼一次存储键而写错（曾出现门面写成
+     * {@code "s" + getSeriesKeyForStorage()} → {@code "ss<hash>"}，与内部用的
+     * {@code "s<hash>"} 不一致，按了等于没按）。
+     */
+    public void clearEpisodeMemory() {
+        // 1) 集数下标
+        mSettingsManager.clearLastEpisodeIndex(getSeriesKey());
+
+        // 2) 该剧所有集的播放进度
+        PlaybackProgressManager progressManager =
+                PlaybackProgressManager.getInstance(mActivity.getApplicationContext());
+        ArrayList<HashMap<String, Object>> list = mController.getVideoList();
+        boolean clearedAny = false;
+        if (list != null) {
+            for (int i = 0; i < list.size(); i++) {
+                String url = getItemUrl(list, i);
+                if (!url.isEmpty()) {
+                    progressManager.removeProgress(url);
+                    clearedAny = true;
+                }
+            }
+        }
+        // 兜底：列表为空（或地址取不到）时至少清掉当前正在播的那一条，
+        // 行为与改动前保持一致，不会比原来更差。
+        if (!clearedAny && mVideoView != null) {
+            mVideoView.clearSavedProgress();
         }
     }
 

@@ -329,6 +329,65 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
     }
 
     /**
+     * 追加选集，**跳过已存在的地址**（按 url 精确比对）。
+     *
+     * <p>用途：宿主分批加载、或多来源合并选集时，避免同一集重复入列
+     * （重复项会让「当前集高亮」同时命中多条、也会让按下标恢复指错集）。
+     *
+     * <p>与 {@link #addVideo} 的区别：那个是无条件追加；本方法只在地址不存在时才加入。
+     *
+     * @return 实际新增的条数（0 表示全部已存在）
+     */
+    public synchronized int addVideosDedup(java.util.List<HashMap<String, Object>> items) {
+        if (items == null || items.isEmpty()) {
+            return 0;
+        }
+        if (mVideoList == null) {
+            mVideoList = new ArrayList<>();
+        }
+        // 去重规则见 EpisodeDedup：url 精确比对（不能忽略 query，
+        // 不同集可能只差查询串）。
+        java.util.List<String> existing = new ArrayList<>();
+        for (HashMap<String, Object> v : mVideoList) {
+            Object u = v.get("url");
+            existing.add(u == null ? "" : u.toString());
+        }
+        java.util.List<String> candidates = new ArrayList<>();
+        for (HashMap<String, Object> item : items) {
+            Object u = (item == null) ? null : item.get("url");
+            candidates.add(u == null ? "" : u.toString());
+        }
+
+        int[] pick = com.orange.playerlibrary.utils.EpisodeDedup.pickNewIndexes(existing, candidates);
+        for (int i : pick) {
+            HashMap<String, Object> item = items.get(i);
+            if (!item.containsKey("headers")) {
+                item.put("headers", new HashMap<>());
+            }
+            mVideoList.add(item);
+        }
+        if (pick.length > 0) {
+            debug("addVideosDedup: 新增 " + pick.length + " 集，当前共 " + mVideoList.size() + " 集");
+        }
+        return pick.length;
+    }
+
+    /**
+     * 列表里是否已存在该地址（精确比对）。
+     */
+    public synchronized boolean containsVideoUrl(String url) {
+        if (url == null || url.isEmpty() || mVideoList == null) {
+            return false;
+        }
+        java.util.List<String> existing = new ArrayList<>();
+        for (HashMap<String, Object> v : mVideoList) {
+            Object u = v.get("url");
+            existing.add(u == null ? "" : u.toString());
+        }
+        return com.orange.playerlibrary.utils.EpisodeDedup.contains(existing, url);
+    }
+
+    /**
      * 清空视频列表
      * Requirements: 2.6
      */

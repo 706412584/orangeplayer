@@ -15,6 +15,13 @@
         android:layout_width="match_parent"
         android:layout_height="220dp" />
 
+    <!-- v3 冒烟专用容器：门面 VideoPlayerManager.init() 需要一个父容器。
+         尺寸 0 以免影响 demo 正常界面（该入口只验证选集解析，不看画面） -->
+    <FrameLayout
+        android:id="@+id/v3_smoke_container"
+        android:layout_width="0dp"
+        android:layout_height="0dp" />
+
     <!-- 视频链接输入 + 主操作 -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -139,6 +146,13 @@
                     <Button android:id="@+id/btn_play_mode" style="@style/OrangeButtonSecondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="播放方式" android:textSize="11sp" />
                     <Button android:id="@+id/btn_clear_episodes" style="@style/OrangeButtonSecondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp" android:text="清空选集" android:textSize="11sp" />
                     <Button android:id="@+id/btn_enter_portrait_fullscreen" style="@style/OrangeButtonSecondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp" android:text="竖屏全屏" android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- 去重追加：验证「分批加载 / 多来源合并选集」不会重复入列 -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:layout_marginTop="6dp">
+                    <Button android:id="@+id/btn_add_episodes_dedup" style="@style/OrangeButtonSecondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="去重追加" android:textSize="11sp" />
+                    <Button android:id="@+id/btn_add_episodes_dup" style="@style/OrangeButtonSecondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp" android:text="重复追加" android:textSize="11sp" />
+                    <Button android:id="@+id/btn_show_list_size" style="@style/OrangeButtonSecondary" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp" android:text="选集数量" android:textSize="11sp" />
                 </LinearLayout>
             </LinearLayout>
             <!-- ===== 高级功能 ===== -->

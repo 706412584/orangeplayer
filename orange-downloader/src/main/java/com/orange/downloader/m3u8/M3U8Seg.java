@@ -70,8 +70,30 @@ public class M3U8Seg implements Comparable<M3U8Seg> {
         return mKeyUri;
     }
 
+    /**
+     * 本地密钥文件名。
+     *
+     * <p>按**密钥 URI 的摘要**命名，而不是按分片索引：整条 playlist 的分片通常共用
+     * 同一个 key，若按索引命名会产生上千个文件名指向同一份 16 字节内容——要么重复
+     * 下载上千次，要么去重后 playlist 里大半条目指向不存在的文件。
+     * 同一 key URI 必然得到同一文件名；密钥轮换时不同 URI 自然分开。
+     */
     public String getLocalKeyUri() {
-        return  "local_"+ mIndex + ".key";
+        if (TextUtils.isEmpty(mKeyUri)) {
+            return "local_" + mIndex + ".key";
+        }
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(mKeyUri.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder("local_key_");
+            for (int i = 0; i < 8; i++) {
+                sb.append(String.format("%02x", digest[i]));
+            }
+            return sb.append(".key").toString();
+        } catch (Exception e) {
+            // 摘要不可用时退回索引命名，至少保证文件名唯一
+            return "local_" + mIndex + ".key";
+        }
     }
 
     public String getKeyIV() {

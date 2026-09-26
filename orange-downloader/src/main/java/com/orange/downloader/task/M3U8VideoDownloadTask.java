@@ -39,6 +39,13 @@ public class M3U8VideoDownloadTask extends VideoDownloadTask {
 
     private final M3U8 mM3U8;
     private List<M3U8Seg> mTsList;
+    /** 已下载的密钥 URI（同一 key 被整条 playlist 引用，需去重） */
+    private final java.util.concurrent.ConcurrentHashMap<String, Boolean> mDownloadedKeyUris =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    /** 实际下载到的分片是否为明文 TS（站点声明可能与实际不符，见 detectSegmentsArePlainText） */
+    private volatile boolean mSegmentsArePlainText = false;
+    /** 是否有过 key 下载失败（收尾时按分片实际内容决定放行还是报错） */
+    private volatile boolean mKeyDownloadFailed = false;
     private volatile int mCurTs = 0;
     private int mTotalTs;
     private long mTotalSize;
@@ -122,6 +129,32 @@ public class M3U8VideoDownloadTask extends VideoDownloadTask {
                 downloadFile(ts, tsInitSegmentFile, ts.getInitSegmentUri());
             }
         }
+        // AES-128：本地 playlist 会把 EXT-X-KEY 的 URI 改写成 local_<idx>.key，
+        // 但此前从没人把这个 key 下下来——产物里的 key 永远缺失，ffmpeg 合并
+        // 会因取不到密钥而失败（Java 拼接更是直接拒绝加密流）。
+        if (ts.hasKey() && !TextUtils.isEmpty(ts.getKeyUri())) {
+            File keyFile = new File(mSaveDir, ts.getLocalKeyUri());
+            // 同一 key 被整条 playlist 的每个分片引用（1860 个分片共用一个 16 字节的
+            // key 是常态）。按 URI 去重，避免同一文件被下载上千次；并发分片可能
+            // 同时到达这里，所以用 putIfAbsent 抢占而不是先查后写。
+            if (!isKeyFileUsable(keyFile)
+                    && mDownloadedKeyUris.putIfAbsent(ts.getKeyUri(), Boolean.TRUE) == null) {
+                try {
+                    downloadKeyFileWithRetry(ts, keyFile);
+                } catch (Exception e) {
+                    // key 下载失败不再直接毁掉整个任务：站点常在 playlist 里声明
+                    // AES-128 而实际给明文（17c.tw 实测），此时 key 往往已失效/403。
+                    // 明文检测在完成分支才跑，若这里 throw 就永远到不了那一步，
+                    // 内容明明可用却必然失败。
+                    // 改为：记下失败，继续下分片；收尾时按「分片实际是否明文」决定
+                    // 是放行（明文）还是报错（真加密但没 key）。
+                    mDownloadedKeyUris.remove(ts.getKeyUri());
+                    mKeyDownloadFailed = true;
+                    LogUtils.w(DownloadConstants.TAG, "[M3U8_TS] key 下载失败（稍后按分片实际内容判定）: "
+                            + ts.getKeyUri() + ", err=" + e.getMessage());
+                }
+            }
+        }
         File tsFile = new File(mSaveDir, ts.getIndexName());
         if (!tsFile.exists()) {
             // ts is network resource, download ts file then rename it to local file.
@@ -136,10 +169,167 @@ public class M3U8VideoDownloadTask extends VideoDownloadTask {
         }
     }
 
+    /**
+     * 下载 AES-128 密钥文件并落盘为 {@link M3U8Seg#getLocalKeyUri()}。
+     *
+     * <p>密钥很小（通常 16 字节），但仍要带 {@code mHeaders}——部分站点的 key
+     * 与分片同源同鉴权。
+     */
+    private void downloadKeyFileWithRetry(M3U8Seg ts, File keyFile) throws Exception {
+        int retryCount = 0;
+        while (true) {
+            try {
+                downloadKeyFile(ts, keyFile);
+                return;
+            } catch (Exception e) {
+                // key 与分片同源，复用同一套重试判据（瞬时 503/断连不该毁掉整个任务）
+                if (retryCount < HttpUtils.MAX_RETRY_COUNT && shouldRetryForException(e, retryCount)) {
+                    retryCount++;
+                    sleepBeforeRetry(retryCount);
+                    continue;
+                }
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * 下载 AES-128 密钥并**原子落盘**。
+     *
+     * <p>先写 {@code .tmp} 再改名。直接写最终路径的话，网络中断会留下半截文件，
+     * 而续传判据是 {@code keyFile.exists()} → 半截文件被当成「已下载」永久复用，
+     * 任务报 SUCCESS 但产物用错 key 解出垃圾——「分片齐全但解不开」的真实入口。
+     *
+     * <p>同时校验长度：AES-128 的 key 必须是 16 字节。长度不符即视为失败，
+     * 不留文件（有些 CDN 会把 403 页面/占位内容当 200 返回）。
+     */
+    private void downloadKeyFile(M3U8Seg ts, File keyFile) throws Exception {
+        HttpURLConnection connection = null;
+        InputStream inputStream = null;
+        File tmpFile = new File(keyFile.getAbsolutePath() + ".tmp");
+        try {
+            connection = HttpUtils.getConnection(ts.getKeyUri(), mHeaders,
+                    VideoDownloadUtils.getDownloadConfig().shouldIgnoreCertErrors());
+            int responseCode = connection.getResponseCode();
+            if (responseCode != HttpUtils.RESPONSE_200 && responseCode != HttpUtils.RESPONSE_206) {
+                throw new VideoDownloadException(DownloadExceptionUtils.VIDEO_REQUEST_FAILED);
+            }
+            inputStream = connection.getInputStream();
+            File parent = keyFile.getParentFile();
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs();
+            }
+            if (tmpFile.exists()) {
+                tmpFile.delete();
+            }
+            FileOutputStream fos = new FileOutputStream(tmpFile);
+            long total = 0;
+            try {
+                byte[] buf = new byte[BUFFER_SIZE];
+                int len;
+                while ((len = inputStream.read(buf)) != -1) {
+                    fos.write(buf, 0, len);
+                    total += len;
+                }
+            } finally {
+                VideoDownloadUtils.close(fos);
+            }
+
+            // AES-128 密钥固定 16 字节。长度不符说明拿到的不是 key
+            // （403 页面、占位内容、被截断），必须当失败处理。
+            if (!com.orange.downloader.utils.KeyFileValidator.isExpectedKeyLength(total)) {
+                tmpFile.delete();
+                throw new VideoDownloadException(DownloadExceptionUtils.VIDEO_REQUEST_FAILED);
+            }
+            // 原子改名：renameTo 失败时退化为复制，确保最终文件完整
+            if (!tmpFile.renameTo(keyFile)) {
+                java.io.FileOutputStream out = null;
+                java.io.FileInputStream in = null;
+                try {
+                    in = new java.io.FileInputStream(tmpFile);
+                    out = new java.io.FileOutputStream(keyFile);
+                    byte[] buf = new byte[BUFFER_SIZE];
+                    int len;
+                    while ((len = in.read(buf)) != -1) {
+                        out.write(buf, 0, len);
+                    }
+                } finally {
+                    VideoDownloadUtils.close(in);
+                    VideoDownloadUtils.close(out);
+                    tmpFile.delete();
+                }
+            }
+            LogUtils.i(DownloadConstants.TAG, "[M3U8_TS] key downloaded: " + keyFile.getName()
+                    + ", size=" + keyFile.length());
+        } catch (Exception e) {
+            // 任何失败都不留半截文件，否则会被 exists() 判据误当成已下载
+            if (tmpFile.exists()) {
+                tmpFile.delete();
+            }
+            throw e;
+        } finally {
+            HttpUtils.closeConnection(connection);
+            VideoDownloadUtils.close(inputStream);
+        }
+    }
+
+    /**
+     * key 文件是否可用：存在且长度正确（AES-128 = 16 字节）。
+     * 长度不符的旧文件（此前半截写入留下的）会被删掉并返回 false，触发重下。
+     */
+    private boolean isKeyFileUsable(File keyFile) {
+        long len = keyFile == null ? -1 : keyFile.length();
+        boolean usable = com.orange.downloader.utils.KeyFileValidator.isUsable(keyFile);
+        if (!usable && keyFile != null && keyFile.exists() == false && len > 0) {
+            LogUtils.w(DownloadConstants.TAG, "[M3U8_TS] key 文件长度异常(" + len
+                    + "B)，已删除并将重下: " + keyFile.getName());
+        }
+        return usable;
+    }
+
     @Override
     public void resumeDownload() {
         initM3U8Ts();
+        ensureKeysDownloaded();
         startDownload(mCurTs);
+    }
+
+    /**
+     * 确保所有 key 都已下载。
+     *
+     * <p>为什么需要单独一趟：`hasKey` 在每个分片后复位，所以 remote.m3u8 里
+     * `EXT-X-KEY` 只出现在 segment 0 之前。续传从 `mCurTs > 0` 开始，剩余分片
+     * 全部 `hasKey == false` → 分片下载路径里的 key 分支**永不触发**。
+     * 若 key 文件缺失（首次解析时被跳过、或用户清理过目录），产物 playlist
+     * 会指向不存在的 `local_key_*.key`，合并失败。
+     *
+     * <p>这里遍历一次列表把所有出现过的 key URI 补下（去重），与分片下载
+     * 共用 `mDownloadedKeyUris`，不会重复下载。
+     */
+    private void ensureKeysDownloaded() {
+        if (mTsList == null || mTsList.isEmpty()) {
+            return;
+        }
+        for (M3U8Seg ts : mTsList) {
+            if (!ts.hasKey() || TextUtils.isEmpty(ts.getKeyUri())) {
+                continue;
+            }
+            File keyFile = new File(mSaveDir, ts.getLocalKeyUri());
+            if (isKeyFileUsable(keyFile)) {
+                continue;
+            }
+            if (mDownloadedKeyUris.putIfAbsent(ts.getKeyUri(), Boolean.TRUE) != null) {
+                continue;   // 本轮已处理过该 key
+            }
+            try {
+                downloadKeyFileWithRetry(ts, keyFile);
+            } catch (Exception e) {
+                mDownloadedKeyUris.remove(ts.getKeyUri());
+                mKeyDownloadFailed = true;
+                LogUtils.w(DownloadConstants.TAG, "[M3U8_TS] 续传补下 key 失败: "
+                        + ts.getKeyUri() + ", err=" + e.getMessage());
+            }
+        }
     }
 
     @Override
@@ -197,6 +387,21 @@ public class M3U8VideoDownloadTask extends VideoDownloadTask {
         if (isCompleted) {
             LogUtils.i(DownloadConstants.TAG, "[M3U8_TASK] All TS segments completed, creating local m3u8 files");
             try {
+                // 站点常在 playlist 里声明 AES-128，实际却直接给明文 TS
+                // （17c.tw 实测：分片每个 188 字节边界都是 0x47 同步字节，
+                //  ffmpeg 按声明解密反而把明文解成垃圾 → 合并必然失败）。
+                // 声明不可信，按**实际下载到的字节**决定本地 playlist 怎么写。
+                mSegmentsArePlainText = detectSegmentsArePlainText();
+                if (mSegmentsArePlainText) {
+                    LogUtils.w(DownloadConstants.TAG,
+                            "[M3U8_TASK] Playlist declares encryption but segments are plain TS; "
+                                    + "writing plaintext local playlist");
+                }
+                // 真加密但 key 没下到 → 产物必然解不开，此时才报错（明确失败，
+                // 不静默产出坏文件）。明文场景放行（key 下载失败无关紧要）。
+                if (mKeyDownloadFailed && !mSegmentsArePlainText) {
+                    throw new VideoDownloadException(DownloadExceptionUtils.VIDEO_REQUEST_FAILED);
+                }
                 createLocalM3U8File();
                 createLocalM3U8FileWithKey();
                 LogUtils.i(DownloadConstants.TAG, "[M3U8_TASK] Local m3u8 files created successfully");
@@ -410,6 +615,52 @@ public class M3U8VideoDownloadTask extends VideoDownloadTask {
         }
     }
 
+    /**
+     * 检测已下载的分片是否其实是**明文** TS。
+     *
+     * <p>背景：有站点在 playlist 里写 {@code #EXT-X-KEY:METHOD=AES-128}，但分片本身
+     * 是明文（17c.tw 实测：分片每个 188 字节边界都命中 0x47 同步字节）。
+     * 此时若照声明保留 EXT-X-KEY，ffmpeg 会把明文当密文解，得到垃圾数据，
+     * 合并必然失败——而且失败信息（"Error when loading first segment"）完全
+     * 指不出真实原因。这里按实际字节判定，让本地 playlist 反映真相。
+     *
+     * <p>判定依据：MPEG-TS 是 188 字节定长包，每个包首字节必为 0x47。
+     * 密文流不会有这种规律（0x47 只会随机出现，概率约 1/256）。
+     *
+     * @return true 表示分片是明文，本地 playlist 不应保留 EXT-X-KEY
+     */
+    private boolean detectSegmentsArePlainText() {
+        if (mTsList == null || mTsList.isEmpty()) {
+            return false;
+        }
+        // 抽查前几个分片即可；只要有一个确认是明文就够（同一来源的分片加密状态一致）
+        int checked = 0;
+        for (M3U8Seg ts : mTsList) {
+            File f = new File(mSaveDir, ts.getIndexName());
+            if (!f.exists() || f.length() < 188 * 4) {
+                continue;
+            }
+            checked++;
+            if (isPlainTsFile(f)) {
+                LogUtils.i(DownloadConstants.TAG,
+                        "[M3U8_TASK] segment " + f.getName() + " looks like plain TS");
+                return true;
+            }
+            if (checked >= 3) {
+                break;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 按 MPEG-TS 的 188 字节定长包结构判断文件是否为明文 TS。
+     * 实现见 {@link com.orange.downloader.utils.TsProbe}。
+     */
+    private boolean isPlainTsFile(File file) {
+        return com.orange.downloader.utils.TsProbe.isPlainTsFile(file);
+    }
+
     private void createLocalM3U8File() throws IOException {
         synchronized (mFileLock) {
             File tempM3U8File = new File(mSaveDir, "temp.m3u8");
@@ -435,7 +686,8 @@ public class M3U8VideoDownloadTask extends VideoDownloadTask {
                     }
                     bfw.write(M3U8Constants.TAG_INIT_SEGMENT + ":" + initSegmentInfo + "\n");
                 }
-                if (m3u8Ts.hasKey()) {
+                // 分片实际是明文时不要保留 EXT-X-KEY：否则 ffmpeg 会把明文当密文解
+                if (m3u8Ts.hasKey() && !mSegmentsArePlainText) {
                     if (m3u8Ts.getMethod() != null) {
                         String key = "METHOD=" + m3u8Ts.getMethod();
                         if (m3u8Ts.getKeyUri() != null) {
@@ -495,7 +747,8 @@ public class M3U8VideoDownloadTask extends VideoDownloadTask {
                     }
                     bfw.write(M3U8Constants.TAG_INIT_SEGMENT + ":" + initSegmentInfo + "\n");
                 }
-                if (m3u8Ts.hasKey()) {
+                // 同上：分片实际是明文时不要保留 EXT-X-KEY
+                if (m3u8Ts.hasKey() && !mSegmentsArePlainText) {
                     if (m3u8Ts.getMethod() != null) {
                         String key = "METHOD=" + m3u8Ts.getMethod();
                         if (m3u8Ts.getKeyUri() != null) {

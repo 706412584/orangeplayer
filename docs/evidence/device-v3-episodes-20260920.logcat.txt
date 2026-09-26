@@ -1,0 +1,53 @@
+--------- beginning of main
+09-20 01:48:09.126 29162 29162 D VideoPlayerManager: init: 去广告开关 = true (用户设置过=true)
+09-20 01:48:09.126 29162 29162 D VideoPlayerManager: init: 记忆播放 = true (用户设置过=true)
+09-20 01:48:09.131 29162 29162 D VideoPlayerManager: selectEngine: 已切换到 exo
+09-20 01:48:09.340 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 16 条解析失败，跳过：Value at 15 is null.
+09-20 01:48:09.340 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 17 条解析失败，跳过：Value at 16 is null.
+09-20 01:48:09.340 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 18 条解析失败，跳过：Value at 17 is null.
+09-20 01:48:09.340 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 19 条解析失败，跳过：Value at 18 is null.
+09-20 01:48:09.340 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 20 条解析失败，跳过：Value at 19 is null.
+09-20 01:48:09.340 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 21 条解析失败，跳过：Value at 20 is null.
+09-20 01:48:09.340 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 22 条解析失败，跳过：Value at 21 is null.
+09-20 01:48:09.340 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 23 条解析失败，跳过：Value at 22 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 24 条解析失败，跳过：Value at 23 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 25 条解析失败，跳过：Value at 24 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 26 条解析失败，跳过：Value at 25 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 28 条解析失败，跳过：Value at 27 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 29 条解析失败，跳过：Value at 28 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 30 条解析失败，跳过：Value at 29 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 31 条解析失败，跳过：Value at 30 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 32 条解析失败，跳过：Value at 31 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 33 条解析失败，跳过：Value at 32 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 35 条解析失败，跳过：Value at 34 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 36 条解析失败，跳过：Value at 35 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 37 条解析失败，跳过：Value at 36 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 38 条解析失败，跳过：Value at 37 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 39 条解析失败，跳过：Value at 38 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 42 条解析失败，跳过：Value at 41 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 43 条解析失败，跳过：Value at 42 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 44 条解析失败，跳过：Value at 43 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 45 条解析失败，跳过：Value at 44 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 46 条解析失败，跳过：Value at 45 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 47 条解析失败，跳过：Value at 46 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 48 条解析失败，跳过：Value at 47 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 49 条解析失败，跳过：Value at 48 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 50 条解析失败，跳过：Value at 49 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 51 条解析失败，跳过：Value at 50 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 52 条解析失败，跳过：Value at 51 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 53 条解析失败，跳过：Value at 52 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 54 条解析失败，跳过：Value at 53 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 55 条解析失败，跳过：Value at 54 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 57 条解析失败，跳过：Value at 56 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 58 条解析失败，跳过：Value at 57 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 59 条解析失败，跳过：Value at 58 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 60 条解析失败，跳过：Value at 59 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 62 条解析失败，跳过：Value at 61 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 63 条解析失败，跳过：Value at 62 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 64 条解析失败，跳过：Value at 63 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 65 条解析失败，跳过：Value at 64 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 66 条解析失败，跳过：Value at 65 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 67 条解析失败，跳过：Value at 66 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 68 条解析失败，跳过：Value at 67 is null.
+09-20 01:48:09.341 29162 29231 D VideoPlayerManager: addVideosFromJsonArray: 第 69 条解析失败，跳过：Value at 68 is null.
+09-20 01:48:14.643 29162 29230 D VideoPlayerManager: 设置弹幕出错:org.json.JSONException: Value at 3 is null.

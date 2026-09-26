@@ -107,6 +107,11 @@ public class MainActivity extends AppCompatActivity {
                     }
                     return;
                 }
+                // v3_episodes_smoke: 用 v3 宿主真实数组形状验证门面选集解析
+                if ("v3_episodes_smoke".equals(cmd)) {
+                    v3EpisodesSmoke();
+                    return;
+                }
                 // play_url: 播放远程 URL（测试用）；格式 play_url:<url>
                 if (cmd.startsWith("play_url:")) {
                     String url = cmd.substring("play_url:".length()).trim();
@@ -568,6 +573,20 @@ public class MainActivity extends AppCompatActivity {
         });
         btnClearEpisodes.setOnClickListener(v -> clearEpisodes());
         btnTestFeature.setOnClickListener(v -> showMoreTestDialog());
+
+        // 去重追加 / 重复追加 / 选集数量（验证 addVideosFromJsonArrayDedup）
+        Button btnAddEpisodesDedup = findViewById(R.id.btn_add_episodes_dedup);
+        Button btnAddEpisodesDup = findViewById(R.id.btn_add_episodes_dup);
+        Button btnShowListSize = findViewById(R.id.btn_show_list_size);
+        if (btnAddEpisodesDedup != null) {
+            btnAddEpisodesDedup.setOnClickListener(v -> addEpisodesDedup());
+        }
+        if (btnAddEpisodesDup != null) {
+            btnAddEpisodesDup.setOnClickListener(v -> addEpisodesDuplicate());
+        }
+        if (btnShowListSize != null) {
+            btnShowListSize.setOnClickListener(v -> showEpisodeListSize());
+        }
 
         // 控制器可见性测试按钮
         Button btnControllerVisibility = findViewById(R.id.btn_controller_visibility);
@@ -1482,6 +1501,357 @@ public class MainActivity extends AppCompatActivity {
     // ===== 选集功能 =====
 
     /**
+     * 【回归验证】用 v3 宿主的**真实数组形状**喂官方门面，验证不再丢集 / 不再空白标题。
+     *
+     * <p>背景：真机日志（PJA110，原件见 {@code docs/evidence/device-v3-episodes-20260920*.logcat.txt}）
+     * 显示 iApp v3 传给 {@code addVideosFromJsonArray} 的 JSONArray 里混着 Java null 槽位。
+     * **「整批一个 try/catch 会在中途丢集」由本入口的 A/B 对照证明**（同一数组分别喂
+     * 整批写法与逐条写法），不是靠断言。
+     *
+     * <p>三条子验证（全部走**真正的门面**，不是 SDK 直连）：
+     * <ol>
+     *   <li>真实 {@code item.json} 按 {@code #} 切分构造 → 验证有效条目一条不丢；</li>
+     *   <li>按真机日志记录的槽位分布（69 槽位 / 48 null / 21 有效）复刻 → 含
+     *       **A/B 对照**（整批 vs 逐条）。注意这是**日志里的一次观察**，数组长度
+     *       两次运行不同（69 / 59），**不是固定值**；</li>
+     *   <li>推荐入口 {@code addVideosFromMacCmsJson}（宿主别自己拼数组）→ 应得 26 集。</li>
+     * </ol>
+     *
+     * <p>通过 {@code adb broadcast -a com.orange.player.TEST_CMD --es cmd v3_episodes_smoke}
+     * 触发，结果打 {@code logcat -s V3Smoke:D}（demo 的 {@code log()} 只写界面，
+     * 界面常被对话框遮挡，读不到）。
+     */
+    private void v3EpisodesSmoke() {
+        // 1) 读真实 v3 数据（app/src/debug/assets/v3_item.json = 真机 item.json 原件）
+        String json;
+        try (java.io.InputStream in = getAssets().open("v3_item.json")) {
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = in.read(buf)) > 0) {
+                bos.write(buf, 0, len);
+            }
+            json = new String(bos.toByteArray(), "UTF-8");
+        } catch (Exception e) {
+            log("✗ 读 v3_item.json 失败：" + e);
+            return;
+        }
+
+        // 2) 按 '#' 切分真实 vod_play_url 构造数组：
+        //    含 '$' 的入对象、其余放 Java null。
+        //
+        //    注：这样构造出来的槽位数（51）与真机观察到的 69 不同——宿主侧
+        //    循环逻辑没拿到，69 的来源**未证实**。本验证不依赖那个数字：
+        //    子验证 2 单独覆盖真机观察到的精确形状。
+        org.json.JSONArray arr = new org.json.JSONArray();
+        int nullSlots = 0;
+        int expected = 0;
+        try {
+            String vpu = new org.json.JSONObject(json)
+                    .getJSONArray("list").getJSONObject(0).getString("vod_play_url");
+            for (String seg : vpu.split("#", -1)) {
+                int sep = seg.indexOf('$');
+                if (sep > 0) {
+                    // 含 '$$$' 的片段会被 split('#') 合并（第26集与第1集连在一起），
+                    // 这里按宿主的判据放 null。
+                    if (seg.contains("$$$")) {
+                        arr.put((Object) null);
+                        nullSlots++;
+                        continue;
+                    }
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    o.put("name", seg.substring(0, sep));
+                    o.put("url", seg.substring(sep + 1));
+                    o.put("isSpecial", false);
+                    arr.put(o);
+                    expected++;
+                } else {
+                    arr.put((Object) null);   // 用 Java null，与真机一致
+                    nullSlots++;
+                }
+            }
+        } catch (Exception e) {
+            log("✗ 解析 v3_item.json 失败：" + e);
+            return;
+        }
+        log("v3 冒烟：数组 " + arr.length() + " 槽位，null " + nullSlots
+                + " 个，有效 " + expected + " 个");
+
+        // 3) 走**真正的门面**（iApp 宿主用的那个类），完整复现集成路径
+        com.orange.player.VideoPlayerManager pm =
+                com.orange.player.VideoPlayerManager.getInstance();
+        try {
+            pm.init(this, findViewById(R.id.v3_smoke_container));
+        } catch (Exception e) {
+            log("✗ 门面 init 失败：" + e);
+            return;
+        }
+        pm.addVideosFromJsonArray(arr);
+
+        // 4) 校验：集数 = 有效槽位数；标题与地址都非空。
+        //    读门面自己的控制器，不是 demo 的 mController——两者是不同的实例，
+        //    读错了会拿到 demo 列表而误判通过。
+        OrangeVideoController facadeController = pm.getVideoController();
+        ArrayList<HashMap<String, Object>> list = facadeController == null
+                ? null : facadeController.getVideoList();
+        int n = list == null ? 0 : list.size();
+        int blanks = 0;
+        if (list != null) {
+            for (HashMap<String, Object> it : list) {
+                Object nm = it.get("name");
+                Object u = it.get("url");
+                if (nm == null || nm.toString().isEmpty() || "null".equals(nm.toString())
+                        || u == null || u.toString().isEmpty() || "null".equals(u.toString())) {
+                    blanks++;
+                }
+            }
+        }
+        boolean ok = (n == expected) && blanks == 0;
+        String result = "v3冒烟结果: 选集 " + n + " 集(应 " + expected + "), 空白/无效 "
+                + blanks + " 条 -> " + (ok ? "PASS" : "FAIL");
+        log(result);
+        // 同时打 logcat：demo 的 log() 只写界面，界面可能被对话框遮挡
+        android.util.Log.d("V3Smoke", result);
+        android.util.Log.d("V3Smoke", "slots=" + arr.length() + " nullSlots=" + nullSlots
+                + " expected=" + expected);
+
+        // 5) 再跑一遍真机日志记录的槽位分布（69 槽位 / 48 null / 21 有效），
+        //    并对同一数组做**整批 vs 逐条**的 A/B 对照——这一步才是
+        //    「整批写法会丢集」的直接证据。
+        runExactDeviceShapeSmoke();
+
+        // 6) 推荐给宿主的入口：直接把采集接口原文交给 SDK 解析。
+        //    宿主自己拼数组会丢集（真机两次运行分别只放进 21 / 25 条），
+        //    走这条能拿到全部 26 集。
+        runMacCmsSmoke(json);
+
+        // 7) 对照 v5 宿主：v5 的 main.iyu 用 `list.data[0].vod_play_url` 取数据，
+        //    而真实 item.json 的 list 是**数组**（无 data 字段）→ 取不到 → 0 集。
+        runV5HostPathSmoke(json);
+
+        android.widget.Toast.makeText(this,
+                "v3冒烟: " + n + "/" + expected + " 集, 空白 " + blanks,
+                android.widget.Toast.LENGTH_LONG).show();
+    }
+
+    /**
+     * 用真机日志记录的槽位分布复刻，并对同一数组做**整批 vs 逐条**的 A/B 对照。
+     *
+     * <p>有效槽位下标（1-based）来自 PJA110 的 VideoPlayerManager 日志
+     * （{@code docs/evidence/device-v3-episodes-20260920.logcat.txt}，01:48 那次）：
+     * 失败条目编号 = 16-26、28-33、35-39、42-55、57-60、62-69，
+     * 取补集即有效槽位 {@code [1..15, 27, 34, 40, 41, 56, 61]}，共 21 个。
+     *
+     * <p><b>这是日志里的一次观察，不是「设备固定形状」</b>：12:15 再跑一次得到的是
+     * 59 槽位 / 35 null / 25 有效。所以这里只是拿一个**真实出现过的**形状做回归，
+     * 断言不依赖 69 这个数字本身。
+     *
+     * <p>本方法的价值在于 {@link #oldImplCount} 的 A/B 对照：同一数组喂整批写法
+     * 与逐条写法，证明「整批会在第一个 null 处丢集」。真机上是否确实因此丢集
+     * **没有直接证据**（01:48 那版不打印列表长度）。
+     */
+    private void runExactDeviceShapeSmoke() {
+        final int totalSlots = 69;
+        final int[] validIdx1Based = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                27, 34, 40, 41, 56, 61};
+        org.json.JSONArray arr = new org.json.JSONArray();
+        int vi = 0;
+        for (int slot = 1; slot <= totalSlots; slot++) {
+            boolean valid = vi < validIdx1Based.length && validIdx1Based[vi] == slot;
+            if (valid) {
+                try {
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    // 故意让其中一条**没有 name**：验证空白标题回退成「第N集」
+                    o.put("name", vi == 3 ? "" : ("第" + (vi + 1) + "集"));
+                    o.put("url", "https://v.x1/ep" + slot + ".m3u8");
+                    o.put("isSpecial", false);
+                    arr.put(o);
+                } catch (Exception ignored) {
+                }
+                vi++;
+            } else {
+                // 用 **Java null**（不是 JSONObject.NULL）——真机日志的异常消息
+                // "Value at N is null." 是 Android 内置 org.json 对 Java null
+                // 的分支（已在黑鲨上探针实测确认）。
+                arr.put((Object) null);
+            }
+        }
+        com.orange.player.VideoPlayerManager pm =
+                com.orange.player.VideoPlayerManager.getInstance();
+        pm.addVideosFromJsonArray(arr);
+        OrangeVideoController c = pm.getVideoController();
+        ArrayList<HashMap<String, Object>> list = c == null ? null : c.getVideoList();
+        int n = list == null ? 0 : list.size();
+        int blanks = 0;
+        if (list != null) {
+            for (HashMap<String, Object> it : list) {
+                Object nm = it.get("name");
+                if (nm == null || nm.toString().isEmpty() || "null".equals(nm.toString())) {
+                    blanks++;
+                }
+            }
+        }
+        // A/B 对照：同一数组喂**整批 try/catch 写法**会剩几集？
+        // 这一步给出「整批会在第一个 null 处丢集」的直接证据，而不是只断言新实现的结果。
+        int oldCount = oldImplCount(arr);
+        android.util.Log.d("V3Smoke", "A/B对照: 整批写法=" + oldCount + " 集, 逐条写法=" + n + " 集");
+
+        // 逐条写法应拿到全部有效条目；整批写法应在第一个 null（第 16 槽）处截断 → 15 集。
+        // 15 是由本方法**自己构造的固定数组**推出的确定值，与真机数组长度无关。
+        boolean ok = (n == validIdx1Based.length) && blanks == 0 && oldCount == 15;
+        String msg = "v3精确形状: 槽位=" + totalSlots + " 有效=" + validIdx1Based.length
+                + " -> 逐条 " + n + " 集 / 整批 " + oldCount + " 集, 空白 " + blanks
+                + " 条 -> " + (ok ? "PASS" : "FAIL");
+        log(msg);
+        android.util.Log.d("V3Smoke", msg);
+    }
+
+    /**
+     * **旧实现**的忠实复刻，逐语句对应 `git show HEAD:test/VideoPlayerManager.java`
+     * 第 695-704 行 + 其调用的 `addVideoFromJson`（第 676-687 行）：
+     *
+     * <pre>
+     * try {
+     *     for (int i = 0; i &lt; jsonArray.length(); i++) {
+     *         addVideoFromJson(jsonArray.getJSONObject(i).toString());
+     *     }
+     * } catch (JSONException e) { ... }
+     * // addVideoFromJson: new JSONObject(s) → getString("name")/getString("url")
+     * //                   /getBoolean("isSpecial")  ← 三者缺一即抛异常
+     * </pre>
+     *
+     * <p>要点：**整批一个 try/catch**，任一条抛异常就中止整轮；且 `getString`
+     * 是严格取值（键缺失/类型不符都抛），比新实现的 `optString` 更脆。
+     * 只用于 A/B 对照，证明「null 槽位 → 中止 → 丢集」这条因果链成立。
+     */
+    private int oldImplCount(org.json.JSONArray jsonArray) {
+        int added = 0;
+        try {
+            for (int i = 0; i < jsonArray.length(); i++) {
+                // 对应旧实现的 jsonArray.getJSONObject(i).toString()
+                String s = jsonArray.getJSONObject(i).toString();
+                // 对应旧实现的 addVideoFromJson(s) 内部三次严格取值
+                org.json.JSONObject o = new org.json.JSONObject(s);
+                o.getString("name");
+                o.getString("url");
+                o.getBoolean("isSpecial");
+                added++;
+            }
+        } catch (Exception e) {
+            android.util.Log.d("V3Smoke", "旧实现在第 " + (added + 1)
+                    + " 条中止: " + e.getMessage());
+        }
+        return added;
+    }
+
+    /**
+     * 走推荐入口 {@code addVideosFromMacCmsJson}：宿主把采集接口原文直接交给 SDK。
+     *
+     * <p>宿主自己拼数组会丢集——真机 69 个槽位只放进 21 条有效数据，52 个有效
+     * 片段（2 线路 × 26 集）大部分丢了。SDK 侧的 {@code VodPlayUrlParser}
+     * 会选可播线路，这里应得到 26 集（单线路）而不是 21 或 52。
+     */
+    private void runMacCmsSmoke(String json) {
+        com.orange.player.VideoPlayerManager pm =
+                com.orange.player.VideoPlayerManager.getInstance();
+        int added = pm.addVideosFromMacCmsJson(json);
+        OrangeVideoController c = pm.getVideoController();
+        ArrayList<HashMap<String, Object>> list = c == null ? null : c.getVideoList();
+        int n = list == null ? 0 : list.size();
+        int blanks = 0;
+        if (list != null) {
+            for (HashMap<String, Object> it : list) {
+                Object nm = it.get("name");
+                Object u = it.get("url");
+                if (nm == null || nm.toString().isEmpty() || "null".equals(nm.toString())
+                        || u == null || u.toString().isEmpty()) {
+                    blanks++;
+                }
+            }
+        }
+        // 真机 item.json 每条线路 26 集 → 应得 26 集（不是 21）
+        boolean ok = added == 26 && n == 26 && blanks == 0;
+        String msg = "MacCMS入口: added=" + added + " 列表=" + n + " 集, 空白 " + blanks
+                + " 条 -> " + (ok ? "PASS" : "FAIL");
+        log(msg);
+        android.util.Log.d("V3Smoke", msg);
+    }
+
+    /**
+     * 复现 **v5 宿主**（{@code com.orange.demov5/src/main.iyu}）的取数据方式。
+     *
+     * <p>v5 的代码（原文，Java 风格）：
+     * <pre>
+     * org.json.JSONObject jo2 = new org.json.JSONObject(js2);
+     * org.json.JSONObject jl  = jo2.optJSONObject("list");        // 期望「对象」
+     * org.json.JSONArray  jd  = (jl == null) ? null : jl.optJSONArray("data");
+     * org.json.JSONObject d0  = (jd == null || jd.length() == 0) ? null : jd.optJSONObject(0);
+     * String src = (d0 == null) ? null : d0.optString("vod_play_url");
+     * if(src != null){ ...拼数组... }
+     * </pre>
+     *
+     * <p>但真实 {@code item.json} 里 {@code list} 是**数组**、没有 {@code data} 字段
+     * （见 {@code app/src/debug/assets/v3_item.json}）。{@code optJSONObject} 对类型
+     * 不符返回 null → 整条链断在第一步 → {@code src == null} → **一集都取不到**。
+     * 这与 v3 完全不同：v3 是取到了数据、只是数组里混 null 槽位。
+     */
+    private void runV5HostPathSmoke(String json) {
+        String src = null;
+        String failAt = "无";
+        try {
+            org.json.JSONObject jo2 = new org.json.JSONObject(json);
+            org.json.JSONObject jl = jo2.optJSONObject("list");      // ← 断在这里
+            if (jl == null) {
+                failAt = "optJSONObject(\"list\") 返回 null（list 是数组，不是对象）";
+            } else {
+                org.json.JSONArray jd = jl.optJSONArray("data");
+                if (jd == null || jd.length() == 0) {
+                    failAt = "list.data 缺失或为空";
+                } else {
+                    org.json.JSONObject d0 = jd.optJSONObject(0);
+                    src = (d0 == null) ? null : d0.optString("vod_play_url");
+                    if (src == null) {
+                        failAt = "list.data[0].vod_play_url 为 null";
+                    }
+                }
+            }
+        } catch (Exception e) {
+            failAt = "抛异常: " + e;
+        }
+
+        // 若真取到了，就按 v5 的方式拼数组并交给门面（复现完整链路）
+        int added = 0;
+        if (src != null) {
+            org.json.JSONArray xjOut = new org.json.JSONArray();
+            for (String seg : src.split("#")) {
+                String[] kv = seg.split("\\$");
+                if (kv.length < 2) continue;
+                if (kv[0] == null || kv[0].isEmpty()) continue;
+                try {
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    o.put("name", kv[0]);
+                    o.put("url", kv[1]);
+                    o.put("isSpecial", false);
+                    xjOut.put(o);
+                } catch (Exception ignored) {
+                }
+            }
+            added = xjOut.length();
+            if (added > 0) {
+                com.orange.player.VideoPlayerManager.getInstance()
+                        .addVideosFromJsonArray(xjOut);
+            }
+        }
+
+        // 期望：v5 路径取不到数据（src == null）→ 0 集。这不是 SDK 的 bug，是宿主取值路径写错了。
+        boolean ok = (src == null) && added == 0;
+        String msg = "v5宿主路径: src=" + (src == null ? "null" : "非空") + " 拼出 " + added
+                + " 集, 断点=" + failAt + " -> " + (ok ? "PASS(证实取不到数据)" : "FAIL");
+        log(msg);
+        android.util.Log.d("V3Smoke", msg);
+    }
+
+    /**
      * 添加选集
      */
     private void addEpisodes() {
@@ -1507,6 +1877,104 @@ public class MainActivity extends AppCompatActivity {
         // 设置到控制器
         mController.setVideoList(videoList);
         log("✓ 添加选集: 共 " + videoList.size() + " 集");
+    }
+
+    /** 测试用：两批选集，第二批与第一批有重叠 */
+    private static final String[] BATCH_A = {
+            "http://player.alicdn.com/video/aliyunmedia.mp4",
+            "https://media.w3.org/2010/05/sintel/trailer.mp4",
+            "http://vfx.mtime.cn/Video/2019/03/21/mp4/190321153853126488.mp4",
+    };
+    private static final String[] BATCH_B = {
+            // 前两条与 A 重复，第三条是新的
+            "https://media.w3.org/2010/05/sintel/trailer.mp4",
+            "http://vfx.mtime.cn/Video/2019/03/21/mp4/190321153853126488.mp4",
+            "http://vfx.mtime.cn/Video/2019/03/19/mp4/190319222227698228.mp4",
+    };
+
+    private org.json.JSONArray buildBatch(String[] urls) {
+        org.json.JSONArray arr = new org.json.JSONArray();
+        for (int i = 0; i < urls.length; i++) {
+            try {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("name", "追加" + (i + 1));
+                o.put("url", urls[i]);
+                o.put("isSpecial", false);
+                arr.put(o);
+            } catch (Exception ignored) {
+            }
+        }
+        return arr;
+    }
+
+    /**
+     * 【测试】去重追加：先放 A 批，再去重追加 B 批。
+     * 预期：A 3 集 → 追加 B 时只有 1 条新的（另 2 条已存在被跳过）→ 共 4 集。
+     */
+    private void addEpisodesDedup() {
+        if (mController == null) {
+            log("✗ 控制器未就绪");
+            return;
+        }
+        mController.setVideoList(new ArrayList<>());
+        addVideosDedupInternal(buildBatch(BATCH_A));
+        int sizeAfterA = listSize();
+        int added = addVideosDedupInternal(buildBatch(BATCH_B));
+        int sizeAfterB = listSize();
+        log("✓ 去重追加: A=" + sizeAfterA + " 集，B 新增 " + added
+                + " 条（B 共 3 条，其中 2 条与 A 重复）→ 现 " + sizeAfterB + " 集");
+    }
+
+    /**
+     * 【测试】重复追加：用不去重的入口追加 B 批（对照）。
+     * 预期：A 3 集 → 追加 3 条 → 共 6 集（出现重复项）。
+     */
+    private void addEpisodesDuplicate() {
+        if (mController == null) {
+            log("✗ 控制器未就绪");
+            return;
+        }
+        mController.setVideoList(new ArrayList<>());
+        addVideosDedupInternal(buildBatch(BATCH_A));
+        int sizeAfterA = listSize();
+        // 逐个 addVideo：无条件追加，不去重
+        for (String url : BATCH_B) {
+            mController.addVideo("追加", url, false);
+        }
+        int sizeAfterB = listSize();
+        log("✓ 重复追加（对照）: A=" + sizeAfterA + " 集，B 无条件追加 3 条 → 现 "
+                + sizeAfterB + " 集（含重复）");
+    }
+
+    private int addVideosDedupInternal(org.json.JSONArray arr) {
+        // 走门面的去重入口需要 VideoPlayerManager；demo 直连 controller，
+        // 因此直接调 SDK 的 controller 去重方法。
+        ArrayList<HashMap<String, Object>> items = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            try {
+                org.json.JSONObject o = arr.getJSONObject(i);
+                HashMap<String, Object> item = new HashMap<>();
+                item.put("name", o.optString("name"));
+                item.put("url", o.optString("url"));
+                items.add(item);
+            } catch (Exception ignored) {
+            }
+        }
+        return mController.addVideosDedup(items);
+    }
+
+    /** 【测试】显示当前选集数量 */
+    private void showEpisodeListSize() {
+        int n = listSize();
+        log("当前选集数量: " + n + " 集");
+        android.widget.Toast.makeText(this, "选集数量: " + n, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    private int listSize() {
+        if (mController == null || mController.getVideoList() == null) {
+            return 0;
+        }
+        return mController.getVideoList().size();
     }
 
     /**

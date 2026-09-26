@@ -86,6 +86,38 @@
                 tools:text="正在嗅探视频..." />
         </LinearLayout>
 
+        <!-- 录制模式：blob: 场景下网络层拿不到可用地址，改吃播放器已拿到的分片 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:id="@+id/btn_record_toggle"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:background="@drawable/orange_shape_tag_bg"
+                android:gravity="center"
+                android:minWidth="88dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="录制模式：关"
+                android:textColor="@color/orange_theme_color"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/tv_record_hint"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:textColor="@color/op_text_secondary"
+                android:textSize="11sp"
+                tools:text="blob: 场景用录制；需边播边录" />
+        </LinearLayout>
+
         <!-- 结果列表 -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_sniffing_results"

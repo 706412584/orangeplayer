@@ -24,8 +24,17 @@ import android.view.View;
  * 播放器管理器
  * 封装播放器的创建、播放控制、生命周期管理等核心操作
  * 简化上层调用，统一管理播放器状态
- * 
+ *
  * 适配 iApp v3 手机编程
+ *
+ * <p><b>宿主若开启 R8/混淆，必须保留本类与方法名。</b>
+ * iApp 用字符串反射调用（{@code javax(..., "方法名", ...)}），
+ * 方法名被改名后所有调用会静默失败。本文件不在 aar 内（由 iApp 侧编译），
+ * 所以 SDK 的 consumer-rules.pro 覆盖不到它，需要在宿主工程自行加：
+ * <pre>
+ * -keep class com.orange.player.VideoPlayerManager { public *; }
+ * </pre>
+ * 注：iApp 默认构建不混淆，此项仅在宿主自行开启 R8 时需要。
  */
 public class VideoPlayerManager {
     
@@ -650,15 +659,34 @@ public class VideoPlayerManager {
     }
     
     /**
-     * 添加单个视频
+     * 添加单个视频（追加到列表末尾）。
+     *
+     * <p>与批量入口用同一套判空规则（见
+     * {@code com.orange.playerlibrary.utils.EpisodeJsonParser}）：
+     * <ul>
+     *   <li>地址缺失/为空/字面量 {@code "null"} → **不入列**（否则点播必报错）；</li>
+     *   <li>标题缺失/为空/字面量 {@code "null"} → 回退「第N集」，避免面板出现空白项。</li>
+     * </ul>
+     *
      * @param tile 标题
      * @param url 地址
      * @param is 是否独立视频
      */
     public synchronized void addVideo(String tile, String url, boolean is) {
-        if (mVideoController != null) {
-            mVideoController.addVideo(tile, url, is);
+        if (mVideoController == null) {
+            return;
         }
+        String u = com.orange.playerlibrary.utils.EpisodeJsonParser.normalize(url);
+        if (u.isEmpty()) {
+            debug("addVideo: 地址为空，跳过：" + url);
+            return;
+        }
+        String t = com.orange.playerlibrary.utils.EpisodeJsonParser.normalize(tile);
+        if (t.isEmpty()) {
+            java.util.ArrayList<HashMap<String, Object>> cur = mVideoController.getVideoList();
+            t = "第" + ((cur == null ? 0 : cur.size()) + 1) + "集";
+        }
+        mVideoController.addVideo(t, u, is);
     }
     
     /**
@@ -678,29 +706,160 @@ public class VideoPlayerManager {
     }
     
     /**
-     * 从JSON数组批量添加视频
+     * 清空当前选集列表。
+     *
+     * <p>在**重新填充**剧集前调用（换剧、换线路、重新拉取）。不调用的话新剧集
+     * 会追加在旧列表之后：列表 size 变化 → 剧集键（含 size）变化 → 选集记忆
+     * 读不回来，同时列表里堆叠重复剧集。
+     */
+    public void clearEpisodeList() {
+        clearEpisodeListInternal();
+    }
+
+    private void clearEpisodeListInternal() {
+        if (mVideoController != null && mVideoController.getVideoEventManager() != null) {
+            mVideoController.getVideoEventManager().clearEpisodeList();
+        }
+    }
+
+    /**
+     * 从JSON数组批量添加视频。
+     *
+     * <p>会先清空已有列表——批量填充的语义是「设为这批剧集」，不是「追加」。
+     * 若确实需要追加，请逐个调用 {@link #addVideo(String, String, boolean)}。
      */
     public void addVideosFromJsonArray(String jsonArrayStr) {
         try {
             JSONArray jsonArray = new JSONArray(jsonArrayStr);
-            for (int i = 0; i < jsonArray.length(); i++) {
-                addVideoFromJson(jsonArray.getJSONObject(i).toString());
-            }
+            addVideosFromJsonArray(jsonArray);
         } catch (JSONException e) {
             e.printStackTrace();
             debug("解析JSON数组失败：" + e.getMessage());
         }
     }
-    
+
+    /**
+     * 从JSON数组批量添加视频（先清空已有列表，语义同
+     * {@link #addVideosFromJsonArray(String)}）。
+     */
     public void addVideosFromJsonArray(JSONArray jsonArray) {
+        if (jsonArray == null || jsonArray.length() == 0) {
+            return;
+        }
+        // 解析逻辑全在 EpisodeJsonParser（纯函数、有单测），逐条容错。
+        //
+        // 真机踩过的坑：宿主数组里混着 null 槽位（PJA110 日志实证），旧实现整批
+        // 包一个 try/catch，第一个 null 就中止整轮 → 只剩前若干集。至于**宿主
+        // 为什么**会塞 null，未查清（宿主侧构造逻辑没拿到），解析器不依赖该原因
+        // 成立——它只要求「容忍 null 槽位」。详见 EpisodeJsonParser 类注释。
+        com.orange.playerlibrary.utils.EpisodeJsonParser.Result parsed =
+                com.orange.playerlibrary.utils.EpisodeJsonParser.parse(jsonArray);
+        if (parsed.skipped() > 0) {
+            debug("addVideosFromJsonArray: 共 " + parsed.total + " 条，跳过 " + parsed.skipped()
+                    + " 条（null槽位=" + parsed.skippedNull
+                    + " 空url=" + parsed.skippedEmptyUrl
+                    + " 非对象=" + parsed.skippedBadEntry + "）");
+        }
+        if (parsed.isEmpty()) {
+            debug("addVideosFromJsonArray: 无有效剧集（全部缺 url）");
+            return;
+        }
+        // 一次性替换（**原子**）。
+        //
+        // 不能「先清空 + 逐条 addVideo」：每个 addVideo 各自 synchronized，
+        // 而整段填充没有同步，于是另一线程（对话框/高亮/恢复）会读到**填充中的
+        // 部分列表**。一次性替换后，读方只会看到旧列表或完整新列表。
+        if (mVideoController != null) {
+            mVideoController.setVideoList(parsed.items);
+        }
+        debug("addVideosFromJsonArray: 已设置 " + parsed.items.size() + " 集");
+        // 列表就绪后设播放源（**不起播**）：有选集记忆用记忆那一集，无则第 1 集。
+        // 此前这个入口不设源，播放器 viewUrl 一直是 null → 加载动画一直转。
+        // 起播交给宿主：v3 的交互是「列表就绪后待播，用户点播放才起播」。
+        prepareEpisodeSourceWithoutPlayInternal();
+    }
+
+    /**
+     * 追加选集，**跳过已存在的地址**（去重）。
+     *
+     * <p>与 {@link #addVideosFromJsonArray(JSONArray)} 的区别：那个会先清空列表再整体
+     * 填充（语义是「设为这批剧集」）；本方法**保留现有列表**，只把新的地址追加进去，
+     * 已存在的跳过。适合分批加载、或多来源合并选集。
+     *
+     * <p>去重按 url 精确比对。重复项会让「当前集高亮」同时命中多条、
+     * 也会让按下标恢复指错集，所以建议宿主优先用这个入口。
+     *
+     * @param jsonArray 待追加的选集
+     * @return 实际新增的条数（0 表示全部已存在）
+     */
+    public int addVideosFromJsonArrayDedup(JSONArray jsonArray) {
+        if (jsonArray == null || jsonArray.length() == 0) {
+            return 0;
+        }
+        if (mVideoController == null) {
+            debug("addVideosFromJsonArrayDedup: 播放器未初始化");
+            return -1;
+        }
+        // 与 addVideosFromJsonArray 共用同一套解析：null 槽位不能中止整批、
+        // 缺 name 要回退「第N集」（见 EpisodeJsonParser 的类注释）。
+        // 此前这里整批包一个 try/catch：宿主数组里第一个 null 槽位就 return -1，
+        // 一条都加不进去。
+        com.orange.playerlibrary.utils.EpisodeJsonParser.Result parsed =
+                com.orange.playerlibrary.utils.EpisodeJsonParser.parse(jsonArray);
+        if (parsed.skipped() > 0) {
+            debug("addVideosFromJsonArrayDedup: 共 " + parsed.total + " 条，跳过 " + parsed.skipped()
+                    + " 条（null槽位=" + parsed.skippedNull
+                    + " 空url=" + parsed.skippedEmptyUrl
+                    + " 非对象=" + parsed.skippedBadEntry + "）");
+        }
+        int added = mVideoController.addVideosDedup(parsed.items);
+        debug("addVideosFromJsonArrayDedup: 新增 " + added + " 集"
+                + (parsed.skipped() > 0 ? "，跳过无效 " + parsed.skipped() + " 条" : ""));
+        // 追加入口同样要保证有播放源：若此前没有任何人设过源（viewUrl 为 null），
+        // 宿主只用这个「被推荐的」入口就会退回「加载动画一直转」。
+        // 已设过源时不覆盖（见 prepareEpisodeSourceWithoutPlayInternal 的守卫）。
+        if (added > 0) {
+            prepareEpisodeSourceWithoutPlayInternal();
+        }
+        return added;
+    }
+
+    /**
+     * 追加选集（去重），字符串形式，语义同
+     * {@link #addVideosFromJsonArrayDedup(JSONArray)}。
+     */
+    public int addVideosFromJsonArrayDedup(String jsonArrayStr) {
+        if (jsonArrayStr == null || jsonArrayStr.isEmpty()) {
+            return 0;
+        }
         try {
-            for (int i = 0; i < jsonArray.length(); i++) {
-                addVideoFromJson(jsonArray.getJSONObject(i).toString());
-            }
+            return addVideosFromJsonArrayDedup(new JSONArray(jsonArrayStr));
         } catch (JSONException e) {
             e.printStackTrace();
-            debug("解析JSON数组失败：" + e.getMessage());
+            debug("addVideosFromJsonArrayDedup 解析失败：" + e.getMessage());
+            return 0;
         }
+    }
+
+    /**
+     * 列表里是否已存在该地址。
+     */
+    public boolean containsVideoUrl(String url) {
+        return mVideoController != null && mVideoController.containsVideoUrl(url);
+    }
+
+    /**
+     * 列表就绪后设源但不起播，见
+     * {@code VideoEventManager#prepareEpisodeSourceWithoutPlay()}。
+     *
+     * <p>宿主之后若调 {@code setVideoSource} 会覆盖这里设的地址（谁后传谁生效）。
+     */
+    private void prepareEpisodeSourceWithoutPlayInternal() {
+        if (mVideoController == null || mVideoController.getVideoEventManager() == null) {
+            return;
+        }
+        int idx = mVideoController.getVideoEventManager().prepareEpisodeSourceWithoutPlay();
+        debug("列表就绪，已设播放源（未起播）: 第 " + (idx + 1) + " 集");
     }
 
     /**
@@ -756,21 +915,39 @@ public class VideoPlayerManager {
         }
         debug("addVideosFromMacCms: 选中线路[" + r.groupIndex + "]=" + r.groupName
                 + "，共 " + r.episodes.size() + " 集");
-        int added = 0;
+        // 先在本地组装完整列表，最后一次性替换。
+        // 不能「先清空 + 逐条 addVideo」：每个 addVideo 各自 synchronized 而整段
+        // 填充没有同步，另一线程会读到填充中的部分列表（实测「26 集只显示前几条」）。
+        ArrayList<HashMap<String, Object>> items = new ArrayList<>();
         for (int i = 0; i < r.episodes.size(); i++) {
             com.orange.playerlibrary.utils.VodPlayUrlParser.Episode ep = r.episodes.get(i);
-            String name = ep.name != null ? ep.name : ("第" + (i + 1) + "集");
-            addVideo(name, ep.url, false);
-            added++;
-        }
-        // 列表就绪后自动切回上次播放的那一集（选集记忆）并起播。
-        // 内部走 playEpisode，与用户点选集同一条路径。
-        if (added > 0 && mVideoController != null
-                && mVideoController.getVideoEventManager() != null) {
-            int restored = mVideoController.getVideoEventManager().restoreLastEpisode();
-            if (restored >= 0) {
-                debug("addVideosFromMacCms: 已恢复到第 " + (restored + 1) + " 集");
+            if (ep.url == null || ep.url.isEmpty()) {
+                continue;
             }
+            HashMap<String, Object> item = new HashMap<>();
+            // 空名同样要回退「第N集」，否则选集面板出现空白标题
+            // （与 addVideosFromJsonArray 的 EpisodeJsonParser 行为一致）。
+            item.put("name", (ep.name == null || ep.name.isEmpty())
+                    ? ("第" + (i + 1) + "集") : ep.name);
+            item.put("url", ep.url);
+            item.put("headers", new HashMap<String, String>());
+            items.add(item);
+        }
+        if (items.isEmpty()) {
+            debug("addVideosFromMacCms: 无有效剧集（全部缺 url）");
+            return 0;
+        }
+        if (mVideoController != null) {
+            mVideoController.setVideoList(items);   // 原子替换
+        }
+        int added = items.size();
+        // 列表就绪后设播放源（**不起播**）：有选集记忆用记忆那一集，无则第 1 集。
+        //
+        // 此前这里调 restoreLastEpisode()，它会直接 playEpisode 起播——与宿主
+        // 「列表就绪后待播、用户点播放才起播」的交互冲突（自动起播会打断宿主流程）。
+        // 两个填充入口（本方法与 addVideosFromJsonArray）行为保持一致。
+        if (added > 0) {
+            prepareEpisodeSourceWithoutPlayInternal();
         }
         return added;
     }
@@ -937,6 +1114,32 @@ public class VideoPlayerManager {
     }
 
     /**
+     * 开启/关闭「记忆播放」。
+     *
+     * <p>该开关同时约束**进度续播**与**选集记忆**（关闭后不续播、也不跳回上次那一集）。
+     * 面板文案即如此承诺，SDK 侧行为已对齐。门面此前没有这个入口，
+     * 宿主只能去改 SharedPreferences。
+     */
+    public void setMemoryPlayEnabled(boolean enabled) {
+        if (mActivity == null) {
+            debug("setMemoryPlayEnabled: 播放器未初始化");
+            return;
+        }
+        PlayerSettingsManager.getInstance(mActivity).setMemoryPlayEnabled(enabled);
+        debug("setMemoryPlayEnabled: " + enabled);
+    }
+
+    /**
+     * 「记忆播放」是否开启。语义见 {@link #setMemoryPlayEnabled(boolean)}。
+     */
+    public boolean isMemoryPlayEnabled() {
+        if (mActivity == null) {
+            return false;
+        }
+        return PlayerSettingsManager.getInstance(mActivity).isMemoryPlayEnabled();
+    }
+
+    /**
      * 取上次播放的集数下标（无副作用），供 UI 高亮。
      *
      * @return 下标（从 0 开始）；无记录返回 -1
@@ -950,13 +1153,22 @@ public class VideoPlayerManager {
 
     /**
      * 清除选集记忆（下次启动从头播）。
+     *
+     * <p>直接委托给 {@code VideoEventManager.clearEpisodeMemory()}：存储键由 SDK
+     * 内部统一构造，门面不再自行拼接。此前这里写成
+     * {@code "s" + getSeriesKeyForStorage()}，而该方法返回的已含 {@code "s"} 前缀，
+     * 实际写入 {@code "ss<hash>"}，与内部清除按钮用的 {@code "s<hash>"} 不一致，
+     * 导致「清除记录」按了没反应、下次启动仍跳回旧集数。
      */
     public void clearLastEpisode() {
         if (mActivity == null) {
             return;
         }
-        PlayerSettingsManager.getInstance(mActivity).clearLastEpisodeIndex(
-                "s" + mVideoController.getVideoEventManager().getSeriesKeyForStorage());
+        if (mVideoController == null || mVideoController.getVideoEventManager() == null) {
+            debug("clearLastEpisode: 播放器未初始化");
+            return;
+        }
+        mVideoController.getVideoEventManager().clearEpisodeMemory();
     }
 
     /**

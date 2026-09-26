@@ -42,3 +42,15 @@
 -keep class com.aliyun.player.AliPlayerFactory { *; }
 -keep class com.orange.player.mpv.MpvPlayerManager { *; }
 -keep class com.orange.ffmpeg.FFmpegKit { *; }
+
+# ===== JS 桥（@JavascriptInterface）=====
+# 页面脚本按名调用 window.OrangeSniff.report / window.OrangeRecord.onChunk。
+# 方法名被 R8 改名后桥会静默失效（嗅探无结果、录制无数据，都不报错）。
+# AGP 默认 proguard 里其实有 @JavascriptInterface 的 keepclassmembers 规则，
+# 但那是「默认规则」——宿主若关掉默认规则、或改用自己的配置就会失效。
+# 这里显式声明，不依赖默认行为。
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keep class com.orange.playerlibrary.VideoSniffing$SniffBridge { *; }
+-keep class com.orange.playerlibrary.VideoSniffing$RecordBridge { *; }

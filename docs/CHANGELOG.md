@@ -1,4 +1,56 @@
 # OrangePlayer 更新日志
+## [未发布] - 2026-09-20
+
+> 本节内容尚未发版。发版时把标题改成版本号，并同步改齐四处版本：
+> `.version`、`maven-publish.gradle` 的 `pomVersion`、`NativeLibManager.RELEASE_TAG`、本节标题。
+
+### ✨ 新增
+
+- **MSE 录制模式**：站点用 `<video src="blob:...">` + MediaSource 时网络层拿不到可用地址，改为 hook `MediaSource.addSourceBuffer` / `SourceBuffer.appendBuffer`，把播放器已拿到的 fMP4 分片落盘。fMP4 分片（init 段 + 媒体段）按序拼接即标准 fragmented MP4，**不需要 mux**。入口 `VideoSniffing.startRecording(context, outDir)` / `stopRecording()`；面板上有开关。注意：**video/audio 是两条独立轨道**，合并音视频需要额外的 mux 步骤（本版不做）；必须边播边录；开启后需重载页面。
+- **选集去重追加 API**：`addVideosFromJsonArrayDedup`（门面）/ `OrangeVideoController.addVideosDedup`（SDK），按 URL 精确比对跳过已存在的集。`containsVideoUrl` 可查询。适合分批加载、多来源合并选集。
+- **门面 `setMemoryPlayEnabled` / `isMemoryPlayEnabled`**：此前宿主只能改 SharedPreferences。
+- **门面 `clearEpisodeList`**：重新填充剧集前清空列表。
+
+> **给 iApp 宿主的建议**：不要在宿主侧自己切 `vod_play_url` 拼 `JSONArray`——宿主那套切分逻辑会把有效剧集丢到只剩一部分（真机实测：26 集的数据只进 21 条）。直接把采集接口原文交给 `addVideosFromMacCmsJson(json)`（或 `addVideosFromMacCmsItem(vod_play_url, vod_play_from)`），由 SDK 侧选可播线路并解析，实测稳定得到 26 集。
+
+> **本次修复的证据**（便于复核，不依赖本文档自述）：
+> 1. 真机 logcat 原件在 `docs/evidence/device-v3-episodes-20260920.logcat.txt`（01:48）与 `...-1215.logcat.txt`（12:15）；
+> 2. 官方 demo 上可跑 `adb broadcast -a com.orange.player.TEST_CMD --es cmd v3_episodes_smoke` 复现，输出打 `logcat -s V3Smoke:D`，其中含**整批写法 vs 逐条写法的 A/B 对照**（同一数组：整批 15 集 / 逐条 21 集）——这是「整批会在第一个 null 处丢集」的直接证据；
+> 3. 日志消息格式由 **AOSP 源码**佐证（无需信任探针）：`sources/android-35/org/json/JSON.java:98` 的 `typeMismatch` 对 `actual == null` 抛 `"Value at N is null."`，否则抛 `"Value ... of type ... cannot be converted"`——日志里是前者，故宿主塞的是 Java null。
+>
+> ⚠️ **排查陷阱**：`palyerlibrary` 单测依赖 Maven `org.json:json:20240303`，与**设备上的 Android 内置 org.json 行为不同**（`optString` 对 JSON null 分别返回 `""` / 字面量 `"null"`；异常消息格式也不同）。**不要用单测去否定真机日志**——涉及 org.json 语义的结论必须查 AOSP 源码或在设备上实测。
+>
+> **未证实项**（如实标注，勿当结论用）：
+> - **用户报的「丢集」是否由整批中止造成，没有直接证据**：整批写法确实会丢集（A/B 对照已证），但**没有任何真机日志记录过那个版本**——01:48 与 12:15 两次运行的日志都是逐条格式（`第 N 条解析失败，跳过`），而整批写法只会打一条 `解析JSON数组失败`，说明两次跑的都是逐条容错版本。这是合理解释，非实证。
+> - **数组长度非固定**：两次运行分别 69 与 59 个槽位（有效 21 / 25 条）。宿主为什么塞 null、长度为何变化，均未查清（宿主侧构造逻辑没拿到；曾推测的「`$$$` 残渣」解释不通，已撤下）。修复只依赖「容忍 null 槽位」，不依赖这些数字。
+
+### 🐛 修复
+
+- **宿主选集数组里的 null 槽位会让「整批 try/catch」的写法中途丢集**：iApp v3 传给 `addVideosFromJsonArray` 的 `JSONArray` 里混着 Java `null` 槽位（真机两次运行分别 48 / 35 条），`getJSONObject(i)` 对它会抛 `JSONException`。若像早期写法那样把整批包在一个 `try/catch` 里，**第一个 null 就中止整轮**。现改为逐条容错：null 槽位 / 非对象元素 / 空 url 分别跳过并计数，**不中止整批**，有效条目相对顺序保持。解析逻辑抽到 `utils/EpisodeJsonParser`（纯函数，21 个单测）。**证据边界**：demo 的 A/B 对照（同一数组：整批 15 集 / 逐条 21 集）证明了「整批会丢集」；但**真机上是否确实因此丢集没有直接证据**（两次真机日志都是逐条版本），详见上方「未证实项」。
+- **空白标题选集**：宿主数组里缺 `name`（或值为 JSON `null`——此时 Android 内置 `org.json` 的 `optString` 返回**字面量字符串** `"null"`，已在真机探针确认）的条目会直接入库 → 选集面板出现空白项。现统一回退成「第N集」，序号按**有效条目**计。`addVideosFromMacCmsResult` 的空名、以及门面的单条 `addVideo` 入口同样回退；单条入口的**空地址**现在也会被拒绝（此前直通 controller，入列后点播必报错）。**注**：真机上宿主源码本身会跳过空名条目，「空白标题」是否真由此产生**未经证实**；这是解析器侧的防御性修复。
+- **`normalize` 必须先 trim 再比 `"null"`**：否则 `" null "` 会漏过比较、trim 后变成字面量 `"null"` 当标题显示。
+- **选集对话框重复高亮**：两条判据（正在播的地址 / 持久化的那一集）跨条目各自命中，导致启动直接播第 1 集时第 1 集与上次那一集同时高亮。改为先算**唯一**高亮目标再逐条比较。
+- **门面「清除记录」按了没反应**：`clearLastEpisode()` 写成 `"s" + getSeriesKeyForStorage()`，而后者已含 `"s"` 前缀 → 实际写 `"ss<hash>"`，与内部用的 `"s<hash>"` 不一致。改为门面直接委托 SDK。同时「清除」现在会清掉**该剧所有集**的进度（此前只清当前播放那一集，清除后重启仍从中间续播）。
+- **关闭「记忆播放」仍会跳集**：`restoreLastEpisode()` 与高亮回退都不看开关，与面板文案「关闭记忆播放时一并停止生效」矛盾。已加开关检查。
+- **列表填充后没有播放源**（iApp 场景）：v3 工程启动只填选集列表、不设播放源 → `viewUrl` 一直为 null → 加载动画一直转。新增 `prepareEpisodeSourceWithoutPlay()`：列表就绪后设源（有记忆用记忆那一集，无则第 1 集）**但不起播**，起播交给宿主。
+- **二次填充会改写正在播的源**：同一列表重复填充时（iApp 重跑加载块），用户正在看的第 N 集会被换成记忆集/第 1 集，UI 与进度条指向错集。已加守卫：正在播的那一集若已在列表中则不改写。
+- **剧集标识键太弱**：原为 `size + 首URL + 末URL`，中间换集认不出、不同剧会撞键。改为对整份列表地址做保序内容摘要。**老用户已存的选集记忆会失效一次**。
+- **嗅探结果被分片淹没**：原判定把路径含 `/video/` 的**网页**判成视频（如 `.../video/play/123.html`），`.ts` 分片与 `.key` 密钥也进列表——实测 11 条结果只有 1 条 m3u8 有用。改为内容类型优先 + URL 兜底，并按类型排序、上限 30 条。
+- **嗅探「永不收尾」**：空闲 3 秒收尾的链只在媒体命中或 `onPageFinished` 时才启动，主文档不触发该回调且无媒体命中时链不启动 → 面板一直「正在嗅探」、WebView 与 Activity 常驻。已补首次排期 + 独立硬截止（60s，不会被空闲链的重排推后）。
+- **嗅探在页面加载中被腰斩**：空闲收尾会 `destroy()` WebView，而站点常在几秒倒计时后才初始化播放器 → 页面被切断、播放器起不来。已加「页面未加载完不收尾」守卫。
+- **嗅探慢校验被自己掐死**：收尾会 disconnect 所有在途连接，把仍在途的 m3u8 校验（196KB）连同连接一起断掉，结果只剩误报的 html。已改为在途未清零则顺延，并放宽超时（2s → 6s）。
+- **加密 HLS 下载后无法合并（key 从未下载）**：本地 playlist 会把 `EXT-X-KEY` 的 URI 改写成 `local_key_*.key`，但从来没人下载该文件 → 产物里 key 永远缺失。已补下载，并改为原子落盘（临时文件 + 改名 + 16 字节长度校验），避免半截文件被 `exists()` 判据永久复用；key 下载复用分片的重试策略；续传时补下 key（此前续传路径 `hasKey` 已复位，key 永不下载）。
+- **声明 AES-128 但实际是明文的站点无法下载**：照声明保留 `EXT-X-KEY` 会让 ffmpeg 把明文当密文解，合并必然失败且报错指不出原因。现按**实际字节**判定（MPEG-TS 的 188 字节包首同步字节 0x47），明文则不写 `EXT-X-KEY`。
+- **嗅探到的资源只能播不能存**：嗅探结果项加下载入口，接上 `orange-downloader`。
+
+### 🏗️ 构建
+
+- **`consumer-rules.pro` 显式保留 JS 桥方法**（`@JavascriptInterface`）与 `SniffBridge`/`RecordBridge`：页面脚本按名调用，方法名被 R8 改名后桥会静默失效（嗅探无结果、录制无数据，都不报错）。
+
+> ⚠️ 宿主若开启 R8/混淆且用 iApp 门面（`test/VideoPlayerManager.java`，包名 `com.orange.player`），需自行加 `-keep class com.orange.player.VideoPlayerManager { public *; }`——该文件不在 aar 内，SDK 的 consumer 规则覆盖不到。
+
+---
+
 ## [1.5.6] - 2026-09-19
 
 ### 🐛 修复
