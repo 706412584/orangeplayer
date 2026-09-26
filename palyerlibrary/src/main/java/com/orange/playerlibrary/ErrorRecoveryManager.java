@@ -384,24 +384,9 @@ public class ErrorRecoveryManager {
                 return;
             }
             
-            // 检查全屏播放器状态一致性
-            OrangevideoView fullPlayer = mVideoView.getOrangeFullWindowPlayer();
-            if (fullPlayer != null && fullPlayer != mVideoView) {
-                // 检查全屏播放器的播放状态是否与当前播放器一致
-                int fullPlayState = fullPlayer.getPlayState();
-                if (fullPlayState != playState) {
-                    Log.w(TAG, "checkStateConsistency: 检测到状态不一致 - 全屏播放器状态 (" + fullPlayState + ") 与当前播放器状态 (" + playState + ") 不一致");
-                    
-                    // 通知回调
-                    if (mCallback != null) {
-                        mCallback.onStateInconsistencyDetected("全屏播放器状态不一致");
-                    }
-                    
-                    // 自动同步状态
-                    synchronizeComponentState();
-                }
-            }
-            
+            // 全屏多实例治理：原先此处会比较"全屏播放器"（GSY 克隆出的第二个实例）与当前播放器的状态。
+            // 自研全屏已改为单实例方案，不存在第二个播放器，故移除该检查。
+
         } catch (Exception e) {
             Log.e(TAG, "checkStateConsistency: 检测状态一致性失败", e);
             logError("状态一致性检测异常", e);
@@ -440,16 +425,9 @@ public class ErrorRecoveryManager {
                 componentManager.restoreComponentState(mVideoView);
             }
             
-            // 同步全屏播放器状态
-            OrangevideoView fullPlayer = mVideoView.getOrangeFullWindowPlayer();
-            if (fullPlayer != null && fullPlayer != mVideoView) {
-                ComponentStateManager fullComponentManager = fullPlayer.getComponentStateManager();
-                if (fullComponentManager != null) {
-                    fullComponentManager.reregisterProgressListener(fullPlayer);
-                    fullComponentManager.restoreComponentState(fullPlayer);
-                }
-            }
-            
+            // 全屏多实例治理：原先此处会同步"全屏播放器"（GSY 克隆出的第二个实例）的组件状态。
+            // 自研全屏已改为单实例方案，不存在第二个播放器，故移除。
+
             Log.d(TAG, "synchronizeComponentState: 组件状态同步完成");
             
             // 记录警告日志

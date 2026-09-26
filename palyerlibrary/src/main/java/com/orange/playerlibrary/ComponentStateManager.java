@@ -130,9 +130,9 @@ public class ComponentStateManager {
                 
                 // 更新当前播放器的组件进度
                 updatePlayerProgress(videoView, (int) duration, (int) currentPosition);
-                
-                // 同步全屏播放器的进度
-                syncFullScreenProgress(videoView, (int) duration, (int) currentPosition);
+
+                // 全屏多实例治理：原先此处会同步"全屏播放器"（GSY 克隆出的第二个实例）的进度。
+                // 自研全屏已改为单实例方案，不存在第二个播放器，无需同步。
                 
                 // 实时写入记忆播放和历史进度
                 saveRealTimeProgress(videoView, (int) duration, (int) currentPosition);
@@ -190,49 +190,6 @@ public class ComponentStateManager {
         }
     }
     
-    /**
-     * 同步全屏播放器的进度
-     * Requirements: 3.4, 3.5, 6.4
-     * 
-     * 优化说明：
-     * - 确保全屏播放器的进度正确更新
-     * - 处理全屏切换时的进度同步
-     * - 避免进度更新冲突（通过检查播放器实例避免重复更新）
-     * 
-     * @param videoView 当前视频播放器
-     * @param duration 视频总时长
-     * @param position 当前播放位置
-     */
-    private void syncFullScreenProgress(OrangevideoView videoView, int duration, int position) {
-        if (videoView == null) {
-            return;
-        }
-        
-        try {
-            // 获取全屏播放器
-            OrangevideoView fullPlayer = videoView.getOrangeFullWindowPlayer();
-            
-            Log.d(TAG, "syncFullScreenProgress: videoView=" + videoView.hashCode() 
-                + ", fullPlayer=" + (fullPlayer != null ? fullPlayer.hashCode() : "null")
-                + ", isFullScreen=" + videoView.isIfCurrentIsFullscreen());
-            
-            // 检查全屏播放器是否存在且不是当前播放器（避免重复更新）
-            if (fullPlayer != null && fullPlayer != videoView) {
-                // 检查全屏播放器是否已初始化组件
-                if (fullPlayer.getVodControlView() != null || fullPlayer.getLiveControlView() != null) {
-                    // 更新全屏播放器的进度
-                    fullPlayer.updateComponentsProgress(duration, position);
-                    
-                    Log.d(TAG, "syncFullScreenProgress: 全屏播放器进度已同步 - duration=" + duration + ", position=" + position);
-                } else {
-                    Log.w(TAG, "syncFullScreenProgress: 全屏播放器组件未初始化，跳过同步");
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "syncFullScreenProgress: 同步全屏播放器进度失败", e);
-        }
-    }
-
     private long mLastRealTimeSaveTime = 0;
 
     /**

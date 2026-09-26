@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
+<!-- 根布局为 FrameLayout：为播放器全屏提供独立容器（容器契约，零 reparent）。
+     详见 docs/features/FULLSCREEN_REARCHITECTURE.md -->
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/op_surface_1"
+    tools:context=".MainActivity">
+
+<LinearLayout
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/op_surface_1"
-    tools:context=".MainActivity">
+    android:orientation="vertical">
 
     <!-- 播放器视图 -->
     <com.orange.playerlibrary.OrangevideoView
@@ -293,3 +299,14 @@
             android:text="特色: 弹幕支持 | 视频嗅探 | 画中画 | 手势控制 | 倍速播放 | 拖动预览 | 投屏 | 自定义UI | 实时网速显示 | 选集 | 首帧显示 " />
     </LinearLayout>
 </LinearLayout>
+
+    <!-- 全屏容器（容器契约）：默认 gone，进入全屏时库会把它置为 visible 并置顶。
+         播放器全屏时被移入这里，而不是搬进 DecorView，避免全屏多实例。 -->
+    <FrameLayout
+        android:id="@+id/player_fullscreen_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/black"
+        android:visibility="gone" />
+
+</FrameLayout>

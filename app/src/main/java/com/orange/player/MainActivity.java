@@ -417,6 +417,9 @@ public class MainActivity extends AppCompatActivity {
         mTvDebugLog = findViewById(R.id.tv_debug_log);
         mScrollLog = findViewById(R.id.log_scroll);
 
+        // 容器契约：把宿主预留的全屏容器交给播放器，全屏时不再搬进 DecorView（零 reparent）
+        mVideoView.setFullscreenContainer(findViewById(R.id.player_fullscreen_container));
+
         // 调试日志折叠开关
         TextView btnToggleLog = findViewById(R.id.btn_toggle_log);
         btnToggleLog.setOnClickListener(v -> {
@@ -1023,6 +1026,13 @@ public class MainActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
+                // 全屏时 BACK 先退出全屏，而不是退出 App。
+                // 优先读播放器自身的全屏状态（单一真值）；GSYVideoManager.isFullState()
+                // 只反映 GSY 克隆路径的全屏态，单实例全屏下永远为 false。
+                if (mVideoView != null && mVideoView.isFullScreen()) {
+                    mVideoView.stopFullScreen();
+                    return;
+                }
                 if (GSYVideoManager.isFullState(MainActivity.this)) {
                     GSYVideoManager.backFromWindowFull(MainActivity.this);
                     return;
@@ -1037,6 +1047,15 @@ public class MainActivity extends AppCompatActivity {
 
     // 记录切后台前是否在播放
     private boolean mWasPlayingBeforeBackground = false;
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // P3：把旋转完成回调转发给播放器，全屏收尾不再依赖固定延时
+        if (mVideoView != null) {
+            mVideoView.onConfigurationChanged();
+        }
+    }
 
     @Override
     protected void onPause() {

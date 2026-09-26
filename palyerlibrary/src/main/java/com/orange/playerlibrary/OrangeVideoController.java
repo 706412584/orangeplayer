@@ -101,7 +101,7 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
      */
     public void setVideoView(OrangevideoView videoView) {
         mVideoView = videoView;
-        
+
         // 初始化 VideoEventManager
         if (mVideoEventManager == null && videoView != null) {
             mVideoEventManager = new VideoEventManager(getContext(), videoView, this);
@@ -747,6 +747,22 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
      */
     public OrangevideoView getVideoView() {
         return mVideoView;
+    }
+
+    /**
+     * 解析 CustomFullscreenHelper。
+     *
+     * <p>基类实现依赖 {@code mControlWrapper}，但本控制器由 {@code OrangevideoView}
+     * 自动创建时 {@code mControlWrapper} 可能尚未设置（为 null），导致基类直接返回 null，
+     * 进而使横竖屏切换按钮等依赖全屏状态的控件被永久隐藏。本控制器自身持有
+     * {@code mVideoView}，优先用它解析。</p>
+     */
+    @Override
+    protected com.orange.playerlibrary.CustomFullscreenHelper getFullscreenHelper() {
+        if (mVideoView != null) {
+            return mVideoView.getFullscreenHelper();
+        }
+        return super.getFullscreenHelper();
     }
 
     // ===== 弹幕相关 =====

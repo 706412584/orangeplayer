@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols: stay_current_landscape 横屏全屏。
+     与 ic_fullscreen_portrait（stay_current_portrait）成对，均为官方字形（纯填充），
+     不使用旋转拼凑，避免描边变形。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M1.01,7L1,17c0,1.1 0.9,2 2,2h18c1.1,0 2,-0.9 2,-2V7c0,-1.1 -0.9,-2 -2,-2H3c-1.1,0 -1.99,0.9 -1.99,2zM19,17H5V7h14v10z" />
+</vector>

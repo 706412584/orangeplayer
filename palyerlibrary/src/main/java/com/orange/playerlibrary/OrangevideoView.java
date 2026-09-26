@@ -70,6 +70,15 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     private ComponentStateManager mComponentStateManager;
     private ErrorRecoveryManager mErrorRecoveryManager;
     private CustomFullscreenHelper mFullscreenHelper;
+
+    /**
+     * 宿主提供的全屏容器（可选）。
+     *
+     * <p>设置后，进入全屏时播放器会被移入该容器而不是 DecorView，退出时还原。
+     * 这是「零 reparent」的容器契约：宿主布局里预留一个 match_parent 的 FrameLayout，
+     * 默认 {@code gone}，库在全屏时把它显示出来并置顶。未设置时回退到旧的 DecorView 搬运。</p>
+     */
+    private android.widget.FrameLayout mFullscreenContainer;
     private M3U8AdManager mM3U8AdManager;
     private com.orange.playerlibrary.torrent.TorrentDelegate mTorrentDelegate;
     private com.orange.playerlibrary.sniffing.SniffingDelegate mSniffingDelegate;
@@ -2500,6 +2509,58 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     /**
+     * 设置宿主提供的全屏容器（可选，容器契约）。
+     *
+     * <p>设置后，全屏切换只在该容器内移入/移出播放器，不再把播放器搬进 DecorView，
+     * 从而避免 DecorView 层级带来的多实例/层级错乱。未设置时回退到旧的 DecorView 搬运路径。</p>
+     *
+     * <p>约定：容器应为 {@code match_parent} 的 FrameLayout，默认 {@code View.GONE}；
+     * 库在全屏时将其置为 {@code VISIBLE} 并 {@code bringToFront()}，退出时置回 {@code GONE}。</p>
+     *
+     * @param container 全屏容器；传 {@code null} 可清除设置、回到回退路径
+     */
+    public void setFullscreenContainer(android.widget.FrameLayout container) {
+        mFullscreenContainer = container;
+    }
+
+    /**
+     * 获取宿主提供的全屏容器。见 {@link #setFullscreenContainer(android.widget.FrameLayout)}。
+     */
+    public android.widget.FrameLayout getFullscreenContainer() {
+        return mFullscreenContainer;
+    }
+
+    /**
+     * 通知播放器「屏幕配置已变化」（P3：回调驱动）。
+     *
+     * <p>宿主 Activity 应在其 {@code onConfigurationChanged} 中调用本方法。
+     * 屏幕旋转真正完成的信号是配置变化回调，而不是固定延时；转发后全屏收尾
+     * （重置切换中标志、mpv Surface 漂移检测、渲染视图重新布局）会立即执行。</p>
+     *
+     * <p>未转发的宿主有兜底定时器，不会卡死，只是收尾会晚一点。</p>
+     */
+    public void onConfigurationChanged() {
+        if (mFullscreenHelper != null) {
+            mFullscreenHelper.onConfigurationChanged();
+        }
+    }
+
+    /**
+     * 由 {@link CustomFullscreenHelper} 在进入/退出全屏时维护 GSY 的
+     * {@code mIfCurrentIsFullscreen} 标志。
+     *
+     * <p>该标志原本只在 GSY 的 {@code startWindowFullscreen}（克隆路径）里被置 true。
+     * 改为单实例全屏后不再走那条路，若不显式维护，依赖它的调用方会行为回归：
+     * TV 的 BACK 键（{@code TvPlayerActivity}）会直接 finish 整个 Activity 而不是退出全屏；
+     * 全屏中解锁时标题栏也不会恢复显示。</p>
+     *
+     * @param fullscreen 当前是否处于全屏
+     */
+    void setIfCurrentIsFullscreenInternal(boolean fullscreen) {
+        mIfCurrentIsFullscreen = fullscreen;
+    }
+
+    /**
      * 智能全屏：根据视频宽高比自动选择全屏模式
      * 横屏视频（宽 > 高）→ 横屏全屏
      * 竖屏视频（高 > 宽）→ 竖屏全屏
@@ -4238,301 +4299,35 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         return null;
     }
 
-    @SuppressWarnings("ResourceType")
-    public OrangevideoView getOrangeFullWindowPlayer() {
-        Activity activity = com.shuyu.gsyvideoplayer.utils.CommonUtil.scanForActivity(getContext());
-        if (activity == null) {
-            return null;
-        }
-        android.view.ViewGroup vp = (android.view.ViewGroup) activity
-                .findViewById(android.view.Window.ID_ANDROID_CONTENT);
-        final android.view.View full = vp.findViewById(getFullId());
-        OrangevideoView orangeVideoView = null;
-        if (full != null && full instanceof OrangevideoView) {
-            orangeVideoView = (OrangevideoView) full;
-        }
-        return orangeVideoView;
-    }
-
-    @Override
-    protected void checkoutState() {
-        removeCallbacks(mOrangeCheckoutTask);
-        mInnerHandler.postDelayed(mOrangeCheckoutTask, 500);
-    }
-
-    private Runnable mOrangeCheckoutTask=new Runnable(){@Override public void run(){OrangevideoView fullPlayer=getOrangeFullWindowPlayer();if(fullPlayer!=null&&fullPlayer.mCurrentState!=mCurrentState){if(fullPlayer.mCurrentState==CURRENT_STATE_PLAYING_BUFFERING_START&&mCurrentState!=CURRENT_STATE_PREPAREING){fullPlayer.setStateAndUi(mCurrentState);}}}};
+    // 说明（全屏多实例治理）：
+    // 原实现在此提供了 getOrangeFullWindowPlayer() / checkoutState() / mOrangeCheckoutTask 三者，
+    // 用于在 DecorView 中探测并同步"全屏播放器"（GSY startWindowFullscreen 克隆出的第二个实例）。
+    // 自研全屏（CustomFullscreenHelper）已改为单实例方案，不再存在第二个播放器，故全部删除。
+    // 同理，GSY 克隆路径的退出逻辑（clearFullscreenLayout / orangeBackToNormal /
+    // orangeResolveNormalVideoShow）也已删除，onBackFullscreen() 改为委托状态机。
+    // getFullId() 是基类抽象方法，必须保留 override。
 
     @Override
     @SuppressWarnings({ "ResourceType", "unchecked" })
     public GSYBaseVideoPlayer startWindowFullscreen(Context context, boolean actionBar, boolean statusBar) {
-        // OCR 全屏切换处理：先暂停 OCR 并切换到 SurfaceView
-        pauseOcrForFullscreenSwitch();
-
-        hideStatusBarAndNavigation(context);
-
-        if (mAutoRotateOnFullscreen) {
-            Activity activity = getActivity();
-            if (activity != null) {
-                activity.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-            }
-        }
-
-        GSYBaseVideoPlayer fullPlayer = super.startWindowFullscreen(context, true, true);
-
-        if (fullPlayer instanceof OrangevideoView) {
-            final OrangevideoView orangeFullPlayer = (OrangevideoView) fullPlayer;
-            orangeFullPlayer.mExoSubtitleManagerOverride = mOrangeController != null
-                    ? mOrangeController.getSubtitleManager() : null;
-            orangeFullPlayer.mExternalSubtitleUri = mExternalSubtitleUri;
-            orangeFullPlayer.mExternalSubtitleMimeType = mExternalSubtitleMimeType;
-            orangeFullPlayer.mExternalSubtitleVideoUrl = mExternalSubtitleVideoUrl;
-            orangeFullPlayer.mIfCurrentIsFullscreen = true;
-
-            orangeFullPlayer.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (mTitleView != null && orangeFullPlayer.mTitleView != null) {
-                        String title = mTitleView.getTitle();
-                        orangeFullPlayer.mTitleView.setTitle(title);
-                        if (mOrangeController != null) {
-                            orangeFullPlayer.mTitleView.setController(mOrangeController);
-                        }
-                    }
-
-                    if (mOrangeController != null && orangeFullPlayer.mVodControlView != null) {
-                        com.orange.playerlibrary.VideoEventManager eventManager = mOrangeController
-                                .getVideoEventManager();
-                        if (eventManager != null) {
-                            eventManager.bindControllerComponents(orangeFullPlayer.mVodControlView);
-                        }
-                    }
-
-                    // 重新附加字幕视图到全屏播放器（解决全屏模式下字幕不显示的问题）
-                    if (mOrangeController != null) {
-                        mOrangeController.reattachSubtitleView(orangeFullPlayer);
-                    }
-
-                    orangeFullPlayer.setOrangePlayState(mCurrentPlayState);
-                    orangeFullPlayer.setOrangePlayerState(PlayerConstants.PLAYER_FULL_SCREEN);
-
-                    if (orangeFullPlayer.mComponentStateManager != null) {
-                        orangeFullPlayer.mComponentStateManager.reregisterProgressListener(orangeFullPlayer);
-                    }
-
-                    // 先隐藏原始播放器的控制器
-                    hideController();
-
-                    // 强制刷新全屏播放器的控制器：先隐藏再显示
-                    orangeFullPlayer.hideController();
-                    orangeFullPlayer.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            orangeFullPlayer.showController();
-                            if (orangeFullPlayer.mTitleView != null) {
-                                orangeFullPlayer.mTitleView.setVisibility(android.view.View.VISIBLE);
-                                orangeFullPlayer.mTitleView.bringToFront();
-                            }
-                            if (orangeFullPlayer.mVodControlView != null) {
-                                orangeFullPlayer.mVodControlView.setVisibility(android.view.View.VISIBLE);
-                                orangeFullPlayer.mVodControlView.bringToFront();
-                                orangeFullPlayer.mVodControlView
-                                        .onPlayerStateChanged(PlayerConstants.PLAYER_FULL_SCREEN);
-                                // 强制刷新进度
-                                if (mComponentStateManager != null) {
-                                    int duration = (int) getDuration();
-                                    int position = (int) getCurrentPositionWhenPlaying();
-                                    orangeFullPlayer.mVodControlView.setProgress(duration, position);
-                                }
-                            }
-                            orangeFullPlayer.requestLayout();
-                        }
-                    }, 100);
-                }
-            }, 300);
-        }
-
-        setOrangePlayerState(PlayerConstants.PLAYER_FULL_SCREEN);
-        return fullPlayer;
-    }
-
-    private void hideStatusBarAndNavigation(Context context) {
-        Activity activity = com.shuyu.gsyvideoplayer.utils.CommonUtil.scanForActivity(context);
-        if (activity != null) {
-            android.view.View decorView = activity.getWindow().getDecorView();
-            int uiOptions = android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    | android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
-            decorView.setSystemUiVisibility(uiOptions);
-
-            if (activity.getActionBar() != null) {
-                activity.getActionBar().hide();
-            }
-            if (activity instanceof androidx.appcompat.app.AppCompatActivity) {
-                androidx.appcompat.app.ActionBar supportActionBar = ((androidx.appcompat.app.AppCompatActivity) activity)
-                        .getSupportActionBar();
-                if (supportActionBar != null) {
-                    supportActionBar.hide();
-                }
-            }
-        }
+        // 原 GSY 实现会 clone 出第二个播放器实例（"全屏播放器"），是"全屏多实例"的根源。
+        // 现改为委托给自研单实例全屏（CustomFullscreenHelper.startFullScreen），
+        // 播放器不复制；配合 P2 的容器契约后也不再搬运。
+        // 保留此 override 仅作兼容守卫，避免任何调用方误走 GSY 克隆路径。
+        android.util.Log.d(TAG, "startWindowFullscreen: 委托到单实例全屏 startFullScreen()");
+        startFullScreen();
+        return this;
     }
 
     @Override
-    @SuppressWarnings("ResourceType")
-    protected void clearFullscreenLayout() {
-        if (!mFullAnimEnd) {
-            return;
-        }
-
-        final android.view.ViewGroup vp = getViewGroup();
-        final android.view.View oldF = vp.findViewById(getFullId());
-        if (oldF != null && oldF instanceof OrangevideoView) {
-            OrangevideoView orangeVideoPlayer = (OrangevideoView) oldF;
-            if (mPlaybackStateManager != null) {
-                mPlaybackStateManager.saveState(orangeVideoPlayer);
-            }
-            orangeVideoPlayer.mIfCurrentIsFullscreen = false;
-        }
-
-        mIfCurrentIsFullscreen = false;
-        int delay = 0;
-        if (mOrientationUtils != null) {
-            delay = mOrientationUtils.backToProtVideo();
-            mOrientationUtils.setEnable(false);
-            if (mOrientationUtils != null) {
-                mOrientationUtils.releaseListener();
-                mOrientationUtils = null;
-            }
-        }
-
-        if (!mShowFullAnimation) {
-            delay = 0;
-        }
-
-        mInnerHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                orangeBackToNormal();
-            }
-        }, delay);
+    public void onBackFullscreen() {
+        // GSY 原实现走 clearFullscreenLayout()，那是克隆路径（第二个播放器实例）的退出逻辑。
+        // 单实例全屏下不存在第二个实例，委托给状态机即可。
+        // TV 的 BACK 键（TvPlayerActivity）依赖 isIfCurrentIsFullscreen() + 本方法。
+        android.util.Log.d(TAG, "onBackFullscreen: 委托到单实例全屏 request(NORMAL)");
+        stopFullScreen();
     }
 
-    @SuppressWarnings("ResourceType")
-    protected void orangeBackToNormal() {
-        // OCR 全屏切换处理：先暂停 OCR 并切换到 SurfaceView
-        pauseOcrForFullscreenSwitch();
-
-        final android.view.ViewGroup vp = getViewGroup();
-        final android.view.View oldF = vp.findViewById(getFullId());
-        final OrangevideoView orangeVideoPlayer;
-
-        if (oldF != null && oldF instanceof OrangevideoView) {
-            orangeVideoPlayer = (OrangevideoView) oldF;
-            if (mShowFullAnimation && mListItemRect != null && mListItemSize != null) {
-                android.transition.TransitionManager.beginDelayedTransition(vp);
-                android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) orangeVideoPlayer
-                        .getLayoutParams();
-                lp.setMargins(mListItemRect[0], mListItemRect[1], 0, 0);
-                lp.width = mListItemSize[0];
-                lp.height = mListItemSize[1];
-                lp.gravity = android.view.Gravity.NO_GRAVITY;
-                orangeVideoPlayer.setLayoutParams(lp);
-                mInnerHandler.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        orangeResolveNormalVideoShow(oldF, vp, orangeVideoPlayer);
-                    }
-                }, 400);
-            } else {
-                orangeResolveNormalVideoShow(oldF, vp, orangeVideoPlayer);
-            }
-        } else {
-            orangeResolveNormalVideoShow(null, vp, null);
-        }
-    }
-
-    protected void orangeResolveNormalVideoShow(android.view.View oldF, android.view.ViewGroup vp,
-            OrangevideoView orangeVideoPlayer) {
-        // 移除全屏 View
-        if (oldF != null && oldF.getParent() != null) {
-            android.view.ViewGroup viewGroup = (android.view.ViewGroup) oldF.getParent();
-            vp.removeView(viewGroup);
-        }
-
-        // 恢复状态（与 GSY 基类保持一致）
-        mCurrentState = getGSYVideoManager().getLastState();
-
-        if (orangeVideoPlayer != null) {
-            cloneParams(orangeVideoPlayer, this);
-        }
-
-        if (mCurrentState != CURRENT_STATE_NORMAL
-                || mCurrentState != CURRENT_STATE_AUTO_COMPLETE) {
-            createNetWorkState();
-        }
-
-        // 切换监听器（关键：让原始播放器接管）
-        getGSYVideoManager().setListener(getGSYVideoManager().lastListener());
-        getGSYVideoManager().setLastListener(null);
-        setStateAndUi(mCurrentState);
-
-        // 重新添加 TextureView（GSY 基类的标准做法）
-        addTextureView();
-
-        // 延迟恢复组件状态（不做 seekTo，避免 ExoPlayer 状态混乱）
-        postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (mComponentStateManager != null) {
-                    mComponentStateManager.restoreComponentState(OrangevideoView.this);
-                    mComponentStateManager.reregisterProgressListener(OrangevideoView.this);
-                }
-
-                notifyComponentsPlayStateChanged(mCurrentPlayState);
-                notifyComponentsPlayerStateChanged(PlayerConstants.PLAYER_NORMAL);
-
-                // 重新附加字幕视图到原始播放器（解决退出全屏后字幕不显示的问题）
-                if (mOrangeController != null) {
-                    mOrangeController.reattachSubtitleView(OrangevideoView.this);
-                }
-
-                // 强制刷新控制器：先隐藏再显示，确保使用正确的实例
-                hideController();
-                postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        showController();
-                        if (mVodControlView != null) {
-                            mVodControlView.setVisibility(android.view.View.VISIBLE);
-                            mVodControlView.onPlayerStateChanged(PlayerConstants.PLAYER_NORMAL);
-                            // 强制刷新进度
-                            int duration = (int) getDuration();
-                            int position = (int) getCurrentPositionWhenPlaying();
-                            mVodControlView.setProgress(duration, position);
-                        }
-                        requestLayout();
-                    }
-                }, 100);
-            }
-        }, 300);
-
-        mSaveChangeViewTIme = System.currentTimeMillis();
-        if (mVideoAllCallBack != null) {
-            mVideoAllCallBack.onQuitFullscreen(mOriginUrl, mTitle, this);
-        }
-        mIfCurrentIsFullscreen = false;
-        if (mHideKey) {
-            com.shuyu.gsyvideoplayer.utils.CommonUtil.showNavKey(mContext, mSystemUiVisibility);
-        }
-        com.shuyu.gsyvideoplayer.utils.CommonUtil.showSupportActionBar(mContext, mActionBar, mStatusBar);
-        if (getFullscreenButton() != null) {
-            getFullscreenButton().setImageResource(getEnlargeImageRes());
-        }
-        setOrangePlayerState(PlayerConstants.PLAYER_NORMAL);
-    }
 
     @Override
     public GSYVideoManager getGSYVideoManager() {

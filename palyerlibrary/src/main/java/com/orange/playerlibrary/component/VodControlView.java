@@ -144,7 +144,16 @@ public class VodControlView extends FrameLayout implements IControlComponent,
         NEVER
     }
     
-    private RotationButtonDisplayMode mDisplayMode = RotationButtonDisplayMode.PORTRAIT_ONLY;  // 默认仅竖屏全屏显示
+    // 默认全屏下始终显示：横屏全屏也能一键切竖屏全屏（反之亦然）。
+    // 此前默认 PORTRAIT_ONLY，导致横屏全屏下无入口切到竖屏。
+    private RotationButtonDisplayMode mDisplayMode = RotationButtonDisplayMode.ALWAYS;
+
+    /** 切换方向提示的显示时长 */
+    private static final long ROTATION_HINT_DURATION_MS = 3000;
+    /** 提示当前是否处于「已触发、待自动隐藏」状态 */
+    private boolean mRotationHintActive = false;
+    /** 3 秒后隐藏提示 */
+    private final Runnable mRotationHintHide = this::hideRotationHint;
 
     // 状态
     private boolean mIsDragging = false;
@@ -412,6 +421,16 @@ public class VodControlView extends FrameLayout implements IControlComponent,
         
         if (mOrangeController == null && sSharedController != null) {
             mOrangeController = sSharedController;
+        }
+
+        // 注册「设备物理方向变化」监听：全屏下用户转动手机时弹出切换方向提示
+        if (mOrangeController != null) {
+            OrangevideoView v = mOrangeController.getVideoView();
+            com.orange.playerlibrary.CustomFullscreenHelper h =
+                    v != null ? v.getFullscreenHelper() : null;
+            if (h != null) {
+                h.setDeviceOrientationListener(this::showRotationHint);
+            }
         }
         
         if (mOrangeController != null) {
@@ -740,7 +759,7 @@ public class VodControlView extends FrameLayout implements IControlComponent,
      */
     public void setRotationButtonDisplayMode(RotationButtonDisplayMode mode) {
         if (mode == null) {
-            mode = RotationButtonDisplayMode.PORTRAIT_ONLY;
+            mode = RotationButtonDisplayMode.ALWAYS;
         }
         mDisplayMode = mode;
         updateRotationButtonVisibility();
@@ -2048,62 +2067,58 @@ public class VodControlView extends FrameLayout implements IControlComponent,
             android.util.Log.w(TAG, "onRotationButtonClick: mOrangeController is null");
             return;
         }
-        
         OrangevideoView videoView = mOrangeController.getVideoView();
         if (videoView == null) {
             android.util.Log.w(TAG, "onRotationButtonClick: videoView is null");
             return;
         }
-        
         com.orange.playerlibrary.CustomFullscreenHelper helper = videoView.getFullscreenHelper();
         if (helper == null) {
             android.util.Log.w(TAG, "onRotationButtonClick: CustomFullscreenHelper is null");
             return;
         }
-        
-        // 根据当前全屏状态决定切换方向
-        if (helper.isPortraitFullscreen()) {
-            // 从竖屏全屏切换到横屏全屏
-            android.util.Log.d(TAG, "onRotationButtonClick: Switching from portrait to landscape fullscreen");
-            helper.stopPortraitFullScreen();
-            
-            // 延迟 100ms 后进入横屏全屏，等待退出动画完成
-            postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (mOrangeController != null) {
-                        OrangevideoView v = mOrangeController.getVideoView();
-                        if (v != null) {
-                            com.orange.playerlibrary.CustomFullscreenHelper h = v.getFullscreenHelper();
-                            if (h != null) {
-                                h.startFullScreen();
-                            }
-                        }
-                    }
-                }
-            }, 100);
-        } else if (helper.isFullscreen()) {
-            // 从横屏全屏切换到竖屏全屏
-            android.util.Log.d(TAG, "onRotationButtonClick: Switching from landscape to portrait fullscreen");
-            helper.stopFullScreen();
-            
-            // 延迟 100ms 后进入竖屏全屏，等待退出动画完成
-            postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (mOrangeController != null) {
-                        OrangevideoView v = mOrangeController.getVideoView();
-                        if (v != null) {
-                            com.orange.playerlibrary.CustomFullscreenHelper h = v.getFullscreenHelper();
-                            if (h != null) {
-                                h.startPortraitFullScreen();
-                            }
-                        }
-                    }
-                }
-            }, 100);
-        } else {
-            android.util.Log.w(TAG, "onRotationButtonClick: Not in fullscreen mode");
+
+        // 目标模式由设备当前物理方向决定：竖着拿→竖屏全屏，横着拿→横屏全屏。
+        // 图标按同一依据绘制，故「看到什么方向就切到什么方向」，不会方向反了。
+        int target = helper.isDeviceLandscape()
+                ? com.orange.playerlibrary.FullscreenMode.LANDSCAPE_FULLSCREEN
+                : com.orange.playerlibrary.FullscreenMode.PORTRAIT_FULLSCREEN;
+        android.util.Log.d(TAG, "onRotationButtonClick: deviceLandscape=" + helper.isDeviceLandscape()
+                + ", target=" + target + ", current=" + helper.getMode());
+        // 状态机幂等，无需先退出再进入
+        helper.request(target);
+    }
+
+    /**
+     * 显示「切换全屏方向」提示：按当前物理方向显示图标，3 秒后自动隐藏。
+     */
+    private void showRotationHint() {
+        if (mOrangeController == null || mRotationButton == null) {
+            return;
+        }
+        OrangevideoView videoView = mOrangeController.getVideoView();
+        com.orange.playerlibrary.CustomFullscreenHelper helper =
+                videoView != null ? videoView.getFullscreenHelper() : null;
+        if (helper == null || !helper.isFullscreen() || mIsLocked) {
+            return;
+        }
+        mRotationHintActive = true;
+        boolean landscape = helper.isDeviceLandscape();
+        android.util.Log.d(TAG, "showRotationHint: deviceLandscape=" + landscape
+                + ", icon=" + (landscape ? "landscape" : "portrait"));
+        mRotationButton.setImageResource(landscape
+                ? R.drawable.ic_fullscreen_landscape
+                : R.drawable.ic_fullscreen_portrait);
+        updateRotationButtonVisibility();
+        removeCallbacks(mRotationHintHide);
+        postDelayed(mRotationHintHide, ROTATION_HINT_DURATION_MS);
+    }
+
+    /** 隐藏切换方向提示。 */
+    private void hideRotationHint() {
+        mRotationHintActive = false;
+        if (mRotationButton != null) {
+            mRotationButton.setVisibility(GONE);
         }
     }
     
@@ -2136,32 +2151,20 @@ public class VodControlView extends FrameLayout implements IControlComponent,
             return;
         }
         
-        boolean isFullscreen = helper.isFullscreen();
-        boolean isPortraitFullscreen = helper.isPortraitFullscreen();
-        boolean shouldShow = false;
-        
-        // 根据显示模式决定是否显示按钮
-        switch (mDisplayMode) {
-            case ALWAYS:
-                // 全屏模式下始终显示
-                shouldShow = isFullscreen && !mIsLocked && mRotationButtonEnabled;
-                break;
-            case PORTRAIT_ONLY:
-                // 仅竖屏全屏时显示
-                shouldShow = isFullscreen && isPortraitFullscreen && !mIsLocked && mRotationButtonEnabled;
-                break;
-            case LANDSCAPE_ONLY:
-                // 仅横屏全屏时显示
-                shouldShow = isFullscreen && !isPortraitFullscreen && !mIsLocked && mRotationButtonEnabled;
-                break;
-            case NEVER:
-                // 始终隐藏
-                shouldShow = false;
-                break;
-        }
-        
+        // 切换方向按钮改为「瞬时提示」：仅当用户转动手机（物理方向变化）时，
+        // 按当前手持方向显示匹配的图标 3 秒，然后自动隐藏。默认保持隐藏，
+        // 避免常驻的旋转图标被误读成「画面正在旋转」。
+        // 显式设为 NEVER 时彻底禁用该提示。
+        boolean shouldShow = mDisplayMode != RotationButtonDisplayMode.NEVER
+                && mRotationHintActive
+                && helper.isFullscreen()
+                && !mIsLocked
+                && mRotationButtonEnabled;
+
+        mRotationButton.setImageResource(helper.isDeviceLandscape()
+                ? R.drawable.ic_fullscreen_landscape
+                : R.drawable.ic_fullscreen_portrait);
         mRotationButton.setVisibility(shouldShow ? VISIBLE : GONE);
-        
     }
 }
 
