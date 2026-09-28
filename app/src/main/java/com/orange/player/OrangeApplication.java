@@ -25,6 +25,11 @@ public class OrangeApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+
+        // 注册 animeko 风格 Compose 控制栏。
+        // 去掉这行即回退到既有 XML 组件式 UI（旧代码不改动）。
+        com.orange.playerlibrary.ui.OrangeControlUiRegistry.setProvider(
+                new com.orange.animekoui.AnimekoControlUiProvider());
         
         // 自动检测 TV 模式
         boolean isTvDevice = TvUtils.isTvDevice(this);

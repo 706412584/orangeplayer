@@ -106,8 +106,13 @@ public class DanmakuControllerImpl implements IDanmakuController {
     
     @Override
     public void sendDanmaku(String text, int color) {
+        sendDanmaku(text, color, LOCATION_SCROLL);
+    }
+
+    @Override
+    public void sendDanmaku(String text, int color, int location) {
         if (mDanmaView != null) {
-            mDanmaView.addUserDanmaku(text, color, true);
+            mDanmaView.addUserDanmaku(text, color, true, location);
         }
     }
     

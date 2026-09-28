@@ -98,6 +98,20 @@ public class MainActivity extends AppCompatActivity {
                     handleAsrDiarSmoke(cmd.substring("asr_diar_smoke:".length()));
                     return;
                 }
+                // send_danmaku: 直接走弹幕发送链路（测试用）；
+                // 格式 send_danmaku:<text>:<rgbHex>:<location>
+                if (cmd.startsWith("send_danmaku:")) {
+                    String[] parts = cmd.substring("send_danmaku:".length()).split(":");
+                    if (parts.length >= 3 && mDanmakuController != null) {
+                        int rgb = (int) Long.parseLong(parts[1].trim(), 16);
+                        int loc = Integer.parseInt(parts[2].trim());
+                        mDanmakuController.sendDanmaku(parts[0], 0xFF000000 | (rgb & 0xFFFFFF), loc);
+                        log("send_danmaku: " + parts[0] + " color=#" + parts[1] + " location=" + loc);
+                    } else {
+                        log("send_danmaku: 参数不足或弹幕未就绪");
+                    }
+                    return;
+                }
                 // play_file: 播放本地文件（测试用）；格式 play_file:<绝对路径>
                 if (cmd.startsWith("play_file:")) {
                     String path = cmd.substring("play_file:".length()).trim();
@@ -668,9 +682,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // 更新标题
-        if (mVideoView.getTitleView() != null) {
-            mVideoView.getTitleView().setTitle(mCurrentTitle);
-        }
+        // 标题走播放器的一等入口：Compose 控制栏下没有 TitleView，
+        // 直接操作 TitleView 会让标题静默丢失。
+        mVideoView.setTitle(mCurrentTitle);
     }
 
     private String getShortUrl(String url) {
@@ -773,9 +787,9 @@ public class MainActivity extends AppCompatActivity {
         com.shuyu.gsyvideoplayer.GSYVideoManager.releaseAllVideos();
         mVideoView.setUrl(path);
         mVideoView.post(() -> mVideoView.startPlayLogic());
-        if (mVideoView.getTitleView() != null) {
-            mVideoView.getTitleView().setTitle(mCurrentTitle);
-        }
+        // 标题走播放器的一等入口：Compose 控制栏下没有 TitleView，
+        // 直接操作 TitleView 会让标题静默丢失。
+        mVideoView.setTitle(mCurrentTitle);
     }
 
     /**
@@ -1284,9 +1298,9 @@ public class MainActivity extends AppCompatActivity {
 
         mVideoView.startPlayLogic();
 
-        if (mVideoView.getTitleView() != null) {
-            mVideoView.getTitleView().setTitle(mCurrentTitle);
-        }
+        // 标题走播放器的一等入口：Compose 控制栏下没有 TitleView，
+        // 直接操作 TitleView 会让标题静默丢失。
+        mVideoView.setTitle(mCurrentTitle);
 
         log("▶ 从历史播放: " + getShortUrl(url));
         if (position > 0) {

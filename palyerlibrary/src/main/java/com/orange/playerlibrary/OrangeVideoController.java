@@ -187,37 +187,63 @@ public class OrangeVideoController extends OrangeStandardVideoController impleme
     public void addDefaultControlComponent(String title, boolean isLive) {
         // 清除现有组件
         removeAllControlComponent();
-        
+
         // 设置标题
         mVideoTitle = title;
-        
+
+        // 注册了自定义控制栏 UI（如 animeko-ui 的 Compose 控制栏）时，不再创建
+        // VodControlView：否则播放器内会同时存在两套控制栏（一套 Compose 可见、
+        // 一套 XML 挂在本控制器的 control_container 里），且 VideoEventManager 会把
+        // 倍速/选集/弹幕等回调绑到那个不可见的旧组件上，导致 Compose 侧按钮失效。
+        // 这里只保留 VideoEventManager 的事件绑定（回调 + 弹幕初始化）。
+        if (com.orange.playerlibrary.ui.OrangeControlUiRegistry.hasProvider()) {
+            if (mVideoEventManager != null) {
+                // 传 null：VideoEventManager 内部对空组件是安全的（bindControllerEvents 直接 return），
+                // 但其持有的旧引用必须清掉，否则会一直指向上一轮创建的组件。
+                mVideoEventManager.bindControllerComponents(null);
+                bindTitleViewIfPresent(mVideoEventManager);
+            }
+            if (mDanmakuController == null) {
+                initDanmaku();
+            }
+            debug("addDefaultControlComponent: 使用自定义控制栏 UI, 跳过 VodControlView, title=" + title);
+            return;
+        }
+
         // 创建 VodControlView
-        com.orange.playerlibrary.component.VodControlView vodControlView = 
+        com.orange.playerlibrary.component.VodControlView vodControlView =
                 new com.orange.playerlibrary.component.VodControlView(getContext());
         vodControlView.setOrangeVideoController(this);
         addControlComponent(vodControlView);
         // 如果 VideoEventManager 已初始化，绑定控制器组件
         if (mVideoEventManager != null) {
             mVideoEventManager.bindControllerComponents(vodControlView);
-            
-            // 绑定 TitleView（如果存在）
-            if (mVideoView != null) {
-                com.orange.playerlibrary.component.TitleView titleView = mVideoView.getTitleView();
-                if (titleView != null) {
-                    mVideoEventManager.bindTitleView(titleView);
-                }
-            }
-            
+            bindTitleViewIfPresent(mVideoEventManager);
             debug("VideoEventManager bound to VodControlView");
         } else {
         }
-        
+
         // 自动初始化弹幕功能（如果弹幕库可用）
         if (mDanmakuController == null) {
             initDanmaku();
         }
-        
+
         debug("addDefaultControlComponent: title=" + title + ", isLive=" + isLive);
+    }
+
+    /**
+     * 绑定 TitleView 到事件管理器（如果存在）。
+     *
+     * <p>TitleView 仅在未注册自定义控制栏 UI 时创建；自定义 UI 的顶栏动作
+     * 由 {@code IOrangeControlUiProvider} 承担，这里保持既有语义不变。</p>
+     */
+    private void bindTitleViewIfPresent(VideoEventManager eventManager) {
+        if (mVideoView != null) {
+            com.orange.playerlibrary.component.TitleView titleView = mVideoView.getTitleView();
+            if (titleView != null) {
+                eventManager.bindTitleView(titleView);
+            }
+        }
     }
 
     // ===== 视频集数管理 (Requirements: 2.6) =====

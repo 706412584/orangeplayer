@@ -3,6 +3,10 @@ plugins {
     id 'com.android.application' version '8.12.0' apply false
     id 'com.android.library' version '8.12.0' apply false
     id 'io.github.gradle-nexus.publish-plugin' version '1.3.0'
+    // Kotlin + Compose：供 animeko UI 复刻模块使用。
+    // 需 ≥2.2 才能读取 mediamp(2.3.20 编译) 的 Kotlin 元数据。
+    id 'org.jetbrains.kotlin.android' version '2.3.20' apply false
+    id 'org.jetbrains.kotlin.plugin.compose' version '2.3.20' apply false
 }
 
 // GSYVideoPlayer 依赖配置（必须在最前面）

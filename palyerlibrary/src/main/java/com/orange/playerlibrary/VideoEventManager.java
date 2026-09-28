@@ -519,7 +519,7 @@ public class VideoEventManager {
             
             // 绑定小窗按钮点击事件
             titleView.setOnWindowClickListener(v -> {
-                onSmallWindowPlayClick();
+                enterSmallWindow();
             });
         }
     }
@@ -1161,7 +1161,7 @@ public class VideoEventManager {
     /**
      * 显示投屏对话框
      */
-    private void showCastDialog() {
+    public void showCastDialog() {
         hideController(); // 隐藏播放器UI
         
         // 检查投屏库是否可用
@@ -1344,7 +1344,7 @@ public class VideoEventManager {
         
         // 绑定小窗播放按钮点击事件
         if (smallWindowButton != null) {
-            smallWindowButton.setOnClickListener(v -> onSmallWindowPlayClick());
+            smallWindowButton.setOnClickListener(v -> enterSmallWindow());
         }
         
         // 绑定进度条开关按钮点击事件
@@ -1943,7 +1943,13 @@ public class VideoEventManager {
     /**
      * 小窗播放功能
      */
-    private void onSmallWindowPlayClick() {
+    /**
+     * 进入小窗（画中画）播放。
+     *
+     * <p>供自定义控制栏 UI（{@code IOrangeControlUiProvider}）调用；
+     * 旧 XML UI 走 {@code TitleView} 的小窗按钮，最终也落到这里。</p>
+     */
+    public void enterSmallWindow() {
         if (mCurrentSetupDialog != null) {
             mCurrentSetupDialog.dismiss();
         }
@@ -3782,7 +3788,8 @@ public class VideoEventManager {
     /**
      * 显示弹幕设置对话框
      */
-    private void showDanmakuSettingsDialog() {
+    /** 弹幕设置对话框（顶栏「弹幕设置」）。 */
+    public void showDanmakuSettingsDialog() {
         // 检查弹幕库是否可用
         if (!DanmakuHelper.isDanmakuLibraryAvailable()) {
             DanmakuHelper.showDanmakuNotAvailableToast(mContext);
@@ -4028,6 +4035,13 @@ public class VideoEventManager {
         btn.setBackgroundResource(on
                 ? R.drawable.btn_bundle_action_bg      // 开：品牌橙
                 : R.drawable.btn_bundle_delete_bg);    // 关：中性描边
+    }
+
+    /**
+     * 字幕对话框（顶栏「字幕」）。传 {@code null} 表示无锚点视图。
+     */
+    public void showSubtitleDialog() {
+        showSubtitleDialog(null);
     }
 
     private void showSubtitleDialog(View clickedView) {

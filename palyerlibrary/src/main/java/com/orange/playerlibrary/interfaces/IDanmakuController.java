@@ -46,7 +46,24 @@ public interface IDanmakuController {
      * @param text 弹幕文本
      * @param color 弹幕颜色
      */
+    /** 滚动弹幕（默认）。 */
+    int LOCATION_SCROLL = 1;
+    /** 顶部固定弹幕。 */
+    int LOCATION_TOP = 4;
+    /** 底部固定弹幕。 */
+    int LOCATION_BOTTOM = 5;
+
     void sendDanmaku(String text, int color);
+
+    /**
+     * 发送带位置（滚动/顶部/底部）的弹幕。
+     *
+     * <p>默认实现退化为 {@link #sendDanmaku(String, int)}，即忽略位置；
+     * 支持的实现（{@code DanmakuControllerImpl}）会按 {@code location} 选择弹幕类型。</p>
+     */
+    default void sendDanmaku(String text, int color, int location) {
+        sendDanmaku(text, color);
+    }
     
     /**
      * 开启/关闭弹幕

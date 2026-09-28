@@ -475,12 +475,17 @@ public class DanmaView extends DanmakuView implements IControlComponent {
      * 发送用户弹幕
      */
     public void addUserDanmaku(String text, int color, boolean isSelf) {
+        addUserDanmaku(text, color, isSelf,
+                com.orange.playerlibrary.interfaces.IDanmakuController.LOCATION_SCROLL);
+    }
+
+    public void addUserDanmaku(String text, int color, boolean isSelf, int location) {
         if (!mDanmakuEnabled) {
             return;
         }
         
         long showTime = getCurrentTime() + 1000;
-        DanmakuItem danmakuItem = new DanmakuItem(text, color, showTime, isSelf);
+        DanmakuItem danmakuItem = new DanmakuItem(text, color, showTime, isSelf, location);
         String key = generateDanmakuKey(danmakuItem);
         
         Long lastSentTime = mLastSentTimeMap.get(key);
@@ -511,13 +516,26 @@ public class DanmaView extends DanmakuView implements IControlComponent {
         }
     }
 
+    /** 橘子的位置常量 → DanmakuFlameMaster 的弹幕类型。 */
+    private static int danmakuTypeOf(int location) {
+        switch (location) {
+            case com.orange.playerlibrary.interfaces.IDanmakuController.LOCATION_TOP:
+                return BaseDanmaku.TYPE_FIX_TOP;
+            case com.orange.playerlibrary.interfaces.IDanmakuController.LOCATION_BOTTOM:
+                return BaseDanmaku.TYPE_FIX_BOTTOM;
+            default:
+                return BaseDanmaku.TYPE_SCROLL_RL;
+        }
+    }
+
     private boolean trySendDanmaku(DanmakuItem item) {
         if (!mDanmakuEnabled || !isPrepared() || mDanmakuContext == null) {
             return false;
         }
         
         try {
-            BaseDanmaku danmaku = mDanmakuContext.mDanmakuFactory.createDanmaku(BaseDanmaku.TYPE_SCROLL_RL);
+            int danmakuType = danmakuTypeOf(item.getLocation());
+            BaseDanmaku danmaku = mDanmakuContext.mDanmakuFactory.createDanmaku(danmakuType);
             if (danmaku == null) {
                 return false;
             }
@@ -698,12 +716,23 @@ public class DanmaView extends DanmakuView implements IControlComponent {
         private final int color;
         private final long timestamp;
         private final boolean isSelf;
+        /** 弹幕位置：IDanmakuController.LOCATION_*（滚动/顶部/底部）。 */
+        private final int location;
 
         public DanmakuItem(String text, int color, long timestamp, boolean isSelf) {
+            this(text, color, timestamp, isSelf, com.orange.playerlibrary.interfaces.IDanmakuController.LOCATION_SCROLL);
+        }
+
+        public DanmakuItem(String text, int color, long timestamp, boolean isSelf, int location) {
             this.text = text;
             this.color = color;
             this.timestamp = timestamp;
             this.isSelf = isSelf;
+            this.location = location;
+        }
+
+        public int getLocation() {
+            return location;
         }
 
         public String getText() {

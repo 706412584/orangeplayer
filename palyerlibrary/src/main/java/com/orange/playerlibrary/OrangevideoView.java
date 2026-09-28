@@ -107,6 +107,41 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     private com.orange.playerlibrary.component.PrepareView mPrepareView;
     private com.orange.playerlibrary.component.TitleView mTitleView;
     private com.orange.playerlibrary.component.VodControlView mVodControlView;
+
+    /** animeko(Compose) 控制栏 View；未注册 provider 时为 null（走旧 XML UI）。 */
+    private android.view.View mComposeControlView;
+
+    /** 传给 provider 的能力集适配器。 */
+    private com.orange.playerlibrary.ui.IOrangeControlUiProvider.ControlUiHost mControlUiHost;
+
+    /**
+     * 控制器当前是否可见（Java 侧真值）。
+     *
+     * <p>旧实现靠 {@code mVodControlView} 的 visibility 判断，注册自定义控制栏 UI 后
+     * 该组件不存在，必须另存一份真值，否则 {@link #isControllerShowing()} 恒为 false。</p>
+     */
+    private boolean mControllerVisible = true;
+
+    /**
+     * seek 后的位置回显（毫秒）；无待回显时为 -1。
+     *
+     * <p>seek 到内核真正生效有延迟，而进度显示要等下一次进度回调（最多 1 秒）才更新，
+     * 表现为「松手后滑块弹回旧位置、1 秒后才跳到新位置」。这里在 seek 后短暂返回
+     * 目标位置，等内核跟上再交还真实位置，消除这段回弹。</p>
+     */
+    private volatile long mPendingSeekPositionMs = -1;
+    private volatile long mPendingSeekAtMs = 0;
+
+    /** 待回显的容忍窗口：超过这么久就认为内核已接管，不再回显。 */
+    private static final long PENDING_SEEK_TIMEOUT_MS = 1500;
+    /** 内核位置与目标位置的差距小于该值即认为已跟上。 */
+    private static final long PENDING_SEEK_TOLERANCE_MS = 1200;
+
+    /** 副标题（如「天地万物」）；仅自定义控制栏 UI 的顶栏会用到。 */
+    private String mSubtitle;
+
+    /** 集数序号（如「01」）；仅自定义控制栏 UI 的顶栏会用到。 */
+    private String mEpisodeNumber;
     private com.orange.playerlibrary.component.LiveControlView mLiveControlView;
     private com.orange.playerlibrary.component.CompleteView mCompleteView;
     private com.orange.playerlibrary.component.ErrorView mErrorView;
@@ -1058,34 +1093,72 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
             android.util.Log.d(TAG, "  复用已有控制器: @" + Integer.toHexString(mOrangeController.hashCode()));
         }
 
-        mPrepareView = new com.orange.playerlibrary.component.PrepareView(context);
-        mPrepareView.attach(mControlWrapper);
-        mPrepareView.setClickStart();
-        addView(mPrepareView, matchParentParams);
-        android.util.Log.d(TAG, "  PrepareView: @" + Integer.toHexString(mPrepareView.hashCode()));
-
-        mCompleteView = new com.orange.playerlibrary.component.CompleteView(context);
-        mCompleteView.attach(mControlWrapper);
-        addView(mCompleteView, matchParentParams);
-        android.util.Log.d(TAG, "  CompleteView: @" + Integer.toHexString(mCompleteView.hashCode()));
-
-        mErrorView = new com.orange.playerlibrary.component.ErrorView(context);
-        mErrorView.attach(mControlWrapper);
-        addView(mErrorView, matchParentParams);
-        android.util.Log.d(TAG, "  ErrorView: @" + Integer.toHexString(mErrorView.hashCode()));
-
-        mTitleView = new com.orange.playerlibrary.component.TitleView(context);
-        mTitleView.attach(mControlWrapper);
-        addView(mTitleView, matchParentParams);
-        android.util.Log.d(TAG, "  TitleView: @" + Integer.toHexString(mTitleView.hashCode()));
-
-        mVodControlView = new com.orange.playerlibrary.component.VodControlView(context);
-        if (mOrangeController != null) {
-            mVodControlView.setOrangeVideoController(mOrangeController);
+        // 控制栏 UI：优先使用注册的自定义实现（如 animeko-ui 的 Compose 控制栏）；
+        // 未注册或创建失败时回退到既有 XML 组件，旧 UI 代码不改动。
+        com.orange.playerlibrary.ui.IOrangeControlUiProvider uiProvider =
+                com.orange.playerlibrary.ui.OrangeControlUiRegistry.getProvider();
+        boolean useComposeUi = false;
+        if (uiProvider != null) {
+            try {
+                if (mControlUiHost == null) {
+                    mControlUiHost = createControlUiHost();
+                }
+                mComposeControlView = uiProvider.createControlView(context, mControlUiHost);
+                if (mComposeControlView != null) {
+                    addView(mComposeControlView, matchParentParams);
+                    useComposeUi = true;
+                    android.util.Log.d(TAG, "  使用自定义控制栏 UI: "
+                            + mComposeControlView.getClass().getName());
+                }
+            } catch (Throwable t) {
+                android.util.Log.e(TAG, "自定义控制栏 UI 创建失败，回退到 XML 组件", t);
+                mComposeControlView = null;
+            }
         }
-        mVodControlView.attach(mControlWrapper);
-        addView(mVodControlView, matchParentParams);
-        android.util.Log.d(TAG, "  VodControlView: @" + Integer.toHexString(mVodControlView.hashCode()));
+
+        // 组件去留（注册了自定义控制栏 UI 时）：
+        //   禁用 —— TitleView / VodControlView：与自定义顶栏/底栏功能重叠，
+        //           由 provider 分支跳过创建（见 OrangeVideoController
+        //           .addDefaultControlComponent 的说明）。
+        //   禁用 —— PrepareView / CompleteView / ErrorView：加载 / 播完 / 出错
+        //           三态改由自定义 UI 的浮层统一接管，否则两套界面会同时存在。
+        //   保留 —— GestureView（手势层）、DanmaView（弹幕层）、SniffingView
+        //           （嗅探面板）：独立的覆盖层，非控制栏。
+        if (uiProvider == null) {
+            mPrepareView = new com.orange.playerlibrary.component.PrepareView(context);
+            mPrepareView.attach(mControlWrapper);
+            mPrepareView.setClickStart();
+            addView(mPrepareView, matchParentParams);
+            android.util.Log.d(TAG, "  PrepareView: @"
+                    + Integer.toHexString(mPrepareView.hashCode()));
+
+            mCompleteView = new com.orange.playerlibrary.component.CompleteView(context);
+            mCompleteView.attach(mControlWrapper);
+            addView(mCompleteView, matchParentParams);
+            android.util.Log.d(TAG, "  CompleteView: @"
+                    + Integer.toHexString(mCompleteView.hashCode()));
+
+            mErrorView = new com.orange.playerlibrary.component.ErrorView(context);
+            mErrorView.attach(mControlWrapper);
+            addView(mErrorView, matchParentParams);
+            android.util.Log.d(TAG, "  ErrorView: @"
+                    + Integer.toHexString(mErrorView.hashCode()));
+        }
+
+        if (!useComposeUi) {
+            mTitleView = new com.orange.playerlibrary.component.TitleView(context);
+            mTitleView.attach(mControlWrapper);
+            addView(mTitleView, matchParentParams);
+            android.util.Log.d(TAG, "  TitleView: @" + Integer.toHexString(mTitleView.hashCode()));
+
+            mVodControlView = new com.orange.playerlibrary.component.VodControlView(context);
+            if (mOrangeController != null) {
+                mVodControlView.setOrangeVideoController(mOrangeController);
+            }
+            mVodControlView.attach(mControlWrapper);
+            addView(mVodControlView, matchParentParams);
+            android.util.Log.d(TAG, "  VodControlView: @" + Integer.toHexString(mVodControlView.hashCode()));
+        }
 
         // 初始化嗅探组件。initSniffingView 此前只在 setVideoController() 里调用，
         // 而 2b57fd5 起宿主改为复用本处自动创建的 controller、不再走 setVideoController，
@@ -1131,6 +1204,371 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         if (mTitleView != null) {
             eventManager.bindTitleView(mTitleView);
         }
+    }
+
+    /**
+     * 构建提供给自定义控制栏 UI（如 animeko-ui）的能力集适配器。
+     *
+     * <p>把橘子的播放器能力（播放状态、进度、全屏、弹幕、倍速等）适配成
+     * {@link com.orange.playerlibrary.ui.IOrangeControlUiProvider.ControlUiHost}，
+     * 使 UI 层不直接依赖具体播放器类型。</p>
+     */
+    private com.orange.playerlibrary.ui.IOrangeControlUiProvider.ControlUiHost createControlUiHost() {
+        final OrangevideoView videoView = this;
+        return new com.orange.playerlibrary.ui.IOrangeControlUiProvider.ControlUiHost() {
+            @Override
+            public boolean isPlaying() {
+                return videoView.isPlaying();
+            }
+
+            @Override
+            public long getPositionMs() {
+                long pending = videoView.mPendingSeekPositionMs;
+                if (pending >= 0) {
+                    long elapsed = System.currentTimeMillis() - videoView.mPendingSeekAtMs;
+                    long actual = videoView.getCurrentPositionWhenPlaying();
+                    if (elapsed > PENDING_SEEK_TIMEOUT_MS
+                            || Math.abs(actual - pending) < PENDING_SEEK_TOLERANCE_MS) {
+                        // 内核已跟上（或回显超时），交还真实位置
+                        videoView.mPendingSeekPositionMs = -1;
+                        return actual;
+                    }
+                    return pending;
+                }
+                return videoView.getCurrentPositionWhenPlaying();
+            }
+
+            @Override
+            public long getDurationMs() {
+                return videoView.getDuration();
+            }
+
+            @Override
+            public boolean isDanmakuEnabled() {
+                com.orange.playerlibrary.interfaces.IDanmakuController dc =
+                        mOrangeController != null ? mOrangeController.getDanmakuController() : null;
+                return dc != null && dc.isDanmakuEnabled();
+            }
+
+            @Override
+            public float getSpeed() {
+                return videoView.getSpeed();
+            }
+
+            @Override
+            public boolean isFullscreen() {
+                return videoView.isFullScreen();
+            }
+
+            @Override
+            public String getTitle() {
+                // 统一读播放器的一等字段：TitleView 只在旧 XML UI 下存在，
+                // 且其内容也是由 updateTitleView/setTitle 写入 mTitle 的。
+                return mTitle;
+            }
+
+            @Override
+            public String getSubtitle() {
+                return mSubtitle;
+            }
+
+            @Override
+            public String getEpisodeNumber() {
+                return mEpisodeNumber;
+            }
+
+            @Override
+            public boolean isLocked() {
+                return mOrangeController != null && mOrangeController.isLocked();
+            }
+
+            @Override
+            public void onToggleLock() {
+                if (mOrangeController != null) {
+                    mOrangeController.setLocked(!mOrangeController.isLocked());
+                }
+            }
+
+            @Override
+            public void onScreenshot() {
+                videoView.takeScreenshot();
+            }
+
+            @Override
+            public int getPlaybackStage() {
+                return videoView.computePlaybackStage();
+            }
+
+            @Override
+            public String getErrorMessage() {
+                return videoView.getContext().getString(
+                        com.orange.playerlibrary.R.string.orange_error_message);
+            }
+
+            @Override
+            public boolean isBufferingProgressVisible() {
+                return videoView.isLoadingProgressVisible();
+            }
+
+            @Override
+            public long getBufferingSpeedBytesPerSec() {
+                return videoView.getNetSpeed();
+            }
+
+            @Override
+            public void onRetry() {
+                // 与旧 ErrorView 的重试一致：回到起点重新加载。
+                videoView.replayInternal(false);
+            }
+
+            @Override
+            public void onStartPlay() {
+                videoView.start();
+            }
+
+            @Override
+            public void onReplay() {
+                videoView.replayInternal(true);
+            }
+
+            @Override
+            public android.graphics.Bitmap getPreviewFrame(long positionMs) {
+                // 复用橘子既有的取帧实现（带 retriever 复用与缓存），
+                // 拖动预览的取帧策略与原 XML 控制栏完全一致。
+                String url = videoView.getVideoUrl();
+                if (url == null || url.isEmpty()) {
+                    return null;
+                }
+                try {
+                    return com.orange.playerlibrary.VideoThumbnailHelper.getFrameAtTime(
+                            url, positionMs * 1000L, videoView.getVideoHeaders(), true);
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG, "getPreviewFrame failed at " + positionMs + "ms", t);
+                    return null;
+                }
+            }
+
+            @Override
+            public boolean isControllerVisible() {
+                return isControllerShowing();
+            }
+
+            @Override
+            public void onToggleControllerVisibility() {
+                // 复用既有的显隐入口：它已包含播放状态判断与自动隐藏计时。
+                videoView.onClickUiToggle(null);
+            }
+
+            @Override
+            public void onSeekTo(float progress) {
+                long dur = videoView.getDuration();
+                if (dur > 0) {
+                    long target = (long) (dur * progress);
+                    videoView.seekTo(target);
+                    // 记下目标位置，供 getPositionMs 在进度回调到来前回显，
+                    // 避免松手后滑块弹回旧位置。
+                    videoView.mPendingSeekPositionMs = target;
+                    videoView.mPendingSeekAtMs = System.currentTimeMillis();
+                }
+            }
+
+            @Override
+            public void onSeekFinished() {
+                // 进度更新由播放器内部驱动，无需额外动作
+            }
+
+            @Override
+            public void onTogglePlay() {
+                if (videoView.isPlaying()) {
+                    videoView.pause();
+                } else {
+                    videoView.resume();
+                }
+            }
+
+            @Override
+            public void onNextEpisode() {
+                com.orange.playerlibrary.VideoEventManager em =
+                        mOrangeController != null ? mOrangeController.getVideoEventManager() : null;
+                if (em != null) {
+                    em.playNextEpisode();
+                }
+            }
+
+            @Override
+            public void onToggleDanmaku() {
+                com.orange.playerlibrary.interfaces.IDanmakuController dc =
+                        mOrangeController != null ? mOrangeController.getDanmakuController() : null;
+                if (dc != null) {
+                    dc.setDanmakuEnabled(!dc.isDanmakuEnabled());
+                    // 图标（开/关）要立刻反映新状态，不能等下一次进度刷新。
+                    notifyComposeControlRefresh();
+                }
+            }
+
+            @Override
+            public void onSendDanmaku(String text, int color, int location) {
+                com.orange.playerlibrary.interfaces.IDanmakuController dc =
+                        mOrangeController != null ? mOrangeController.getDanmakuController() : null;
+                if (dc != null) {
+                    // 颜色是 RGB（不含 alpha），补上不透明通道
+                    dc.sendDanmaku(text, 0xFF000000 | (color & 0xFFFFFF), location);
+                }
+            }
+
+            @Override
+            public void onSelectEpisode() {
+                com.orange.playerlibrary.VideoEventManager em =
+                        mOrangeController != null ? mOrangeController.getVideoEventManager() : null;
+                if (em != null) {
+                    em.showPlaylistDialog();
+                }
+            }
+
+            @Override
+            public void onSetSpeed(float speed) {
+                videoView.setSpeed(speed);
+                // 倍速文本要立刻反映新值，不能等下一次进度刷新。
+                notifyComposeControlRefresh();
+            }
+
+            @Override
+            public void onBack() {
+                if (videoView.isFullScreen()) {
+                    videoView.stopFullScreen();
+                }
+            }
+
+            @Override
+            public void onToggleFullscreen() {
+                if (videoView.isFullScreen()) {
+                    videoView.stopFullScreen();
+                } else {
+                    videoView.startFullScreen();
+                }
+            }
+
+            @Override
+            public android.view.ViewGroup getOverlayContainer() {
+                return videoView;
+            }
+
+            @Override
+            public java.util.List<com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction>
+            getTopBarActions() {
+                java.util.List<com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction> actions =
+                        new java.util.ArrayList<>();
+                com.orange.playerlibrary.VideoEventManager em =
+                        mOrangeController != null ? mOrangeController.getVideoEventManager() : null;
+                if (em == null) {
+                    return actions;
+                }
+                // 直接显示在图标的（对应参考项目顶栏右侧那排）：投屏 / 小窗
+                // 投屏依赖可选的 DLNA 组件，未配置时不给入口（避免点了只弹「未配置」）
+                if (com.orange.playerlibrary.cast.DLNACastManager.isDLNAAvailable()) {
+                    actions.add(action(com.orange.playerlibrary.ui.IOrangeControlUiProvider
+                            .TopBarAction.ID_CAST, "投屏", true));
+                }
+                // 小窗需要宿主 Activity 支持画中画
+                if (isPipSupported()) {
+                    actions.add(action(com.orange.playerlibrary.ui.IOrangeControlUiProvider
+                            .TopBarAction.ID_PIP, "小窗", true));
+                }
+                // 收进溢出菜单的（对应参考项目的「更多」菜单）
+                actions.add(action(com.orange.playerlibrary.ui.IOrangeControlUiProvider
+                        .TopBarAction.ID_SKIP_OP_ED, "跳过片头片尾", false));
+                actions.add(action(com.orange.playerlibrary.ui.IOrangeControlUiProvider
+                        .TopBarAction.ID_DANMAKU_SETTINGS, "弹幕设置", false));
+                actions.add(action(com.orange.playerlibrary.ui.IOrangeControlUiProvider
+                        .TopBarAction.ID_SUBTITLE, "字幕", false));
+                actions.add(action(com.orange.playerlibrary.ui.IOrangeControlUiProvider
+                        .TopBarAction.ID_SNIFFING, "嗅探", false));
+                actions.add(action(com.orange.playerlibrary.ui.IOrangeControlUiProvider
+                        .TopBarAction.ID_SETTINGS, "设置", false));
+                return actions;
+            }
+
+            @Override
+            public void onTopBarAction(String actionId) {
+                com.orange.playerlibrary.VideoEventManager em =
+                        mOrangeController != null ? mOrangeController.getVideoEventManager() : null;
+                if (em == null) {
+                    return;
+                }
+                if (com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction.ID_SETTINGS
+                        .equals(actionId)) {
+                    em.showSetupDialog();
+                } else if (com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction.ID_CAST
+                        .equals(actionId)) {
+                    em.showCastDialog();
+                } else if (com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction.ID_PIP
+                        .equals(actionId)) {
+                    em.enterSmallWindow();
+                } else if (com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction.ID_SNIFFING
+                        .equals(actionId)) {
+                    toggleSniffingPanel();
+                } else if (com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction.ID_SKIP_OP_ED
+                        .equals(actionId)) {
+                    em.showSkipDialog();
+                } else if (com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction.ID_DANMAKU_SETTINGS
+                        .equals(actionId)) {
+                    em.showDanmakuSettingsDialog();
+                } else if (com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction.ID_SUBTITLE
+                        .equals(actionId)) {
+                    em.showSubtitleDialog();
+                }
+            }
+
+            @Override
+            public boolean isSniffingPanelShowing() {
+                com.orange.playerlibrary.component.SniffingView sv = sniffingViewOrNull();
+                return sv != null && sv.isShowing();
+            }
+        };
+    }
+
+    /** 构造一个顶栏动作（primary=true 表示直接显示图标）。 */
+    private static com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction action(
+            String id, String label, boolean primary) {
+        return new com.orange.playerlibrary.ui.IOrangeControlUiProvider.TopBarAction(
+                id, label, primary);
+    }
+
+    /** 当前是否处于手势锁定状态（无控制器时视为未锁定）。 */
+    private boolean isLockedInternal() {
+        return mOrangeController != null && mOrangeController.isLocked();
+    }
+
+    /** 宿主 Activity 是否支持画中画（小窗）。 */
+    private boolean isPipSupported() {
+        android.content.Context ctx = getContext();
+        if (!(ctx instanceof android.app.Activity)) {
+            return false;
+        }
+        android.app.Activity activity = (android.app.Activity) ctx;
+        return android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N
+                && activity.getPackageManager().hasSystemFeature(
+                        android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE);
+    }
+
+    /** 嗅探面板（挂在控制器上）；未初始化时为 null。 */
+    private com.orange.playerlibrary.component.SniffingView sniffingViewOrNull() {
+        return mOrangeController != null ? mOrangeController.getSniffingView() : null;
+    }
+
+    /** 切换嗅探面板显隐（顶栏「嗅探」按钮）。 */
+    public void toggleSniffingPanel() {
+        com.orange.playerlibrary.component.SniffingView sv = sniffingViewOrNull();
+        if (sv == null) {
+            return;
+        }
+        if (sv.isShowing()) {
+            sv.hide();
+        } else {
+            sv.show();
+        }
+        // 顶栏「嗅探」按钮的状态（选中/未选中）要立刻更新。
+        notifyComposeControlRefresh();
     }
 
     private com.orange.playerlibrary.interfaces.ControlWrapper createControlWrapper() {
@@ -1388,7 +1826,13 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
      * 更新标题到 TitleView
      */
     private void updateTitleView(String title) {
-        if (mTitleView != null && title != null && !title.isEmpty()) {
+        if (title == null || title.isEmpty()) {
+            return;
+        }
+        // 标题是播放器的一等状态：TitleView 只在未注册自定义控制栏 UI 时存在，
+        // 但 Compose 顶栏同样通过 getTitle() 读它。
+        this.mTitle = title;
+        if (mTitleView != null) {
             mTitleView.setTitle(title);
         }
     }
@@ -1857,11 +2301,86 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     public void setUrl(String url, Map<String, String> headers) {
         this.mVideoHeaders = headers != null ? new HashMap<>(headers) : null;
 
+        // 保留已有标题：setUrl 不携带标题信息，传空串会把上一次的标题抹掉。
+        // 注册了自定义控制栏 UI 时 TitleView 不存在，标题只能靠这里保住。
+        String preservedTitle = mTitle != null ? mTitle : "";
+
         if (headers != null) {
 
-            setUp(url, true, null, headers, "");
+            setUp(url, true, null, headers, preservedTitle);
         } else {
-            setUp(url, true, "");
+            setUp(url, true, preservedTitle);
+        }
+    }
+
+    /**
+     * 设置视频标题。
+     *
+     * <p>标题是播放器的一等状态（{@code mTitle}），由 {@link #getTitle()} 读取；
+     * 未注册自定义控制栏 UI 时同时同步到 TitleView。宿主应使用本方法设置标题，
+     * 而不是直接操作 TitleView——后者在 Compose 控制栏下不存在。</p>
+     */
+    public void setTitle(String title) {
+        this.mTitle = title;
+        if (mTitleView != null && title != null && !title.isEmpty()) {
+            mTitleView.setTitle(title);
+        }
+        // 自定义控制栏（Compose）的顶栏标题要立刻更新。
+        notifyComposeControlRefresh();
+    }
+
+    /**
+     * 设置副标题（如「01 天地万物」）。
+     *
+     * <p>顶栏在有副标题时以「主标题 + 副标题」两行展示；无副标题则只显示主标题。</p>
+     */
+    public void setSubtitle(String subtitle) {
+        this.mSubtitle = subtitle;
+        // 自定义控制栏（Compose）的顶栏副标题要立刻更新。
+        notifyComposeControlRefresh();
+    }
+
+    /** 当前副标题，未设置时为 {@code null}。 */
+    public String getSubtitle() {
+        return mSubtitle;
+    }
+
+    /**
+     * 设置集数序号（如「01」）。顶栏的小标题会以「集数 + 副标题」两段展示。
+     */
+    public void setEpisodeNumber(String episodeNumber) {
+        this.mEpisodeNumber = episodeNumber;
+    }
+
+    /** 当前集数序号，未设置时为 {@code null}。 */
+    public String getEpisodeNumber() {
+        return mEpisodeNumber;
+    }
+
+    /**
+     * 截取当前画面并保存到相册（结果通过 Toast 提示）。
+     *
+     * <p>复用既有的 {@link #takeScreenshotAndSave}：截图 + 落盘是一整条链路，
+     * 只取 Bitmap 不保存会得到「提示成功但相册里没有文件」。</p>
+     */
+    public void takeScreenshot() {
+        try {
+            takeScreenshotAndSave(new com.orange.playerlibrary.screenshot.ScreenshotManager.SaveCallback() {
+                @Override
+                public void onSuccess(String filePath) {
+                    android.widget.Toast.makeText(getContext(),
+                            "截图已保存", android.widget.Toast.LENGTH_SHORT).show();
+                }
+
+                @Override
+                public void onError(String message) {
+                    android.widget.Toast.makeText(getContext(),
+                            message != null ? message : "截图失败",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                }
+            });
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "takeScreenshot failed", t);
         }
     }
 
@@ -3326,6 +3845,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         if (mUseOrangeComponents) {
             notifyComponentsPlayStateChanged(playState);
         }
+        // 自定义控制栏（Compose）不走 XML 组件，播放/暂停切换同样要通知它，
+        // 否则播放图标只能等下一次进度刷新（最多 1 秒）才更新。
+        notifyComposeControlRefresh();
         // 通知控制器更新加载动画和网速显示
         if (mOrangeController != null) {
             mOrangeController.onPlayStateChanged(playState);
@@ -3339,6 +3861,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         if (mUseOrangeComponents) {
             notifyComponentsPlayerStateChanged(playerState);
         }
+        // 自定义控制栏（Compose）不走 XML 组件，全屏/普通状态切换同样要通知它，
+        // 否则顶栏标题与「展开态」操作项不会随全屏切换更新。
+        notifyComposeControlRefresh();
         // 通知控制器更新状态
         if (mOrangeController != null) {
             mOrangeController.onPlayerStateChanged(playerState);
@@ -3377,7 +3902,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     public void updateComponentsProgress(int duration, int position) {
-        if (mVodControlView == null && mLiveControlView == null) {
+        // 自定义控制栏（Compose）不走 XML 组件，但它同样需要进度刷新；
+        // 若只以 XML 组件判空，注册了自定义 UI 时整条刷新链路会被提前 return 掉。
+        if (mVodControlView == null && mLiveControlView == null && mComposeControlView == null) {
             return;
         }
 
@@ -3432,6 +3959,22 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 mLiveControlView.setProgress(duration, position);
             } catch (Exception e) {
             }
+        }
+
+        // 自定义控制栏 UI（如 animeko-ui 的 Compose 控制栏）：通知其刷新
+        notifyComposeControlRefresh();
+    }
+
+    /** 通知自定义（Compose）控制栏刷新状态。 */
+    private void notifyComposeControlRefresh() {
+        if (!(mComposeControlView instanceof com.orange.playerlibrary.ui.IOrangeControlUiView)) {
+            return;
+        }
+        try {
+            // 走接口契约而非反射：实现方在 onRefresh() 里把播放器最新状态读进 UI。
+            ((com.orange.playerlibrary.ui.IOrangeControlUiView) mComposeControlView).onRefresh();
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "notifyComposeControlRefresh failed", t);
         }
     }
 
@@ -4666,6 +5209,71 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     private static final int AUTO_HIDE_DELAY = 4000;
+
+    /**
+     * 计算当前播放界面阶段，供自定义控制栏 UI 决定显示哪层浮层。
+     *
+     * <p>与具体内核解耦：只暴露语义阶段，UI 不需要认识 GSY/ijk/Exo 的状态数值。</p>
+     */
+    /**
+     * 拦截旧加载动画的显隐。
+     *
+     * <p>GSY 自带的加载动画（{@code R.id.loading}）有近 30 处显隐调用点；
+     * 注册自定义控制栏 UI 后，加载/缓冲已由 Compose 浮层承担，
+     * 若仍让旧动画显示，两者会在画面上重合。这里在唯一咽喉点统一拦掉。</p>
+     */
+    @Override
+    protected void setViewShowState(android.view.View view, int visibility) {
+        if (view != null && view == mLoadingProgressBar && mComposeControlView != null) {
+            // 自定义 UI 自己会画加载/缓冲，旧动画一律不显示
+            super.setViewShowState(view, INVISIBLE);
+            return;
+        }
+        super.setViewShowState(view, visibility);
+    }
+
+    private int computePlaybackStage() {
+        if (mCurrentState == CURRENT_STATE_ERROR) {
+            return com.orange.playerlibrary.ui.IOrangePlaybackUiState.STAGE_ERROR;
+        }
+        if (mCurrentState == CURRENT_STATE_AUTO_COMPLETE) {
+            return com.orange.playerlibrary.ui.IOrangePlaybackUiState.STAGE_COMPLETE;
+        }
+        switch (mCurrentPlayState) {
+            case PlayerConstants.STATE_IDLE:
+                // 起播前：等待用户点「开始播放」
+                return com.orange.playerlibrary.ui.IOrangePlaybackUiState.STAGE_PREPARE;
+            case PlayerConstants.STATE_PREPARING:
+            case PlayerConstants.STATE_BUFFERING:
+                return com.orange.playerlibrary.ui.IOrangePlaybackUiState.STAGE_LOADING;
+            case PlayerConstants.STATE_PAUSED:
+                return com.orange.playerlibrary.ui.IOrangePlaybackUiState.STAGE_PAUSED;
+            case PlayerConstants.STATE_PLAYING:
+            case PlayerConstants.STATE_PREPARED:
+            case PlayerConstants.STATE_BUFFERED:
+                return com.orange.playerlibrary.ui.IOrangePlaybackUiState.STAGE_PLAYING;
+            default:
+                return com.orange.playerlibrary.ui.IOrangePlaybackUiState.STAGE_NONE;
+        }
+    }
+
+    /** 加载进度圈当前是否可见。 */
+    private boolean isLoadingProgressVisible() {
+        return mLoadingProgressBar != null
+                && mLoadingProgressBar.getVisibility() == VISIBLE;
+    }
+
+    /**
+     * 重播/重试。
+     *
+     * @param resetPosition true = 回到起点（重播）；false = 保持当前位置重试
+     */
+    private void replayInternal(boolean resetPosition) {
+        if (resetPosition) {
+            seekTo(0);
+        }
+        startPlayLogic();
+    }
     private Runnable mAutoHideRunnable;
 
     @Override
@@ -4713,6 +5321,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                 && (mIfCurrentIsFullscreen || mCurrentPlayerState == PlayerConstants.PLAYER_FULL_SCREEN)) {
             mTitleView.setVisibility(android.view.View.VISIBLE);
         }
+        mControllerVisible = true;
+        // 自定义控制栏（Compose）不走 XML 组件，显隐要单独通知它。
+        notifyComposeControlRefresh();
         startAutoHideTimer();
 
         // 同步 Controller 的显示状态
@@ -4741,6 +5352,9 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         if (mTitleView != null) {
             mTitleView.setVisibility(android.view.View.GONE);
         }
+        mControllerVisible = false;
+        // 自定义控制栏（Compose）不走 XML 组件，显隐要单独通知它。
+        notifyComposeControlRefresh();
         cancelAutoHideTimer();
 
         // 同步 Controller 的显示状态
@@ -4759,6 +5373,10 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
         if (mOrangeController != null) {
             mOrangeController.setLockedInternal(locked);
         }
+
+        // 自定义控制栏（Compose）要立刻知道锁定变化。
+        // 否则它只能等下一次进度刷新（可达 1 秒）才更新，表现为「点锁定后卡一下才响应」。
+        notifyComposeControlRefresh();
 
         // 只更新 TitleView，VodControlView 自己处理自己的 UI
         if (locked) {
@@ -4805,6 +5423,11 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
     }
 
     public boolean isControllerShowing() {
+        // 自定义控制栏（Compose）不走 XML 组件，旧实现只看 mVodControlView，
+        // 在注册了 provider 时会恒为 false，导致显隐判断整条失效。
+        if (mComposeControlView != null) {
+            return mControllerVisible;
+        }
         // 锁定状态下，检查锁定按钮是否可见
         boolean isLocked = mOrangeController != null && mOrangeController.isLocked();
         if (isLocked && mVodControlView != null) {
@@ -4899,6 +5522,19 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
 
     @Override
     public boolean onTouch(android.view.View v, android.view.MotionEvent event) {
+        // 手势锁：锁定时吞掉所有触摸，避免误触调亮度/音量/进度。
+        //
+        // GSY 自带的屏蔽位 mLockCurScreen 只在旧控制栏的锁按钮里被设置，
+        // 且 mNeedLockFull 被显式关闭（见构造函数），因此注册了自定义控制栏 UI
+        // 后它永远不会生效；这里以橘子的锁定状态 mIsLocked 为准拦一道。
+        if (isLockedInternal()) {
+            // 单击时提示如何解锁，但不把事件继续往下传。
+            if (event.getAction() == android.view.MotionEvent.ACTION_UP) {
+                android.widget.Toast.makeText(getContext(),
+                        "已锁定，点击右侧解锁按钮", android.widget.Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        }
         // 处理长按结束
         if (event.getAction() == android.view.MotionEvent.ACTION_UP ||
                 event.getAction() == android.view.MotionEvent.ACTION_CANCEL) {
@@ -5570,10 +6206,8 @@ public class OrangevideoView extends GSYBaseVideoPlayer {
                             }
                         });
 
-                        // 更新标题
-                        if (getTitleView() != null) {
-                            getTitleView().setTitle(title);
-                        }
+                        // 更新标题（走播放器一等入口，Compose 控制栏下无 TitleView）
+                        setTitle(title);
                     }
                 });
 

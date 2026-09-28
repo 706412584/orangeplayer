@@ -1,0 +1,81 @@
+// ---------------------------------------------------------------------------
+// animeko-ui
+//
+// 承载从 animeko 复刻/移植的播放器 UI（Compose）。
+//
+// 设计约束：
+//  - 独立模块，不改动 palyerlibrary 的既有 XML 组件式 UI；
+//  - 由宿主在注册播放器 UI 时选择启用本模块的实现（注册入口切换），旧 UI 保留可回退；
+//  - 只依赖 Compose 官方组件，不引入 animeko 的 ui-foundation（那会牵入其整个基础层）。
+//
+// 注意：animeko 为 AGPL-3.0，移植其代码会使本项目受 AGPL 约束。
+// ---------------------------------------------------------------------------
+
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+android {
+    namespace 'com.orange.animekoui'
+    compileSdk 36
+
+    defaultConfig {
+        minSdk 21   // Compose 最低支持 API 21
+        targetSdk 36
+    }
+
+    buildFeatures {
+        compose true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+        // 复制的 animeko 代码使用了若干实验性 API（类型推断、Material 实验接口等），
+        // 用编译参数统一放行，避免改动复制过来的源码。
+        freeCompilerArgs += [
+                "-opt-in=kotlin.experimental.ExperimentalTypeInference",
+                "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+                "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+                "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
+        ]
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    // 依赖 palyerlibrary 的接口层（IOrangeControlUiProvider / Registry）。
+    // 用 implementation 而非 compileOnly：接口在运行期要能加载到。
+    implementation project(':palyerlibrary')
+
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.activity:activity-compose:1.9.3'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
+
+    // mediamp：animeko 的播放器抽象层（Apache-2.0，独立发布）。
+    // 仅 API 层，用于让复制的 animeko UI 代码能编译。
+    implementation 'org.openani.mediamp:mediamp-api:0.3.2'
+
+    def composeBom = platform('androidx.compose:compose-bom:2024.06.00')
+    implementation composeBom
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-graphics'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.runtime:runtime'
+    implementation 'androidx.compose.material:material'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-extended'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+}
