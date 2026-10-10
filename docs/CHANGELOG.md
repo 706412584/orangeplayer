@@ -1,8 +1,5 @@
 # OrangePlayer 更新日志
-## [未发布] - 2026-09-20
-
-> 本节内容尚未发版。发版时把标题改成版本号，并同步改齐四处版本：
-> `.version`、`maven-publish.gradle` 的 `pomVersion`、`NativeLibManager.RELEASE_TAG`、本节标题。
+## [1.5.7] - 2026-10-11
 
 ### ✨ 新增
 
@@ -26,6 +23,7 @@
 
 ### 🐛 修复
 
+- **全屏切换出现「多实例」**：根因是两套机制并存——自研 reparent 把整个 `OrangevideoView` 在容器与 `DecorView` 间反复搬运，而 GSY 的 `startWindowFullscreen` 会克隆出第二个播放器实例，其探测/同步脚手架仍挂在活跃的进度回调上。改为**单实例 + 单一真值**：新增 `FullscreenMode` 三态，`CustomFullscreenHelper` 收敛为唯一真值 `mMode` 与幂等入口 `request(int)`（取代 `mIsFullscreen` + `mIsPortraitFullscreen`）；删除 GSY 克隆残留（含 `clearFullscreenLayout` / `orangeBackToNormal` 整条退出路径），`startWindowFullscreen` 与 `onBackFullscreen` 改为委托状态机；容器契约改为**零 reparent**（宿主提供 `FrameLayout` 则只在该容器内移入/移出，未提供时回退旧路径）；收尾由 `onConfigurationChanged` 重新计时 + 兜底定时器驱动，取代固定延时补丁；维护 GSY 的 `mIfCurrentIsFullscreen`，修复 TV BACK / 解锁恢复标题栏回归；修复切换方向按钮因 `getFullscreenHelper` 依赖 `mControlWrapper` 为 null 导致恒隐藏（改为按手机物理方向瞬时提示 3 秒）。**真机**（SKW-A0 / Android 10）验证：全程单实例，直接横竖屏互切与 8 次快速连续切换均无崩溃/黑屏，证据见 `docs/evidence/`。
 - **宿主选集数组里的 null 槽位会让「整批 try/catch」的写法中途丢集**：iApp v3 传给 `addVideosFromJsonArray` 的 `JSONArray` 里混着 Java `null` 槽位（真机两次运行分别 48 / 35 条），`getJSONObject(i)` 对它会抛 `JSONException`。若像早期写法那样把整批包在一个 `try/catch` 里，**第一个 null 就中止整轮**。现改为逐条容错：null 槽位 / 非对象元素 / 空 url 分别跳过并计数，**不中止整批**，有效条目相对顺序保持。解析逻辑抽到 `utils/EpisodeJsonParser`（纯函数，21 个单测）。**证据边界**：demo 的 A/B 对照（同一数组：整批 15 集 / 逐条 21 集）证明了「整批会丢集」；但**真机上是否确实因此丢集没有直接证据**（两次真机日志都是逐条版本），详见上方「未证实项」。
 - **空白标题选集**：宿主数组里缺 `name`（或值为 JSON `null`——此时 Android 内置 `org.json` 的 `optString` 返回**字面量字符串** `"null"`，已在真机探针确认）的条目会直接入库 → 选集面板出现空白项。现统一回退成「第N集」，序号按**有效条目**计。`addVideosFromMacCmsResult` 的空名、以及门面的单条 `addVideo` 入口同样回退；单条入口的**空地址**现在也会被拒绝（此前直通 controller，入列后点播必报错）。**注**：真机上宿主源码本身会跳过空名条目，「空白标题」是否真由此产生**未经证实**；这是解析器侧的防御性修复。
 - **`normalize` 必须先 trim 再比 `"null"`**：否则 `" null "` 会漏过比较、trim 后变成字面量 `"null"` 当标题显示。
