@@ -127,12 +127,18 @@ android {
         }
     }
 
-    // debug 构建把 iApp 门面（test/VideoPlayerManager.java）一起编进来，
+    // demo 把 iApp 门面（test/VideoPlayerManager.java）一起编进来，
     // 这样能在**官方 demo** 上复现并验证宿主集成路径（iApp 的反射调用链、
     // 选集数组的 null 槽位等），不必依赖设备上的 iApp 工程。
-    // release 不编入：门面是 iApp 宿主侧源码，不是 SDK 发行物的一部分。
+    // debug 与 release 都必须编入：MainActivity 的 TEST_CMD 冒烟入口
+    // （v3EpisodesSmoke / runMacCmsSmoke / runV5HostPathSmoke，位于 main
+    // sourceSet）直接调用该门面——release 不编入会编译失败（找不到符号）。
+    // 注意：门面只是 demo 的测试脚手架，不属于 SDK 发行物（AAR 里没有它）。
     sourceSets {
         debug {
+            java.srcDir "$rootDir/test"
+        }
+        release {
             java.srcDir "$rootDir/test"
         }
     }
